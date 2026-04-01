@@ -46,6 +46,7 @@ func main() {
 		ClientLogLevel: cfg.WhatsApp.ClientLogLevel,
 		ChatCompleter:  openRouter,
 		ChatModel:      cfg.AIAgent.OpenRouter.Model,
+		LangSmith:      cfg.LangSmith,
 	})
 	if err != nil {
 		log.Fatalf("failed to initialize WhatsApp runner: %v", err)

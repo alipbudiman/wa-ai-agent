@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -18,7 +19,13 @@ var (
 	errAIAgentClientRequired = errors.New("ai agent client is not initialized")
 	errMessagesRequired      = errors.New("messages are required")
 	errPromptRequired        = errors.New("prompt is required")
-	errEmptyResponse         = errors.New("brain api returned empty response")
+)
+
+const (
+	defaultBrainBaseURL     = "http://127.0.0.1:8000"
+	defaultBrainAPITimeout  = 360 * time.Second
+	fallbackTimeoutResponse = "Maaf, proses AI terlalu lama dan mencapai batas waktu. Silakan coba lagi sebentar."
+	fallbackErrorResponse   = "Maaf, terjadi kendala saat memproses permintaan ke AI. Silakan coba lagi."
 )
 
 type OpenRouter struct {
@@ -28,6 +35,7 @@ type OpenRouter struct {
 }
 
 type chatAgentRequest struct {
+	UserID string `json:"user_id"`
 	Message string `json:"message"`
 }
 
@@ -39,19 +47,19 @@ type chatAgentResponse struct {
 func NewAIAgent(_ string, baseURL string, defaultModel string) (*OpenRouter, error) {
 	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if normalizedBaseURL == "" {
-		normalizedBaseURL = "http://127.0.0.1:8000"
+		normalizedBaseURL = defaultBrainBaseURL
 	}
 
 	return &OpenRouter{
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: defaultBrainAPITimeout,
 		},
 		baseURL:      normalizedBaseURL,
 		defaultModel: strings.TrimSpace(defaultModel),
 	}, nil
 }
 
-func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage) (string, error) {
+func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage, user_id string) (string, error) {
 	if o == nil || o.httpClient == nil {
 		return "", errAIAgentClientRequired
 	}
@@ -85,7 +93,10 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 		selectedModel = o.defaultModel
 	}
 
-	payload, err := json.Marshal(chatAgentRequest{Message: prompt})
+	payload, err := json.Marshal(chatAgentRequest{
+		Message: prompt, 
+		UserID: user_id,
+	})
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)
 	}
@@ -95,7 +106,14 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 		endpoint = o.baseURL + "/chat-agent"
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	requestCtx := ctx
+	var cancel context.CancelFunc
+	if _, hasDeadline := requestCtx.Deadline(); !hasDeadline {
+		requestCtx, cancel = context.WithTimeout(ctx, defaultBrainAPITimeout)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("build chat request: %w", err)
 	}
@@ -107,24 +125,35 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 
 	resp, err := o.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("call brain api: %w", err)
+		if errors.Is(err, context.DeadlineExceeded) || isTimeoutError(err) {
+			return fallbackTimeoutResponse, nil
+		}
+		return fmt.Sprintf("%s, Error Details:%s", fallbackErrorResponse, err.Error()), nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("brain api returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		_, err = io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusGatewayTimeout {
+			return fallbackTimeoutResponse, nil
+		}
+		return fmt.Sprintf("%s, Error Details:%s", fallbackErrorResponse, err.Error()), nil
 	}
 
 	var data chatAgentResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", fmt.Errorf("decode brain api response: %w", err)
+		return fmt.Sprintf("%s, Error Details:%s", fallbackErrorResponse, err.Error()), nil
 	}
 
 	responseText := strings.TrimSpace(data.Response)
 	if responseText == "" {
-		return "", errEmptyResponse
+		return fallbackErrorResponse, nil
 	}
 
 	return responseText, nil
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }

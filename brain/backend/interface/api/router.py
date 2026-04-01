@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from backend.application.agents import ChatAgentUseCase
+from backend.application.ai.agents import ChatAgentUseCase
 from backend.application.health import CheckHealthUseCase
 
 
@@ -13,6 +13,7 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 class ChatAgentRequest(BaseModel):
+    user_id: str
     message: str
 
 class ChatAgentResponse(BaseModel):
@@ -39,7 +40,7 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
 
     @router.post("", response_model=ChatAgentResponse)
     def chat_agent(request: ChatAgentRequest):
-        results = usecase.ChatAgent(messages=request.message)
+        results = usecase.ChatAgent(messages=request.message, id=request.user_id)
         return ChatAgentResponse(
             status="success",
             response=results

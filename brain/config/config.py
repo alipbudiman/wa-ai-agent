@@ -16,5 +16,7 @@ class Config:
     OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
     TAVILY_API_KEY = os.getenv('TAVILY_API_KEY')
     OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'qwen/qwen3.6-plus-preview:free')
+    LANGSMITH_API_KEY= os.getenv('LANGSMITH_API_KEY')
+    LANGSMITH_PROJECT_NAME = os.getenv('LANGSMITH_PROJECT_NAME', 'wa_bot_ai_trace')
 
     # Other configurations can be added here as needed

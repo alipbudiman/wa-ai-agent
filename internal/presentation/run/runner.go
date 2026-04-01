@@ -7,6 +7,7 @@ import (
 	"log"
 	"runtime"
 
+	appconfig "github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	"github.com/mdp/qrterminal/v3"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -16,8 +17,8 @@ import (
 	"github.com/alipbudiman/wa-ai-agent.git/internal/domain/ports"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/whatsapp"
 	eventshandler "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/handler"
+	rulebase "github.com/alipbudiman/wa-ai-agent.git/internal/usecase/agent"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/chat"
-	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/rulebase"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -29,8 +30,9 @@ type Config struct {
 	SessionDSN     string
 	DBLogLevel     string
 	ClientLogLevel string
-	ChatCompleter  chat.ChatCompleter
+	ChatCompleter  ports.ChatCompleter
 	ChatModel      string
+	LangSmith      appconfig.LangSmithConfig
 }
 
 type Runner struct {
@@ -88,7 +90,9 @@ func ClientRunner(cfg Config) (*Runner, error) {
 
 	var messageHandler eventshandler.MessageHandler
 	if runner.responder != nil {
-		messageHandler, err = rulebase.NewRuleBase(runner.responder)
+		messageHandler, err = rulebase.NewRuleBase(runner.responder, appconfig.Config{
+			LangSmith: cfg.LangSmith,
+		})
 		if err != nil {
 			_ = container.Close()
 			return nil, fmt.Errorf("init message handler: %w", err)

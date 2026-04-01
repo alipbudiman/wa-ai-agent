@@ -8,6 +8,7 @@ type Config struct {
 	WhatsApp WhatsAppConfig
 	AIAgent  AIAgentConfig
 	ModelRouting ModelRouting
+	LangSmith LangSmithConfig
 }
 
 type WhatsAppConfig struct {
@@ -29,6 +30,11 @@ type AIAgentConfig struct {
 
 type ModelRouting struct {
 	ToolsSelection AIAgentConfig 
+}
+
+type LangSmithConfig struct {
+	APIKey     string
+	ProjectName string
 }
 
 func Load() Config {
@@ -54,6 +60,10 @@ func Load() Config {
 					URL:    env("OPENROUTER_URL", "https://openrouter.ai/api/v1"),
 				},
 			},
+		},
+		LangSmith: LangSmithConfig{
+			APIKey:     env("LANGSMITH_API_KEY", ""),
+			ProjectName: env("LANGSMITH_PROJECT_NAME", "wa_bot_ai_trace"),
 		},
 
 	}

@@ -11,21 +11,17 @@ import (
 )
 
 var (
-	errEmptyPrompt = errors.New("prompt cannot be empty")
+	errEmptyPrompt        = errors.New("prompt cannot be empty")
 	errEmptyChatCompleter = errors.New("chat completer is not configured")
 )
 
-type ChatCompleter interface {
-	ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage) (string, error)
-}
-
 type Service struct {
 	sender        ports.MessageSender
-	chatCompleter ChatCompleter
+	chatCompleter ports.ChatCompleter
 	model         string
 }
 
-func NewService(sender ports.MessageSender, chatCompleter ChatCompleter, model string) *Service {
+func NewService(sender ports.MessageSender, chatCompleter ports.ChatCompleter, model string) *Service {
 	return &Service{
 		sender:        sender,
 		chatCompleter: chatCompleter,
@@ -47,7 +43,7 @@ func (s *Service) SendText(ctx context.Context, to string, text string) error {
 	return s.sender.SendText(ctx, to, text)
 }
 
-func (s *Service) Reply(ctx context.Context, prompt string) (string, error) {
+func (s *Service) Reply(ctx context.Context, prompt string, user_id string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -65,7 +61,7 @@ func (s *Service) Reply(ctx context.Context, prompt string) (string, error) {
 			Role:    openai.ChatMessageRoleUser,
 			Content: prompt,
 		},
-	})
+	}, user_id)
 	if err != nil {
 		return "", fmt.Errorf("generate ai reply: %w", err)
 	}

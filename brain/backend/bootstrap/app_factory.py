@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from backend.application.health import CheckHealthUseCase
-from backend.application.agents import ChatAgentUseCase
+from backend.application.ai.agents import ChatAgentUseCase
 from backend.interface.api.router import create_health_router
 from backend.interface.api.router import create_chat_agent_router
 

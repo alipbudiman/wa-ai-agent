@@ -3,29 +3,35 @@ package rulebase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
+	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/domain/ports"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 var (
-	errNilMessageEvent  = errors.New("message event is nil")
-	errIgnoreOwnMessage = errors.New("ignore own message")
-	errEmptyTextMessage = errors.New("message does not contain text content")
+	errNilMessageEvent     = errors.New("message event is nil")
+	errIgnoreOwnMessage    = errors.New("ignore own message")
+	errEmptyTextMessage    = errors.New("message does not contain text content")
 )
 
 type RuleBase struct {
 	responder ports.AgentResponder
+	config    config.Config
 }
 
-func NewRuleBase(responder ports.AgentResponder) (*RuleBase, error) {
+func NewRuleBase(responder ports.AgentResponder, config config.Config) (*RuleBase, error) {
 	if responder == nil {
 		return nil, errors.New("agent responder is required")
 	}
 
-	return &RuleBase{responder: responder}, nil
+	return &RuleBase{
+		responder: responder,
+		config:    config,
+	}, nil
 }
 
 func (r *RuleBase) handleMessage(v *events.Message) (string, error) {
@@ -47,6 +53,14 @@ func (r *RuleBase) handleMessage(v *events.Message) (string, error) {
 	}
 
 	return "", errEmptyTextMessage
+}
+
+func (n *RuleBase) waitingMessage() string {
+	strips := "_"
+	base_message := "🤖 Processing to AI Agent, Please Wait.. "
+	base_message += "Thingking Process: https://smith.langchain.com/ ."
+	base_message += fmt.Sprintf(" LangSmith > Tracing > %s", n.config.LangSmith.ProjectName)
+	return strips + base_message + strips
 }
 
 func (h *RuleBase) HandleMessageEvent(v *events.Message) {
@@ -72,15 +86,17 @@ func (h *RuleBase) HandleMessageEvent(v *events.Message) {
 		return
 	}
 
-		if err := h.responder.SendText(context.Background(), v.Info.Chat.String(), "🤖_Processing to AI Agent, Please Wait.._"); err != nil {
+	if err := h.responder.SendText(context.Background(), v.Info.Chat.String(), h.waitingMessage()); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 		return
 	}
 
-
-	replyText, err := h.responder.Reply(context.Background(), text)
+	replyText, err := h.responder.Reply(context.Background(), text, v.Info.Chat.String())
 	if err != nil {
-		log.Printf("failed to generate reply: %v", err)
+		if err := h.responder.SendText(context.Background(), v.Info.Chat.String(), fmt.Sprintf("🤖_Sorry, I encountered an error while processing your request._\nError Details: %s", err.Error())); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
 		return
 	}
 
