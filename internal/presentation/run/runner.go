@@ -1,0 +1,150 @@
+package eventsrunner
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"runtime"
+
+	"github.com/mdp/qrterminal/v3"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+	"google.golang.org/protobuf/proto"
+	_ "modernc.org/sqlite"
+
+	"github.com/alipbudiman/wa-ai-agent.git/internal/domain/ports"
+	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/whatsapp"
+	eventshandler "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/handler"
+	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/chat"
+	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/rulebase"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+	waLog "go.mau.fi/whatsmeow/util/log"
+)
+
+type Config struct {
+	Dialect        string
+	SessionDSN     string
+	DBLogLevel     string
+	ClientLogLevel string
+	ChatCompleter  chat.ChatCompleter
+	ChatModel      string
+}
+
+type Runner struct {
+	client    *whatsmeow.Client
+	container *sqlstore.Container
+	responder ports.AgentResponder
+	sender    ports.MessageSender
+}
+
+func ClientRunner(cfg Config) (*Runner, error) {
+	if cfg.Dialect == "" {
+		cfg.Dialect = "sqlite"
+	}
+	if cfg.SessionDSN == "" {
+		cfg.SessionDSN = "file:wa_session.db?_pragma=foreign_keys(1)"
+	}
+	if cfg.DBLogLevel == "" {
+		cfg.DBLogLevel = "INFO"
+	}
+	if cfg.ClientLogLevel == "" {
+		cfg.ClientLogLevel = "INFO"
+	}
+
+	dbLogger := waLog.Stdout("Database", cfg.DBLogLevel, true)
+	ctx := context.Background()
+	container, err := sqlstore.New(ctx, cfg.Dialect, cfg.SessionDSN, dbLogger)
+	if err != nil {
+		return nil, fmt.Errorf("init sqlstore: %w", err)
+	}
+
+	deviceStore, err := container.GetFirstDevice(ctx)
+	if err != nil {
+		_ = container.Close()
+		return nil, fmt.Errorf("get device store: %w", err)
+	}
+
+	clientLogger := waLog.Stdout("Client", cfg.ClientLogLevel, true)
+	client := whatsmeow.NewClient(deviceStore, clientLogger)
+
+	runner := &Runner{
+		client:    client,
+		container: container,
+	}
+
+	sender, err := whatsapp.NewSender(client)
+	if err != nil {
+		_ = container.Close()
+		return nil, fmt.Errorf("init message sender: %w", err)
+	}
+
+	runner.sender = sender
+	if cfg.ChatCompleter != nil {
+		runner.responder = chat.NewService(sender, cfg.ChatCompleter, cfg.ChatModel)
+	}
+
+	var messageHandler eventshandler.MessageHandler
+	if runner.responder != nil {
+		messageHandler, err = rulebase.NewRuleBase(runner.responder)
+		if err != nil {
+			_ = container.Close()
+			return nil, fmt.Errorf("init message handler: %w", err)
+		}
+	}
+
+	runner.client.AddEventHandler(eventshandler.HandleEvent(messageHandler))
+
+	return runner, nil
+}
+
+func (r *Runner) Run(ctx context.Context) error {
+	store.DeviceProps.Os = proto.String(cases.Title(language.English).String(fmt.Sprintf("Chrome (%v)", runtime.GOOS)))
+	store.DeviceProps.RequireFullSync = proto.Bool(true)
+	if r == nil || r.client == nil {
+		return errors.New("whatsapp client is not initialized")
+	}
+
+	if r.client.Store.ID == nil {
+		qrChan, err := r.client.GetQRChannel(ctx)
+		if err != nil {
+			return fmt.Errorf("get QR channel: %w", err)
+		}
+
+		go r.consumeQR(qrChan)
+	}
+
+	if err := r.client.Connect(); err != nil {
+		if r.container != nil {
+			_ = r.container.Close()
+		}
+		return fmt.Errorf("connect whatsapp client: %w", err)
+	}
+
+	<-ctx.Done()
+	r.client.Disconnect()
+
+	if r.container != nil {
+		if err := r.container.Close(); err != nil {
+			log.Printf("failed to close sqlstore: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (r *Runner) consumeQR(qrChan <-chan whatsmeow.QRChannelItem) {
+	for evt := range qrChan {
+		switch evt.Event {
+		case whatsmeow.QRChannelEventCode:
+			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, log.Writer())
+			fmt.Println("Scan the QR code above to log in to WhatsApp")
+		case whatsmeow.QRChannelEventError:
+			log.Printf("QR error: %v", evt.Error)
+		default:
+			log.Printf("QR event: %s", evt.Event)
+		}
+	}
+}
