@@ -1,0 +1,77 @@
+basePath: /
+definitions:
+  route.ErrorResponse:
+    properties:
+      message:
+        example: Request failed
+        type: string
+      success:
+        example: false
+        type: boolean
+    type: object
+  route.SuccessResponse:
+    properties:
+      data: {}
+      message:
+        example: Request succeeded
+        type: string
+      success:
+        example: true
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Gin HTTP API for WhatsApp bot utilities and integrations.
+  title: WA AI Agent HTTP API
+  version: "1.0"
+paths:
+  /v1/contact/info/{number}:
+    get:
+      description: Resolve contact details from a WhatsApp id or JID
+      parameters:
+      - description: WhatsApp Number
+        in: path
+        name: number
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/route.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+      summary: Get WhatsApp contact info
+      tags:
+      - contact
+  /v1/me:
+    get:
+      description: Return simple status for API availability
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check endpoint
+      tags:
+      - system
+schemes:
+- http
+swagger: "2.0"

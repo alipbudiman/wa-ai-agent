@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite"
 
-	"github.com/alipbudiman/wa-ai-agent.git/internal/domain/ports"
+	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/whatsapp"
 	eventshandler "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/handler"
 	rulebase "github.com/alipbudiman/wa-ai-agent.git/internal/usecase/agent"
@@ -39,7 +39,7 @@ type Runner struct {
 	client    *whatsmeow.Client
 	container *sqlstore.Container
 	responder ports.AgentResponder
-	sender    ports.MessageSender
+	waclient  ports.WhatsAppClient
 }
 
 func ClientRunner(cfg Config) (*Runner, error) {
@@ -77,20 +77,20 @@ func ClientRunner(cfg Config) (*Runner, error) {
 		container: container,
 	}
 
-	sender, err := whatsapp.NewSender(client)
+	waclient, err := whatsapp.NewBotClient(client)
 	if err != nil {
 		_ = container.Close()
 		return nil, fmt.Errorf("init message sender: %w", err)
 	}
 
-	runner.sender = sender
+	runner.waclient = waclient
 	if cfg.ChatCompleter != nil {
-		runner.responder = chat.NewService(sender, cfg.ChatCompleter, cfg.ChatModel)
+		runner.responder = chat.NewService(waclient, cfg.ChatCompleter, cfg.ChatModel)
 	}
 
-	var messageHandler eventshandler.MessageHandler
+	var messageHandler ports.MessageHandler
 	if runner.responder != nil {
-		messageHandler, err = rulebase.NewRuleBase(runner.responder, appconfig.Config{
+		messageHandler, err = rulebase.NewRuleBase(runner.waclient, runner.responder, appconfig.Config{
 			LangSmith: cfg.LangSmith,
 		})
 		if err != nil {
@@ -99,7 +99,7 @@ func ClientRunner(cfg Config) (*Runner, error) {
 		}
 	}
 
-	runner.client.AddEventHandler(eventshandler.HandleEvent(messageHandler))
+	runner.client.AddEventHandler(eventshandler.EventTrace(messageHandler))
 
 	return runner, nil
 }
@@ -151,4 +151,20 @@ func (r *Runner) consumeQR(qrChan <-chan whatsmeow.QRChannelItem) {
 			log.Printf("QR event: %s", evt.Event)
 		}
 	}
+}
+
+func (r *Runner) Client() *whatsmeow.Client {
+	if r == nil {
+		return nil
+	}
+
+	return r.client
+}
+
+func (r *Runner) WhatsAppClient() ports.WhatsAppClient {
+	if r == nil {
+		return nil
+	}
+
+	return r.waclient
 }

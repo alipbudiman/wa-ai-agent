@@ -13,7 +13,7 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 class ChatAgentRequest(BaseModel):
-    user_id: str
+    number: str
     message: str
 
 class ChatAgentResponse(BaseModel):
@@ -40,7 +40,7 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
 
     @router.post("", response_model=ChatAgentResponse)
     def chat_agent(request: ChatAgentRequest):
-        results = usecase.ChatAgent(messages=request.message, id=request.user_id)
+        results = usecase.ChatAgent(messages=request.message, number=request.number)
         return ChatAgentResponse(
             status="success",
             response=results

@@ -1,16 +1,13 @@
-package eventshandler
+package handler
 
 import (
 	"log"
 
+	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-type MessageHandler interface {
-	HandleMessageEvent(*events.Message)
-}
-
-func HandleEvent(messageHandler MessageHandler) func(evt any) {
+func EventTrace(messageHandler ports.MessageHandler) func(evt any) {
 	return func(evt any) {
 		switch v := evt.(type) {
 		case *events.Connected:

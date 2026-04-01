@@ -8,6 +8,7 @@ from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ai.tools.time import TimeTool
 
 from backend.application.ai.instruction import TOOLS_SYSTEM_INSTRUCTION
+from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 from config.config import Config
 
 from langgraph.graph import StateGraph, START
@@ -27,9 +28,17 @@ class ChatAgentUseCase:
         self.llm = AI(api_key=Config.OPENROUTER_API_KEY).LLM()
         self.websearch_tool = WebSearchTool(ai=self.llm)
         self.time_tool = TimeTool()
+        self.wa_integration_tool = WhatsAppIntegration()
         self.mongo_cleint = MongoClient("mongodb://localhost:27017/")
         self.checkpointer = MongoDBSaver(self.mongo_cleint, db_name="agent_memory_db", collection_name="agent_memory_collection")
         self.__init_langsmith()
+        self.__list_tool = [
+            self.websearch_tool.websearch,
+            self.time_tool.current_time,
+            self.wa_integration_tool.send_message,
+            self.wa_integration_tool.get_user_information
+
+        ]
     
     def __init_langsmith(self):
         if Config.LANGSMITH_API_KEY:
@@ -41,15 +50,8 @@ class ChatAgentUseCase:
         """The assistant node that processes messages and decides when to call tools."""
         return {"messages": [self.__llm_with_tools().invoke([self.__system_rule()] + state["messages"])]}
 
-    def __get_tools(self):
-        tools = [
-            self.websearch_tool.websearch,
-            self.time_tool.current_time
-        ]
-        return tools
-
     def __llm_with_tools(self):
-        llm_with_tools = self.llm.bind_tools(self.__get_tools(), parallel_tool_calls=False)
+        llm_with_tools = self.llm.bind_tools(self.__list_tool, parallel_tool_calls=False)
         return llm_with_tools
 
     def __system_rule(self):
@@ -62,7 +64,7 @@ class ChatAgentUseCase:
 
         # Define nodes: these do the work
         builder.add_node("assistant", self.__assistant)
-        builder.add_node("tools", ToolNode(self.__get_tools()))
+        builder.add_node("tools", ToolNode(self.__list_tool))
 
         # Define edges: these determine how the control flow moves
         builder.add_edge(START, "assistant")
@@ -113,10 +115,15 @@ class ChatAgentUseCase:
 
         return ''
     
-    def ChatAgent(self, messages: str, id: str):
+    def ChatAgent(self, messages: str, number: str):
         """ A simple chat agent that can call tools based on user messages.It uses a state graph to manage the flow of messages and tool calls."""
-        config = {"configurable": {"thread_id": id}}
+        input_messages = []
+        config = {"configurable": {"thread_id": number}}
         react_graph = self.__tools()
-        input_messages = [HumanMessage(content=messages)]
+        contact_info = self.wa_integration_tool.get_user_information(number)
+        if contact_info.success and contact_info.data is not None and contact_info.data.Found:
+            input_messages.append(SystemMessage(content=f"Chatting with {contact_info.data.FullName} / {contact_info.data.PushName} ({number})"))
+        input_messages.append(HumanMessage(content=messages))
+
         result = react_graph.invoke({"messages": input_messages}, config=config)
         return self.__extract_ai_content(result.get('messages', []))

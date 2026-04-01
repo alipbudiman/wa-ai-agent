@@ -35,7 +35,7 @@ type OpenRouter struct {
 }
 
 type chatAgentRequest struct {
-	UserID string `json:"user_id"`
+	Number string `json:"number"`
 	Message string `json:"message"`
 }
 
@@ -59,7 +59,7 @@ func NewAIAgent(_ string, baseURL string, defaultModel string) (*OpenRouter, err
 	}, nil
 }
 
-func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage, user_id string) (string, error) {
+func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage, number string) (string, error) {
 	if o == nil || o.httpClient == nil {
 		return "", errAIAgentClientRequired
 	}
@@ -95,7 +95,7 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 
 	payload, err := json.Marshal(chatAgentRequest{
 		Message: prompt, 
-		UserID: user_id,
+		Number: number,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)

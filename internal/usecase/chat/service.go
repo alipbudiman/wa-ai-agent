@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alipbudiman/wa-ai-agent.git/internal/domain/ports"
+	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	openai "github.com/sashabaranov/go-openai"
+	"go.mau.fi/whatsmeow/types"
 )
 
 var (
@@ -16,34 +17,20 @@ var (
 )
 
 type Service struct {
-	sender        ports.MessageSender
+	waClient      ports.WhatsAppClient
 	chatCompleter ports.ChatCompleter
 	model         string
 }
 
-func NewService(sender ports.MessageSender, chatCompleter ports.ChatCompleter, model string) *Service {
+func NewService(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter, model string) *Service {
 	return &Service{
-		sender:        sender,
+		waClient:      waClient,
 		chatCompleter: chatCompleter,
 		model:         strings.TrimSpace(model),
 	}
 }
 
-func (s *Service) SendText(ctx context.Context, to string, text string) error {
-	if s.sender == nil {
-		return fmt.Errorf("message sender is required")
-	}
-	if strings.TrimSpace(to) == "" {
-		return fmt.Errorf("recipient is required")
-	}
-	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("message text is required")
-	}
-
-	return s.sender.SendText(ctx, to, text)
-}
-
-func (s *Service) Reply(ctx context.Context, prompt string, user_id string) (string, error) {
+func (s *Service) Reply(ctx context.Context, prompt string, jid types.JID) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -61,7 +48,7 @@ func (s *Service) Reply(ctx context.Context, prompt string, user_id string) (str
 			Role:    openai.ChatMessageRoleUser,
 			Content: prompt,
 		},
-	}, user_id)
+	}, jid.User)
 	if err != nil {
 		return "", fmt.Errorf("generate ai reply: %w", err)
 	}

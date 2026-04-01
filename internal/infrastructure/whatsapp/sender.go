@@ -6,25 +6,15 @@ import (
 	"fmt"
 	"strings"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
 
-type Sender struct {
-	client *whatsmeow.Client
-}
-
-func NewSender(client *whatsmeow.Client) (*Sender, error) {
-	if client == nil {
-		return nil, errors.New("whatsapp client is required")
+func (s *BotClient) SendText(ctx context.Context, to string, text string) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-
-	return &Sender{client: client}, nil
-}
-
-func (s *Sender) SendText(ctx context.Context, to string, text string) error {
 	if s == nil || s.client == nil {
 		return errors.New("whatsapp client is not initialized")
 	}

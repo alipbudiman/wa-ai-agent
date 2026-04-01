@@ -1,44 +1,24 @@
 package config
 
 import (
+	"log"
 	"os"
 )
 
 type Config struct {
+	// WhatsApp configuration for WhatsApp client and AI Agent
 	WhatsApp WhatsAppConfig
 	AIAgent  AIAgentConfig
 	ModelRouting ModelRouting
 	LangSmith LangSmithConfig
-}
 
-type WhatsAppConfig struct {
-	Dialect        string
-	SessionDSN     string
-	DBLogLevel     string
-	ClientLogLevel string
-}
-
-type OpenRouterConfig struct {
-	APIKey string
-	Model  string
-	URL    string
-}
-
-type AIAgentConfig struct {
-	OpenRouter OpenRouterConfig
-}
-
-type ModelRouting struct {
-	ToolsSelection AIAgentConfig 
-}
-
-type LangSmithConfig struct {
-	APIKey     string
-	ProjectName string
+	// GinServer configuration for Gin HTTP server
+	GinServer GinServerConfig
 }
 
 func Load() Config {
 	return Config{
+		// WhatsApp Bot & AI Agent configuration
 		WhatsApp: WhatsAppConfig{
 			Dialect:        env("WA_SQL_DIALECT", "sqlite"),
 			SessionDSN:     env("WA_SESSION_DSN", "file:wa_session.db?_pragma=foreign_keys(1)"),
@@ -66,6 +46,12 @@ func Load() Config {
 			ProjectName: env("LANGSMITH_PROJECT_NAME", "wa_bot_ai_trace"),
 		},
 
+		// Gin Server configuration
+		GinServer: GinServerConfig{
+			Port: env("GIN_SERVER_PORT", "8080"),
+			Host: env("GIN_SERVER_HOST", "localhost"),
+			AppMod: ginModEnv("APP_MODE", DebugMode), // options: debug, release, test
+		},
 	}
 }
 
@@ -74,5 +60,14 @@ func env(key, fallback string) string {
 		return value
 	}
 
+	return fallback
+}
+
+func ginModEnv(key string, fallback GinMod) GinMod {
+	if value := os.Getenv(key); value != "" {
+		return GinMod(value)
+	}
+
+	log.Printf("Environment variable %s not set, using default: %s", key, fallback)
 	return fallback
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alipbudiman/wa-ai-agent.git/internal/domain/ports"
+	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 )
 
 type Service struct {

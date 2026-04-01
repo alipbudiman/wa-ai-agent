@@ -14,9 +14,18 @@ else:
 class Config:
     # OpenRouter API Key
     OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+    
+    # Tavily API Key
     TAVILY_API_KEY = os.getenv('TAVILY_API_KEY')
+    
+    # Model configuration
     OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'qwen/qwen3.6-plus-preview:free')
+    
+    # LangSmith configuration
     LANGSMITH_API_KEY= os.getenv('LANGSMITH_API_KEY')
     LANGSMITH_PROJECT_NAME = os.getenv('LANGSMITH_PROJECT_NAME', 'wa_bot_ai_trace')
+    
+    GIN_SERVER_PORT = os.getenv('GIN_SERVER_PORT', '8080')
+    GIN_SERVER_HOST = os.getenv('GIN_SERVER_HOST', 'localhost')
 
     # Other configurations can be added here as needed
