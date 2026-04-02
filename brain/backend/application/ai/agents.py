@@ -6,6 +6,7 @@ from pymongo import MongoClient
 from backend.application.ai.ai import AI
 from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ai.tools.time import TimeTool
+from backend.application.ai.tools.parse import ParseTool
 
 from backend.application.ai.instruction import TOOLS_SYSTEM_INSTRUCTION
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
@@ -28,6 +29,7 @@ class ChatAgentUseCase:
         self.llm = AI(api_key=Config.OPENROUTER_API_KEY).LLM()
         self.websearch_tool = WebSearchTool(ai=self.llm)
         self.time_tool = TimeTool()
+        self.parse_tool = ParseTool()
         self.wa_integration_tool = WhatsAppIntegration()
         self.mongo_cleint = MongoClient("mongodb://localhost:27017/")
         self.checkpointer = MongoDBSaver(self.mongo_cleint, db_name="agent_memory_db", collection_name="agent_memory_collection")
@@ -35,8 +37,10 @@ class ChatAgentUseCase:
         self.__list_tool = [
             self.websearch_tool.websearch,
             self.time_tool.current_time,
-            self.wa_integration_tool.send_message,
-            self.wa_integration_tool.get_user_information
+            self.parse_tool.parse_phone_number,
+            self.wa_integration_tool.get_user_information,
+            self.wa_integration_tool.send_message(),
+            self.wa_integration_tool.help_menu()
 
         ]
     

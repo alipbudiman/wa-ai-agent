@@ -48,7 +48,7 @@ func (s *Service) Reply(ctx context.Context, prompt string, jid types.JID) (stri
 			Role:    openai.ChatMessageRoleUser,
 			Content: prompt,
 		},
-	}, jid.User)
+	}, jid.ToNonAD().String())
 	if err != nil {
 		return "", fmt.Errorf("generate ai reply: %w", err)
 	}

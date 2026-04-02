@@ -119,33 +119,9 @@ func (h *RuleBase) HandleMessageEvent(v *events.Message) {
 	if !handleMessageEventGuard(h) {
 		return
 	}
-
-	text, err := h.handleMessage(v)
-	if err != nil {
-		if errors.Is(err, errIgnoreOwnMessage) || errors.Is(err, errEmptyTextMessage) {
-			return
-		}
-		log.Printf("failed to handle incoming message: %v", err)
+	if contact_info := h.procContactMessage(v); contact_info != nil {
+		h.ChatHandler(v, fmt.Sprintf("Received contact info:\nName: %s\nFull Name: %s\nPhone: %s", contact_info.N, contact_info.FN, contact_info.WAID))
 		return
 	}
-
-	log.Printf("incoming message from %s: %s", v.Info.Sender.String(), text)
-
-	if h.isCommand(text) {
-		commands := registeredCommands()
-		if h.CommandHandler(v, text) {
-			return
-		}
-
-		if err := h.waclient.SendText(
-			context.Background(),
-			v.Info.Chat.String(),
-			fmt.Sprintf("Unknown command. Type %s to see available commands.", commands.Help.Command),
-		); err != nil {
-			log.Printf("failed to send unknown command message: %v", err)
-		}
-		return
-	}
-	h.ChatHandler(v, text)
-
+	h.procTextMessage(v)
 }

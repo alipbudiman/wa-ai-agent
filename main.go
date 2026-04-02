@@ -166,10 +166,23 @@ func serverRunner(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func brainRunner() {}
+func brainRunner() {
+	//  run the brain API server in a separate goroutine
+	go func() {
+		cmd := exec.Command("python", "brain/app.py")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			log.Printf("brain API server exited with error: %v", err)
+		} else {
+			log.Println("brain API server exited cleanly")
+		}
+	}()
+}
 
 func main() {
 	// Load .env if present (ignore if missing)
+	go brainRunner()
 	load_env_file := "use.env.file"
 	if _, err := os.Stat(load_env_file); err == nil {
 		_ = godotenv.Load(".env")

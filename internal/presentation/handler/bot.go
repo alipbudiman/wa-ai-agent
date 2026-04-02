@@ -23,7 +23,7 @@ func EventTrace(messageHandler ports.MessageHandler) func(evt any) {
 			}
 			messageHandler.HandleMessageEvent(v)
 		default:
-			// ignore other event types
+			// skip other events
 		}
 	}
 }

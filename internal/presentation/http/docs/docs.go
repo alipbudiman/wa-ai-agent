@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/v1/contact/info/{number}": {
             "get": {
-                "description": "Resolve contact details from a WhatsApp id or JID",
+                "description": "Resolve contact details from a WhatsApp number or full JID (e.g. 6281234567890, 867051314767696@lid)",
                 "produces": [
                     "application/json"
                 ],
@@ -28,7 +28,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "WhatsApp Number",
+                        "description": "WhatsApp Number or JID",
                         "name": "number",
                         "in": "path",
                         "required": true

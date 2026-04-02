@@ -5,6 +5,7 @@ import logging
 from langchain_tavily import TavilySearch
 
 from backend.application.ai.ai import AI
+from backend.application.ai.instruction import TOOLS_WEB_SEARCH_INSTRUCTION
 from config.config import Config
 
 
@@ -78,16 +79,11 @@ class WebSearchTool:
                 result['summary'],
             )
         
-        prompt = f"Here are the search results for the query: '{query}':\n\n" + "\n".join(summerized_results) + "\n\nPlease provide a concise summary of the most relevant information from these search results that can help answer the query."
+        prompt = f"Here are the search results for the query: '{query}':\n\n" + "\n".join(summerized_results)
+        prompt += f"\n{TOOLS_WEB_SEARCH_INSTRUCTION}"
         summary = self.llm.invoke(prompt)
-
-        final_content = "*Using Web Search*\n"
-        final_content += summary.content if hasattr(summary, 'content') else str(summary)
-        final_content += "\n\n*Sources:*\n"
-        for url in source_urls:
-            final_content += f"- {url}\n"
         
-        return final_content
+        return summary.content if hasattr(summary, 'content') else str(summary)
     
 
              

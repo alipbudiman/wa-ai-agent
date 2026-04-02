@@ -1,11 +1,23 @@
 package rulebase
 
 import (
-	"strings"
 	"context"
+	"fmt"
 	"log"
+	"strings"
 
 	"go.mau.fi/whatsmeow/types/events"
+)
+
+const (
+	ai_ability = `
+	*AI Capabilities*:
+- These skills can be triggered through natural conversation (no special command format needed).
+- Web Search: Retrieve real-time information from the web.
+- Current Time: Get the current date and time.
+- Send Message: Send a WhatsApp message to a specified contact.
+- Get User Information: Fetch contact details for a given WhatsApp number.
+	`
 )
 
 type CommandCollection struct {
@@ -48,13 +60,22 @@ type CommandArgs struct {
 	Evt  *events.Message
 }
 
-func (h *RuleBase) Help(args CommandArgs) {
+func CommandString() string {
 	commands := registeredCommands()
-	var menuText strings.Builder; menuText.WriteString("Available Commands:\n")
+	var menuText strings.Builder
+	menuText.WriteString("Available Commands:\n")
 	for _, cmd := range commands.All() {
-		menuText .WriteString(cmd.Command + " - " + cmd.Description + "\n")
+		menuText.WriteString(cmd.Command + " - " + cmd.Description + "\n")
 	}
-	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), menuText.String()); err != nil {
+	menuText.WriteString("\nUse the command followed by any required parameters to execute.")
+	menuText.WriteString("\nExample: /ping")
+	fmt.Fprintf(&menuText, "\n\nAI Ability:\n%s", ai_ability)
+	return menuText.String()
+}
+
+func (h *RuleBase) Help(args CommandArgs) {
+	menuText := CommandString()
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), menuText); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
 

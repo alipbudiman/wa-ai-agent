@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,12 +24,9 @@ func (s *BotClient) SendText(ctx context.Context, to string, text string) error 
 		return fmt.Errorf("recipient and text are required")
 	}
 
-	jid, err := types.ParseJID(to)
+	jid, err := parseTargetJID(to)
 	if err != nil {
-		return fmt.Errorf("invalid recipient JID: %w", err)
-	}
-	if jid.IsEmpty() {
-		return fmt.Errorf("recipient JID is empty")
+		return err
 	}
 
 	_, err = s.client.SendMessage(ctx, jid, &waE2E.Message{
