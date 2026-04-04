@@ -1,5 +1,12 @@
 basePath: /
 definitions:
+  route.BroadcastMessageRequest:
+    properties:
+      message:
+        type: string
+    required:
+    - message
+    type: object
   route.ErrorResponse:
     properties:
       message:
@@ -8,6 +15,16 @@ definitions:
       success:
         example: false
         type: boolean
+    type: object
+  route.SendMessageRequest:
+    properties:
+      message:
+        type: string
+      number:
+        type: string
+    required:
+    - message
+    - number
     type: object
   route.SuccessResponse:
     properties:
@@ -60,19 +77,81 @@ paths:
       - contact
   /v1/me:
     get:
-      description: Return simple status for API availability
+      description: Return WhatsApp account information of the connected bot
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Health check endpoint
+            $ref: '#/definitions/route.SuccessResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+      summary: Get self information
       tags:
       - system
+  /v1/message/broadcast:
+    post:
+      consumes:
+      - application/json
+      description: Send a text message to all saved contacts
+      parameters:
+      - description: Broadcast message payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/route.BroadcastMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/route.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+      summary: Broadcast a WhatsApp message
+      tags:
+      - message
+  /v1/message/send:
+    post:
+      consumes:
+      - application/json
+      description: Send a text message to a specific WhatsApp number
+      parameters:
+      - description: Send message payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/route.SendMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/route.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+      summary: Send a WhatsApp message
+      tags:
+      - message
 schemes:
 - http
 swagger: "2.0"

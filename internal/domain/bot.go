@@ -23,8 +23,11 @@ type AgentResponder interface {
 type WhatsAppClient interface {
 	GetContact(ctx context.Context, number string) (types.ContactInfo, error)
 	SendText(ctx context.Context, to string, text string) error
+	ParseJID(target string) (types.JID, error)
+	SendQuoteMessage(ctx context.Context, to, text, quote_msg string) error
+	GetSelfJID(ctx context.Context) (types.JID, error)
 }
 
 type ChatCompleter interface {
-	ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage, user_id string) (string, error)
+	ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, user_id string) (string, error)
 }

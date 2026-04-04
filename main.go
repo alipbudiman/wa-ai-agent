@@ -21,6 +21,7 @@ import (
 	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	cloud_api_providers "github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/ai/api"
+	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/databases"
 	route "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/http"
 	eventsrunner "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/run"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/runbot"
@@ -45,6 +46,7 @@ func (r runtimeSwaggerDoc) ReadDoc() string {
 var (
 	client   *whatsmeow.Client
 	waClient ports.WhatsAppClient
+	manager  ports.Manager
 )
 
 func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
@@ -53,10 +55,9 @@ func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
 		brainBaseURL = "http://127.0.0.1:8000"
 	}
 
-	openRouter, err := cloud_api_providers.NewAIAgent(
+	ai_agents, err := cloud_api_providers.NewAIAgent(
 		cfg.AIAgent.OpenRouter.APIKey,
 		brainBaseURL,
-		cfg.AIAgent.OpenRouter.Model,
 	)
 	if err != nil {
 		log.Printf("OpenRouter disabled: %v", err)
@@ -64,13 +65,8 @@ func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
 	}
 
 	waRunner, err := eventsrunner.ClientRunner(eventsrunner.Config{
-		Dialect:        cfg.WhatsApp.Dialect,
-		SessionDSN:     cfg.WhatsApp.SessionDSN,
-		DBLogLevel:     cfg.WhatsApp.DBLogLevel,
-		ClientLogLevel: cfg.WhatsApp.ClientLogLevel,
-		ChatCompleter:  openRouter,
-		ChatModel:      cfg.AIAgent.OpenRouter.Model,
-		LangSmith:      cfg.LangSmith,
+		ChatCompleter: ai_agents,
+		AppConfig:     cfg,
 	})
 	if err != nil {
 		log.Fatalf("failed to initialize WhatsApp runner: %v", err)
@@ -79,6 +75,7 @@ func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
 
 	client = waRunner.Client()
 	waClient = waRunner.WhatsAppClient()
+	manager = waRunner.Manager()
 
 	return waRunner, nil
 }
@@ -139,6 +136,9 @@ func serverRunner(ctx context.Context, cfg *config.Config) error {
 	}
 
 	router = route.RouterV1(waClient, cfg, router)
+	router = route.ManagerRouter(manager, cfg, router)
+	router = route.FrontendRouter(manager, router)
+	// Swagger UI route
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Start server in background; shutdown is tied to main context.
@@ -182,7 +182,6 @@ func brainRunner() {
 
 func main() {
 	// Load .env if present (ignore if missing)
-	go brainRunner()
 	load_env_file := "use.env.file"
 	if _, err := os.Stat(load_env_file); err == nil {
 		_ = godotenv.Load(".env")
@@ -194,6 +193,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	dbAlias := strings.TrimSpace(cfg.Databases.MongoDB.DBAlias)
+	
+	if err := databases.MongoManager.ConnectToMongoDB(dbAlias, cfg.Databases.MongoDB.URI); err != nil {
+		log.Fatalf("failed to connect to MongoDB (alias %s): %v", dbAlias, err)
+	}
+	log.Printf("MongoDB connection established for alias %s", dbAlias)
+
 	waRunner, err := botRunner(&cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize bot runner: %v", err)
@@ -204,6 +210,9 @@ func main() {
 		log.Fatalf("failed to initialize http server runner: %v", err)
 		return
 	}
+
+	// run brain
+	go brainRunner()
 
 	app := runbot.NewService(waRunner)
 

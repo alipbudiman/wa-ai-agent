@@ -19,7 +19,8 @@ class Config:
     TAVILY_API_KEY = os.getenv('TAVILY_API_KEY')
     
     # Model configuration
-    OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'qwen/qwen3.6-plus-preview:free')
+    OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'minimax-m2.7:cloud')
+    OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openrouter/free')
     
     # LangSmith configuration
     LANGSMITH_API_KEY= os.getenv('LANGSMITH_API_KEY')

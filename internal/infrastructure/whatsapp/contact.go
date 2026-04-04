@@ -8,7 +8,7 @@ import (
 )
 
 func (c *BotClient) GetContact(ctx context.Context, number string) (types.ContactInfo, error) {
-	jid, err := parseTargetJID(number)
+	jid, err := c.ParseJID(number)
 	if err != nil {
 		return types.ContactInfo{}, err
 	}
@@ -18,4 +18,8 @@ func (c *BotClient) GetContact(ctx context.Context, number string) (types.Contac
 		return types.ContactInfo{}, fmt.Errorf("failed to get contact: %w", err)
 	}
 	return ch, nil
+}
+
+func (c *BotClient) GetSelfJID(ctx context.Context) (types.JID, error) {
+	return c.client.Store.GetJID(), nil
 }

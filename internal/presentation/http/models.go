@@ -8,6 +8,8 @@ type SuccessResponse struct {
 	Data    any    `json:"data,omitempty"`
 }
 
+// route.go
+
 type ErrorResponse struct {
 	Success bool   `json:"success" example:"false"`
 	Message string `json:"message" example:"Request failed"`
@@ -15,6 +17,10 @@ type ErrorResponse struct {
 
 type SendMessageRequest struct {
 	Number  string `json:"number" binding:"required"`
+	Message string `json:"message" binding:"required"`
+}
+
+type BroadcastMessageRequest struct {
 	Message string `json:"message" binding:"required"`
 }
 
@@ -31,4 +37,16 @@ func ErrorHTTPResp(c *gin.Context, statusCode int, message string) {
 		Success: false,
 		Message: message,
 	})
+}
+
+// route_manager.go
+
+type AddAccessRequest struct {
+	Name      string `json:"name" binding:"required"`
+	Number    string `json:"number" binding:"required"`
+	ExpiredAt int64  `json:"expired_at" binding:"required"`
+}
+
+type DeleteAccessRequest struct {
+	Number string `json:"number" binding:"required"`
 }

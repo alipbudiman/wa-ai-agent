@@ -1,4 +1,4 @@
-package config
+package cfg_struct
 
 const (
 	// DebugMode indicates gin mode is debug.

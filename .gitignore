@@ -1,6 +1,9 @@
 /sessions
+.github/
+.vscode/
 
 .env
 use.env.file
 wa_session.db
 test.py
+TODO

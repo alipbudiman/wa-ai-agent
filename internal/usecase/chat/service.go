@@ -19,14 +19,12 @@ var (
 type Service struct {
 	waClient      ports.WhatsAppClient
 	chatCompleter ports.ChatCompleter
-	model         string
 }
 
-func NewService(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter, model string) *Service {
+func NewService(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter) *Service {
 	return &Service{
 		waClient:      waClient,
 		chatCompleter: chatCompleter,
-		model:         strings.TrimSpace(model),
 	}
 }
 
@@ -43,7 +41,7 @@ func (s *Service) Reply(ctx context.Context, prompt string, jid types.JID) (stri
 		return "", errEmptyChatCompleter
 	}
 
-	reply, err := s.chatCompleter.ChatCompletion(ctx, s.model, []openai.ChatCompletionMessage{
+	reply, err := s.chatCompleter.ChatCompletion(ctx, []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleUser,
 			Content: prompt,

@@ -5,9 +5,18 @@ import (
 	"log"
 
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
-	rulebase "github.com/alipbudiman/wa-ai-agent.git/internal/usecase/agent"
 	"go.mau.fi/whatsmeow/types"
 )
+
+func GetSelfInformation(waClient ports.WhatsAppClient) (types.JID, error) {
+	self_jid, err := waClient.GetSelfJID(context.Background())
+	if err != nil {
+		log.Printf("failed to get self jid: %v", err)
+		return types.JID{}, err
+	}
+	log.Printf("self jid: %s", self_jid)
+	return self_jid, nil
+}
 
 func GetContactInfo(waClient ports.WhatsAppClient, number string) (types.ContactInfo, error) {
 	contact, err := waClient.GetContact(context.Background(), number)
@@ -30,13 +39,12 @@ func SendMessage(waClient ports.WhatsAppClient, number string, message string) e
 	return nil
 }
 
-func OpenHelpMenu(waClient ports.WhatsAppClient, number string) error {
-	command_str := rulebase.CommandString()
-	err := waClient.SendText(context.Background(), number, command_str)
+func BroadcastMessage(waClient ports.WhatsAppClient, message string) error {
+	err := waClient.SendText(context.Background(), types.StatusBroadcastJID.String(), message)
 	if err != nil {
-		log.Printf("failed to send help menu: %v", err)
+		log.Printf("failed to broadcast message: %v", err)
 		return err
 	}
-	log.Printf("help menu sent successfully")
+	log.Printf("message broadcast successfully")
 	return nil
 }

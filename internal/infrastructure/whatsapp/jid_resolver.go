@@ -7,7 +7,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-func parseTargetJID(target string) (types.JID, error) {
+func (c *BotClient) ParseJID(target string) (types.JID, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return types.JID{}, fmt.Errorf("recipient is required")

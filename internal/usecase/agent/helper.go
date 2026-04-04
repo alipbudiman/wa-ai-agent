@@ -2,7 +2,7 @@ package rulebase
 
 import "log"
 
-func handleMessageEventGuard(h *RuleBase) bool {
+func (h *Agents) handleMessageEventGuard() bool {
 	if h == nil {
 		log.Printf("rule base is not initialized")
 		return false

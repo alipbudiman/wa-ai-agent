@@ -16,15 +16,16 @@ type ContactVCardInfo struct {
 	WAID string
 }
 
-func (h *RuleBase) procTextMessage(v *events.Message) {
+func (h *Agents) procTextMessage(v *events.Message) {
 	text, err := h.handleMessage(v)
 	if err != nil {
 		if errors.Is(err, errIgnoreOwnMessage) || errors.Is(err, errEmptyTextMessage) {
 			return
 		}
-		log.Printf("failed to handle incoming message: %v", err)
 		return
 	}
+
+	log.Printf("Received message from %s: %s", v.Info.Chat.String(), text)
 
 	if h.isCommand(text) {
 		commands := registeredCommands()
@@ -152,7 +153,7 @@ func unescapeVCardValue(value string) string {
 	return replacer.Replace(strings.TrimSpace(value))
 }
 
-func (h *RuleBase) procContactMessage(v *events.Message) *ContactVCardInfo {
+func (h *Agents) procContactMessage(v *events.Message) *ContactVCardInfo {
 	if v == nil || v.Message == nil || v.Message.ContactMessage == nil {
 		return nil
 	}

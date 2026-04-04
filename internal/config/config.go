@@ -3,54 +3,78 @@ package config
 import (
 	"log"
 	"os"
+
+	cfg_struct "github.com/alipbudiman/wa-ai-agent.git/internal/config/struct"
 )
 
 type Config struct {
 	// WhatsApp configuration for WhatsApp client and AI Agent
-	WhatsApp WhatsAppConfig
-	AIAgent  AIAgentConfig
-	ModelRouting ModelRouting
-	LangSmith LangSmithConfig
+	WhatsApp     cfg_struct.WhatsAppConfig
+	AIAgent      cfg_struct.AIAgentConfig
+	ModelRouting cfg_struct.ModelRouting
+	LangSmith    cfg_struct.LangSmithConfig
 
 	// GinServer configuration for Gin HTTP server
-	GinServer GinServerConfig
+	GinServer cfg_struct.GinServerConfig
+
+	// database configuration
+	Databases cfg_struct.DatabaseConfig
+
+	// application configuration
+	App cfg_struct.AppConfig
 }
 
 func Load() Config {
 	return Config{
 		// WhatsApp Bot & AI Agent configuration
-		WhatsApp: WhatsAppConfig{
+		WhatsApp: cfg_struct.WhatsAppConfig{
 			Dialect:        env("WA_SQL_DIALECT", "sqlite"),
 			SessionDSN:     env("WA_SESSION_DSN", "file:wa_session.db?_pragma=foreign_keys(1)"),
 			DBLogLevel:     env("WA_DB_LOG_LEVEL", "INFO"),
 			ClientLogLevel: env("WA_CLIENT_LOG_LEVEL", "INFO"),
 		},
-		AIAgent: AIAgentConfig{
-			OpenRouter: OpenRouterConfig{
+		AIAgent: cfg_struct.AIAgentConfig{
+			OpenRouter: cfg_struct.OpenRouterConfig{
 				APIKey: env("OPENROUTER_API_KEY", ""),
 				Model:  env("OPENROUTER_MODEL", "qwen/qwen3.6-plus-preview:free"),
 				URL:    env("OPENROUTER_URL", "https://openrouter.ai/api/v1"),
 			},
 		},
-		ModelRouting: ModelRouting{
-			ToolsSelection: AIAgentConfig{
-				OpenRouter: OpenRouterConfig{
+		ModelRouting: cfg_struct.ModelRouting{
+			ToolsSelection: cfg_struct.AIAgentConfig{
+				OpenRouter: cfg_struct.OpenRouterConfig{
 					APIKey: env("OPENROUTER_API_KEY", ""),
 					Model:  env("OPENROUTER_MODEL", "qwen/qwen3.6-plus-preview:free"),
 					URL:    env("OPENROUTER_URL", "https://openrouter.ai/api/v1"),
 				},
 			},
 		},
-		LangSmith: LangSmithConfig{
-			APIKey:     env("LANGSMITH_API_KEY", ""),
+		LangSmith: cfg_struct.LangSmithConfig{
+			APIKey:      env("LANGSMITH_API_KEY", ""),
 			ProjectName: env("LANGSMITH_PROJECT_NAME", "wa_bot_ai_trace"),
 		},
 
 		// Gin Server configuration
-		GinServer: GinServerConfig{
-			Port: env("GIN_SERVER_PORT", "8080"),
-			Host: env("GIN_SERVER_HOST", "localhost"),
-			AppMod: ginModEnv("APP_MODE", DebugMode), // options: debug, release, test
+		GinServer: cfg_struct.GinServerConfig{
+			Port:   env("GIN_SERVER_PORT", "8080"),
+			Host:   env("GIN_SERVER_HOST", "localhost"),
+			AppMod: ginModEnv("APP_MODE", cfg_struct.DebugMode), // options: debug, release, test
+		},
+
+		// database configuration
+		Databases: cfg_struct.DatabaseConfig{
+			MongoDB: cfg_struct.MongoDBConfig{
+				URI:     env("MONGODB_URI", "mongodb://localhost:27017"),
+				DBAlias: env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+				DBName:  env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+			},
+		},
+
+		// application configuration
+		App: cfg_struct.AppConfig{
+			Manager: cfg_struct.ManagerConfig{
+				AccessCollectionName: env("MANAGER_ACCESS_COLLECTION_NAME", "manager_access"),
+			},
 		},
 	}
 }
@@ -63,9 +87,9 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func ginModEnv(key string, fallback GinMod) GinMod {
+func ginModEnv(key string, fallback cfg_struct.GinMod) cfg_struct.GinMod {
 	if value := os.Getenv(key); value != "" {
-		return GinMod(value)
+		return cfg_struct.GinMod(value)
 	}
 
 	log.Printf("Environment variable %s not set, using default: %s", key, fallback)

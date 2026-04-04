@@ -61,22 +61,117 @@
         },
         "/v1/me": {
             "get": {
-                "description": "Return simple status for API availability",
+                "description": "Return WhatsApp account information of the connected bot",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "system"
                 ],
-                "summary": "Health check endpoint",
+                "summary": "Get self information",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/route.SuccessResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/message/broadcast": {
+            "post": {
+                "description": "Send a text message to all saved contacts",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message"
+                ],
+                "summary": "Broadcast a WhatsApp message",
+                "parameters": [
+                    {
+                        "description": "Broadcast message payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/route.BroadcastMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/route.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/message/send": {
+            "post": {
+                "description": "Send a text message to a specific WhatsApp number",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message"
+                ],
+                "summary": "Send a WhatsApp message",
+                "parameters": [
+                    {
+                        "description": "Send message payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/route.SendMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/route.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
                         }
                     }
                 }
@@ -84,6 +179,17 @@
         }
     },
     "definitions": {
+        "route.BroadcastMessageRequest": {
+            "type": "object",
+            "required": [
+                "message"
+            ],
+            "properties": {
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
         "route.ErrorResponse": {
             "type": "object",
             "properties": {
@@ -94,6 +200,21 @@
                 "success": {
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "route.SendMessageRequest": {
+            "type": "object",
+            "required": [
+                "message",
+                "number"
+            ],
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "string"
                 }
             }
         },

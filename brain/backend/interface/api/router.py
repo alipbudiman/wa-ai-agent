@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 
 from backend.application.ai.agents import ChatAgentUseCase
@@ -39,11 +39,11 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
     router = APIRouter(prefix="/chat-agent", tags=["chat-agent"])
 
     @router.post("", response_model=ChatAgentResponse)
-    def chat_agent(request: ChatAgentRequest):
-        results = usecase.ChatAgent(messages=request.message, number=request.number)
+    async def chat_agent(request: ChatAgentRequest, background_tasks: BackgroundTasks):
+        background_tasks.add_task(usecase.ChatAgent, messages=request.message, number=request.number)
         return ChatAgentResponse(
             status="success",
-            response=results
+            response="success to call brain"
         )
 
     return router

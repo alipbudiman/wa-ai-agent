@@ -19,6 +19,7 @@ import (
 	eventshandler "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/handler"
 	rulebase "github.com/alipbudiman/wa-ai-agent.git/internal/usecase/agent"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/chat"
+	"github.com/alipbudiman/wa-ai-agent.git/internal/usecase/manager"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -26,13 +27,8 @@ import (
 )
 
 type Config struct {
-	Dialect        string
-	SessionDSN     string
-	DBLogLevel     string
-	ClientLogLevel string
-	ChatCompleter  ports.ChatCompleter
-	ChatModel      string
-	LangSmith      appconfig.LangSmithConfig
+	ChatCompleter ports.ChatCompleter
+	AppConfig     *appconfig.Config
 }
 
 type Runner struct {
@@ -40,25 +36,26 @@ type Runner struct {
 	container *sqlstore.Container
 	responder ports.AgentResponder
 	waclient  ports.WhatsAppClient
+	manager   ports.Manager
 }
 
 func ClientRunner(cfg Config) (*Runner, error) {
-	if cfg.Dialect == "" {
-		cfg.Dialect = "sqlite"
+	if cfg.AppConfig.WhatsApp.Dialect == "" {
+		cfg.AppConfig.WhatsApp.Dialect = "sqlite"
 	}
-	if cfg.SessionDSN == "" {
-		cfg.SessionDSN = "file:wa_session.db?_pragma=foreign_keys(1)"
+	if cfg.AppConfig.WhatsApp.SessionDSN == "" {
+		cfg.AppConfig.WhatsApp.SessionDSN = "file:wa_session.db?_pragma=foreign_keys(1)"
 	}
-	if cfg.DBLogLevel == "" {
-		cfg.DBLogLevel = "INFO"
+	if cfg.AppConfig.WhatsApp.DBLogLevel == "" {
+		cfg.AppConfig.WhatsApp.DBLogLevel = "INFO"
 	}
-	if cfg.ClientLogLevel == "" {
-		cfg.ClientLogLevel = "INFO"
+	if cfg.AppConfig.WhatsApp.ClientLogLevel == "" {
+		cfg.AppConfig.WhatsApp.ClientLogLevel = "INFO"
 	}
 
-	dbLogger := waLog.Stdout("Database", cfg.DBLogLevel, true)
+	dbLogger := waLog.Stdout("Database", cfg.AppConfig.WhatsApp.DBLogLevel, true)
 	ctx := context.Background()
-	container, err := sqlstore.New(ctx, cfg.Dialect, cfg.SessionDSN, dbLogger)
+	container, err := sqlstore.New(ctx, cfg.AppConfig.WhatsApp.Dialect, cfg.AppConfig.WhatsApp.SessionDSN, dbLogger)
 	if err != nil {
 		return nil, fmt.Errorf("init sqlstore: %w", err)
 	}
@@ -69,7 +66,9 @@ func ClientRunner(cfg Config) (*Runner, error) {
 		return nil, fmt.Errorf("get device store: %w", err)
 	}
 
-	clientLogger := waLog.Stdout("Client", cfg.ClientLogLevel, true)
+	log.Printf("device store: %+v", deviceStore.GetJID().String())
+
+	clientLogger := waLog.Stdout("Client", cfg.AppConfig.WhatsApp.ClientLogLevel, true)
 	client := whatsmeow.NewClient(deviceStore, clientLogger)
 
 	runner := &Runner{
@@ -85,28 +84,33 @@ func ClientRunner(cfg Config) (*Runner, error) {
 
 	runner.waclient = waclient
 	if cfg.ChatCompleter != nil {
-		runner.responder = chat.NewService(waclient, cfg.ChatCompleter, cfg.ChatModel)
+		runner.responder = chat.NewService(waclient, cfg.ChatCompleter)
 	}
+
+	manager, err := manager.NewManager(client, waclient, *cfg.AppConfig)
+	if err != nil {
+		_ = container.Close()
+		return nil, fmt.Errorf("init manager: %w", err)
+	}
+	runner.manager = manager
 
 	var messageHandler ports.MessageHandler
 	if runner.responder != nil {
-		messageHandler, err = rulebase.NewRuleBase(runner.waclient, runner.responder, appconfig.Config{
-			LangSmith: cfg.LangSmith,
-		})
+		messageHandler, err = rulebase.NewAgents(runner.waclient, runner.responder, *cfg.AppConfig)
 		if err != nil {
 			_ = container.Close()
 			return nil, fmt.Errorf("init message handler: %w", err)
 		}
 	}
 
-	runner.client.AddEventHandler(eventshandler.EventTrace(messageHandler))
+	runner.client.AddEventHandler(eventshandler.EventTrace(messageHandler, manager))
 
 	return runner, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
 	store.DeviceProps.Os = proto.String(cases.Title(language.English).String(fmt.Sprintf("Chrome (%v)", runtime.GOOS)))
-	store.DeviceProps.RequireFullSync = proto.Bool(true)
+	store.DeviceProps.RequireFullSync = proto.Bool(false)
 	if r == nil || r.client == nil {
 		return errors.New("whatsapp client is not initialized")
 	}
@@ -167,4 +171,12 @@ func (r *Runner) WhatsAppClient() ports.WhatsAppClient {
 	}
 
 	return r.waclient
+}
+
+func (r *Runner) Manager() ports.Manager {
+	if r == nil {
+		return nil
+	}
+
+	return r.manager
 }

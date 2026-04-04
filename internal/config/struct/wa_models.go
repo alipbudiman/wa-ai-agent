@@ -1,4 +1,4 @@
-package config
+package cfg_struct
 
 type WhatsAppConfig struct {
 	Dialect        string

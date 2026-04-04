@@ -26,16 +26,18 @@ const (
 	defaultBrainAPITimeout  = 360 * time.Second
 	fallbackTimeoutResponse = "Maaf, proses AI terlalu lama dan mencapai batas waktu. Silakan coba lagi sebentar."
 	fallbackErrorResponse   = "Maaf, terjadi kendala saat memproses permintaan ke AI. Silakan coba lagi."
+
+	SUCCESS = "success"
 )
 
-type OpenRouter struct {
+type BrainAPI struct {
 	httpClient   *http.Client
 	baseURL      string
 	defaultModel string
 }
 
 type chatAgentRequest struct {
-	Number string `json:"number"`
+	Number  string `json:"number"`
 	Message string `json:"message"`
 }
 
@@ -44,22 +46,21 @@ type chatAgentResponse struct {
 	Response string `json:"response"`
 }
 
-func NewAIAgent(_ string, baseURL string, defaultModel string) (*OpenRouter, error) {
+func NewAIAgent(_ string, baseURL string) (*BrainAPI, error) {
 	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if normalizedBaseURL == "" {
 		normalizedBaseURL = defaultBrainBaseURL
 	}
 
-	return &OpenRouter{
+	return &BrainAPI{
 		httpClient: &http.Client{
 			Timeout: defaultBrainAPITimeout,
 		},
-		baseURL:      normalizedBaseURL,
-		defaultModel: strings.TrimSpace(defaultModel),
+		baseURL: normalizedBaseURL,
 	}, nil
 }
 
-func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages []openai.ChatCompletionMessage, number string) (string, error) {
+func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string) (string, error) {
 	if o == nil || o.httpClient == nil {
 		return "", errAIAgentClientRequired
 	}
@@ -88,14 +89,9 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 		return "", errPromptRequired
 	}
 
-	selectedModel := strings.TrimSpace(model)
-	if selectedModel == "" {
-		selectedModel = o.defaultModel
-	}
-
 	payload, err := json.Marshal(chatAgentRequest{
-		Message: prompt, 
-		Number: number,
+		Message: prompt,
+		Number:  number,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)
@@ -119,9 +115,6 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if selectedModel != "" {
-		req.Header.Set("X-Model", selectedModel)
-	}
 
 	resp, err := o.httpClient.Do(req)
 	if err != nil {
@@ -133,11 +126,21 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		_, err = io.ReadAll(io.LimitReader(resp.Body, 4096))
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusGatewayTimeout {
 			return fallbackTimeoutResponse, nil
 		}
-		return fmt.Sprintf("%s, Error Details:%s", fallbackErrorResponse, err.Error()), nil
+
+		if readErr != nil {
+			return fmt.Sprintf("%s, Error Details:status=%d, read_body_error=%s", fallbackErrorResponse, resp.StatusCode, readErr.Error()), nil
+		}
+
+		bodyText := strings.TrimSpace(string(bodyBytes))
+		if bodyText == "" {
+			return fmt.Sprintf("%s, Error Details:status=%d", fallbackErrorResponse, resp.StatusCode), nil
+		}
+
+		return fmt.Sprintf("%s, Error Details:status=%d, body=%s", fallbackErrorResponse, resp.StatusCode, bodyText), nil
 	}
 
 	var data chatAgentResponse
@@ -145,7 +148,7 @@ func (o *OpenRouter) ChatCompletion(ctx context.Context, model string, messages 
 		return fmt.Sprintf("%s, Error Details:%s", fallbackErrorResponse, err.Error()), nil
 	}
 
-	responseText := strings.TrimSpace(data.Response)
+	responseText := strings.TrimSpace(data.Status)
 	if responseText == "" {
 		return fallbackErrorResponse, nil
 	}
