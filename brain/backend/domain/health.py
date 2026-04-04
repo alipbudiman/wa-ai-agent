@@ -1,9 +1,8 @@
-from dataclasses import dataclass
 from datetime import datetime
+from pydantic import BaseModel
 
 
-@dataclass(frozen=True)
-class HealthStatus:
+class HealthStatus(BaseModel):
     status: str
     service: str
     timestamp: datetime

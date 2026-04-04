@@ -22,8 +22,8 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 from langchain_core.messages import trim_messages
 
 
-logger = logging.getLogger('uvicorn.error')
 
+logger = logging.getLogger('uvicorn.error')
 
 class ChatAgentUseCase:
     def __init__(self):
@@ -51,7 +51,7 @@ class ChatAgentUseCase:
     @staticmethod
     def __token_counter(messages: list) -> int:
         """
-        Estimasi total token base on character length (~4 char ≈ 1 token).
+        Estimate total token based on character length (~4 char ≈ 1 token).
         """
         return sum(len(str(m.content)) // 4 for m in messages)
 
@@ -146,10 +146,11 @@ class ChatAgentUseCase:
         """
         Render the current LangGraph process flow and save it as a PNG image.
 
-        The file is written to an `artifacts` folder next to this module so the
-        flow can be inspected outside runtime logs.
+        The file is written to the repository `assets/artifacts` directory so it
+        can be served by the frontend static route and previewed in the web UI.
         """
-        output_dir = Path(__file__).resolve().parent / "artifacts"
+        repo_root = Path(__file__).resolve().parents[4]
+        output_dir = repo_root / "assets" / "artifacts"
         output_file = output_dir / "chat_agent_process_table.png"
 
         try:

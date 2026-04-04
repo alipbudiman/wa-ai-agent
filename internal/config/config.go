@@ -74,6 +74,7 @@ func Load() Config {
 		App: cfg_struct.AppConfig{
 			Manager: cfg_struct.ManagerConfig{
 				AccessCollectionName: env("MANAGER_ACCESS_COLLECTION_NAME", "manager_access"),
+				BotConfigCollectionName: env("MANAGER_BOT_CONFIG_COLLECTION_NAME", "manager_bot_config"),
 			},
 		},
 	}

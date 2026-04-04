@@ -32,11 +32,12 @@ type Config struct {
 }
 
 type Runner struct {
-	client    *whatsmeow.Client
-	container *sqlstore.Container
-	responder ports.AgentResponder
-	waclient  ports.WhatsAppClient
-	manager   ports.Manager
+	client        *whatsmeow.Client
+	container     *sqlstore.Container
+	responder     ports.AgentResponder
+	waclient      ports.WhatsAppClient
+	manager       ports.Manager
+	chatCompleter ports.ChatCompleter
 }
 
 func ClientRunner(cfg Config) (*Runner, error) {
@@ -83,6 +84,7 @@ func ClientRunner(cfg Config) (*Runner, error) {
 	}
 
 	runner.waclient = waclient
+	runner.chatCompleter = cfg.ChatCompleter
 	if cfg.ChatCompleter != nil {
 		runner.responder = chat.NewService(waclient, cfg.ChatCompleter)
 	}
@@ -179,4 +181,12 @@ func (r *Runner) Manager() ports.Manager {
 	}
 
 	return r.manager
+}
+
+func (r *Runner) ChatCompleter() ports.ChatCompleter {
+	if r == nil {
+		return nil
+	}
+
+	return r.chatCompleter
 }

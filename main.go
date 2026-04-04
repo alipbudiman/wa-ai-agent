@@ -47,6 +47,7 @@ var (
 	client   *whatsmeow.Client
 	waClient ports.WhatsAppClient
 	manager  ports.Manager
+	chatCompleter ports.ChatCompleter
 )
 
 func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
@@ -76,6 +77,7 @@ func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
 	client = waRunner.Client()
 	waClient = waRunner.WhatsAppClient()
 	manager = waRunner.Manager()
+	chatCompleter = waRunner.ChatCompleter()
 
 	return waRunner, nil
 }
@@ -136,8 +138,8 @@ func serverRunner(ctx context.Context, cfg *config.Config) error {
 	}
 
 	router = route.RouterV1(waClient, cfg, router)
-	router = route.ManagerRouter(manager, cfg, router)
-	router = route.FrontendRouter(manager, router)
+	router = route.ManagerRouter(manager, chatCompleter, cfg, router)
+	router = route.FrontendRouter(manager, chatCompleter, cfg, router)
 	// Swagger UI route
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
@@ -194,7 +196,7 @@ func main() {
 	defer stop()
 
 	dbAlias := strings.TrimSpace(cfg.Databases.MongoDB.DBAlias)
-	
+
 	if err := databases.MongoManager.ConnectToMongoDB(dbAlias, cfg.Databases.MongoDB.URI); err != nil {
 		log.Fatalf("failed to connect to MongoDB (alias %s): %v", dbAlias, err)
 	}

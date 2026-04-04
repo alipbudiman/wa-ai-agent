@@ -1,4 +1,5 @@
 from backend.bootstrap.app_factory import create_app
+from backend.application.report import ReportUseCase
 
 app = create_app()
 

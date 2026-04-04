@@ -9,9 +9,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -19,6 +21,7 @@ var (
 	errAIAgentClientRequired = errors.New("ai agent client is not initialized")
 	errMessagesRequired      = errors.New("messages are required")
 	errPromptRequired        = errors.New("prompt is required")
+	errRunIDRequired         = errors.New("run id is required")
 )
 
 const (
@@ -46,6 +49,9 @@ type chatAgentResponse struct {
 	Response string `json:"response"`
 }
 
+type LangSmithRunReport = ports.LangSmithRunReport
+type LangSmithLogReport = ports.LangSmithLogReport
+
 func NewAIAgent(_ string, baseURL string) (*BrainAPI, error) {
 	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if normalizedBaseURL == "" {
@@ -58,6 +64,68 @@ func NewAIAgent(_ string, baseURL string) (*BrainAPI, error) {
 		},
 		baseURL: normalizedBaseURL,
 	}, nil
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func (o *BrainAPI) resolveAPIv1Endpoint(path string) string {
+	if strings.HasSuffix(o.baseURL, "/api/v1") {
+		return o.baseURL + path
+	}
+
+	return o.baseURL + "/api/v1" + path
+}
+
+func (o *BrainAPI) doGETJSON(ctx context.Context, endpoint string, target any) error {
+	if o == nil || o.httpClient == nil {
+		return errAIAgentClientRequired
+	}
+
+	requestCtx := ctx
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+
+	var cancel context.CancelFunc
+	if _, hasDeadline := requestCtx.Deadline(); !hasDeadline {
+		requestCtx, cancel = context.WithTimeout(requestCtx, defaultBrainAPITimeout)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("build get request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute get request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return fmt.Errorf("request failed: status=%d, read_body_error=%w", resp.StatusCode, readErr)
+		}
+
+		bodyText := strings.TrimSpace(string(bodyBytes))
+		if bodyText == "" {
+			return fmt.Errorf("request failed: status=%d", resp.StatusCode)
+		}
+
+		return fmt.Errorf("request failed: status=%d, body=%s", resp.StatusCode, bodyText)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	return nil
 }
 
 func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string) (string, error) {
@@ -156,7 +224,29 @@ func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCom
 	return responseText, nil
 }
 
-func isTimeoutError(err error) bool {
-	var netErr net.Error
-	return errors.As(err, &netErr) && netErr.Timeout()
+func (o *BrainAPI) GetLangSmithRuns(ctx context.Context) ([]LangSmithRunReport, error) {
+	endpoint := o.resolveAPIv1Endpoint("/langsmith/runs")
+
+	var runs []LangSmithRunReport
+	if err := o.doGETJSON(ctx, endpoint, &runs); err != nil {
+		return nil, fmt.Errorf("get langsmith runs: %w", err)
+	}
+
+	return runs, nil
+}
+
+func (o *BrainAPI) GetLangSmithSelectRun(ctx context.Context, runID string) (*LangSmithLogReport, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, errRunIDRequired
+	}
+
+	endpoint := o.resolveAPIv1Endpoint("/langsmith/runs/" + url.PathEscape(runID))
+
+	var runDetail LangSmithLogReport
+	if err := o.doGETJSON(ctx, endpoint, &runDetail); err != nil {
+		return nil, fmt.Errorf("get langsmith run detail: %w", err)
+	}
+
+	return &runDetail, nil
 }

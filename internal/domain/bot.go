@@ -30,4 +30,6 @@ type WhatsAppClient interface {
 
 type ChatCompleter interface {
 	ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, user_id string) (string, error)
+	GetLangSmithRuns(ctx context.Context) ([]LangSmithRunReport, error)
+	GetLangSmithSelectRun(ctx context.Context, runID string) (*LangSmithLogReport, error)
 }

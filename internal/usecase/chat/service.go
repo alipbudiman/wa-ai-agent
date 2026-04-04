@@ -53,3 +53,19 @@ func (s *Service) Reply(ctx context.Context, prompt string, jid types.JID) (stri
 
 	return strings.TrimSpace(reply), nil
 }
+
+func (s *Service) GetLangSmithRuns(ctx context.Context) ([]ports.LangSmithRunReport, error) {
+	if s.chatCompleter == nil {
+		return nil, errEmptyChatCompleter
+	}
+
+	return s.chatCompleter.GetLangSmithRuns(ctx)
+}
+
+func (s *Service) GetLangSmithSelectRun(ctx context.Context, runID string) (*ports.LangSmithLogReport, error) {
+	if s.chatCompleter == nil {
+		return nil, errEmptyChatCompleter
+	}
+
+	return s.chatCompleter.GetLangSmithSelectRun(ctx, runID)
+}

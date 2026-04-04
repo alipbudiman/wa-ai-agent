@@ -189,6 +189,18 @@
 			color: #ffb8bf;
 		}
 
+        .muted-text {
+			color: var(--color-muted);
+		}
+
+		.muted-text a {
+			color: #d6d6d6;
+		}
+
+		.muted-text a:hover {
+			color: #ffffff;
+		}
+
 		@media (max-width: 991.98px) {
 			.section-title {
 				font-size: 0.98rem;
@@ -208,7 +220,8 @@
 				<div>
 					<p class="tech-kicker mb-2">// ACCESS CONTROL</p>
 					<h1 class="h3 text-uppercase mb-2">Manager Access Dashboard</h1>
-					<p class="mb-0 text-muted-tech">Kelola data access: tambah user, lihat status aktif, dan delete akses dari panel ini.</p>
+					<p class="mb-0 text-muted-tech">Manage access records from one panel: add users, monitor active status, and delete entries when needed.</p>
+				    <p class="muted-text mb-0"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/access" class="text-decoration-underline">Access Control</a></p>
 				</div>
 				<button type="button" class="btn btn-tech-outline" id="refreshButton">Refresh Data</button>
 			</div>
@@ -286,7 +299,7 @@
 									{{ end }}
 								{{ else }}
 									<tr id="emptyStateRow">
-										<td colspan="7" class="text-center text-muted-tech py-4">[ data_missing ] access list kosong</td>
+										<td colspan="7" class="text-center text-muted-tech py-4">[ data_missing ] access list is empty</td>
 									</tr>
 								{{ end }}
 							</tbody>
@@ -343,7 +356,7 @@
 				return "-";
 			}
 
-			return date.toLocaleString("id-ID", {
+			return date.toLocaleString("en-US", {
 				year: "numeric",
 				month: "short",
 				day: "2-digit",
@@ -443,7 +456,7 @@
 			if (!items.length) {
 				const emptyRow = document.createElement("tr");
 				emptyRow.id = "emptyStateRow";
-				emptyRow.innerHTML = "<td colspan=\"7\" class=\"text-center text-muted-tech py-4\">[ data_missing ] access list kosong</td>";
+				emptyRow.innerHTML = "<td colspan=\"7\" class=\"text-center text-muted-tech py-4\">[ data_missing ] access list is empty</td>";
 				ui.accessTableBody.appendChild(emptyRow);
 				setSummary(0);
 				return;
