@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from backend.application.ai.agents import ChatAgentUseCase
@@ -27,6 +27,11 @@ class ChatAgentRequest(BaseModel):
 class ChatAgentResponse(BaseModel):
     status: str
     response: str
+
+
+class ChatAgentProcessDiagramResponse(BaseModel):
+    status: str
+    mermaid: str
 
 
 def create_health_router(usecase: CheckHealthUseCase) -> APIRouter:
@@ -64,6 +69,17 @@ def create_langsmith_select_run_router(usecase: ReportUseCase) -> APIRouter:
 
 def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
     router = APIRouter(prefix="/chat-agent", tags=["chat-agent"])
+
+    @router.get("/process-diagram", response_model=ChatAgentProcessDiagramResponse)
+    def get_process_diagram() -> ChatAgentProcessDiagramResponse:
+        mermaid_source = usecase.get_process_diagram_mermaid().strip()
+        if not mermaid_source:
+            raise HTTPException(status_code=503, detail="process diagram is not available")
+
+        return ChatAgentProcessDiagramResponse(
+            status="success",
+            mermaid=mermaid_source,
+        )
 
     @router.post("", response_model=ChatAgentResponse)
     async def chat_agent(request: ChatAgentRequest, background_tasks: BackgroundTasks):

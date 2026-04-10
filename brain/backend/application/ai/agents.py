@@ -1,8 +1,6 @@
 import logging
 import os
 import re
-from pathlib import Path
-import time
 
 from langchain_core import messages
 from numpy import number
@@ -67,6 +65,7 @@ class ChatAgentUseCase:
         ]
         self._llm_cache: dict[str, any] = {}
         self._tool_node_cache: dict[str, ToolNode] = {}
+        self._process_diagram_mermaid = ""
     
     @staticmethod
     def __token_counter(messages: list) -> int:
@@ -491,27 +490,35 @@ class ChatAgentUseCase:
     # only use for testing (skripsi)
     def __save_process_diagram(self, react_graph) -> None:
         """
-        Render the current LangGraph process flow and save it as a PNG image.
+        Cache the current LangGraph process flow as Mermaid text.
 
-        The file is written to the repository `assets/artifacts` directory so it
-        can be served by the frontend static route and previewed in the web UI.
+        Mermaid text is safer than filesystem PNG outputs in Docker because it
+        can be served directly through API without shared-volume coupling.
         """
-        repo_root = Path(__file__).resolve().parents[4]
-        output_dir = repo_root / "assets" / "artifacts"
-        output_file = output_dir / "chat_agent_process_table.png"
-
         try:
-            png_bytes = react_graph.get_graph().draw_mermaid_png()
+            self._process_diagram_mermaid = react_graph.get_graph().draw_mermaid()
+            logger.info(
+                "Process diagram mermaid cached (%d chars)",
+                len(self._process_diagram_mermaid),
+            )
         except Exception as err:
-            logger.warning("Failed to render process diagram: %s", err)
-            return
+            logger.warning("Failed to render process diagram mermaid: %s", err)
+            self._process_diagram_mermaid = ""
+
+    def get_process_diagram_mermaid(self) -> str:
+        """Return cached process diagram Mermaid source text."""
+        diagram = (self._process_diagram_mermaid or "").strip()
+        if diagram:
+            return diagram
 
         try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            output_file.write_bytes(png_bytes)
-            logger.info("Process diagram saved to: %s", output_file)
-        except OSError as err:
-            logger.warning("Failed to save process diagram image: %s", err)
+            fallback = self.react_graph.get_graph().draw_mermaid()
+        except Exception as err:
+            logger.warning("Failed to build process diagram mermaid on demand: %s", err)
+            return ""
+
+        self._process_diagram_mermaid = fallback
+        return fallback.strip()
     
     # Graph state routing (early filtering)
     def __route_query(self, state: State, max_latest_user_messages: int = 5) -> str:

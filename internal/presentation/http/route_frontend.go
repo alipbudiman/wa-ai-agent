@@ -2,6 +2,7 @@ package route
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,6 +41,11 @@ type playgroundDeleteRequest struct {
 type playgroundCreateFolderRequest struct {
 	ParentPath string `json:"parent_path"`
 	FolderName string `json:"folder_name" binding:"required"`
+}
+
+type brainProcessDiagramResponse struct {
+	Status  string `json:"status"`
+	Mermaid string `json:"mermaid"`
 }
 
 func normalizePlaygroundPath(rawPath string) string {
@@ -501,6 +507,58 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 		SuccessHTTPResp(c, http.StatusOK, "", eventsrunner.GetQRLoginState())
 	})
 
+	router.GET("/artifacts/process-diagram/mermaid", func(c *gin.Context) {
+		brainBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BRAIN_API_BASE_URL")), "/")
+		if brainBaseURL == "" {
+			brainBaseURL = "http://127.0.0.1:8000"
+		}
+
+		endpoint := brainBaseURL + "/api/v1/chat-agent/process-diagram"
+		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, endpoint, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to build process diagram request")
+			return
+		}
+		req.Header.Set("Accept", "application/json")
+
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, fmt.Sprintf("failed to fetch process diagram: %v", err))
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			if readErr != nil {
+				ErrorHTTPResp(c, http.StatusBadGateway, "process diagram service returned an error")
+				return
+			}
+
+			bodyText := strings.TrimSpace(string(bodyBytes))
+			if bodyText == "" {
+				bodyText = fmt.Sprintf("upstream status %d", resp.StatusCode)
+			}
+			ErrorHTTPResp(c, http.StatusBadGateway, "process diagram service error: "+bodyText)
+			return
+		}
+
+		var payload brainProcessDiagramResponse
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "invalid process diagram response payload")
+			return
+		}
+
+		mermaidSource := strings.TrimSpace(payload.Mermaid)
+		if mermaidSource == "" {
+			ErrorHTTPResp(c, http.StatusBadGateway, "empty process diagram payload")
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "", gin.H{"mermaid": mermaidSource})
+	})
+
 	router.GET("/access", func(c *gin.Context) {
 		access_list, err := handler.GetAccessList(manager)
 		if err != nil {
@@ -517,6 +575,7 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 		c.HTML(http.StatusOK, "artifacts.gohtml", gin.H{
 			"Title":                          "Agent Accsessible Resources",
 			"ProcessDiagramPath":             "/assets/artifacts/chat_agent_process_table.png",
+			"ProcessDiagramMermaidEndpoint":  "/artifacts/process-diagram/mermaid",
 			"PlaygroundListEndpoint":         "/artifacts/playground/list",
 			"PlaygroundFileEndpoint":         "/artifacts/playground/file",
 			"PlaygroundOpenEndpoint":         "/artifacts/playground/open",
