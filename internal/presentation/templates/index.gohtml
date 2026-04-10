@@ -163,7 +163,15 @@
 			background-color: #0a0a0a;
 		}
 
-		.video-core video {
+		.video-layer {
+			position: absolute;
+			inset: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
+		.video-layer-hub video {
 			width: 100%;
 			height: 100%;
 			object-fit: cover;
@@ -275,6 +283,100 @@
 			color: #c9f7ff;
 		}
 
+		.qr-panel {
+			max-width: 460px;
+			margin: 0 auto;
+			padding: 0.95rem;
+			border-radius: 0.75rem;
+			border: 1px solid rgba(255, 255, 255, 0.14);
+			background: linear-gradient(160deg, rgba(19, 19, 19, 0.96), rgba(10, 10, 10, 0.96));
+		}
+
+		.qr-core-canvas {
+			width: min(78%, 320px);
+			aspect-ratio: 1 / 1;
+			padding: 0.45rem;
+			border-radius: 0.7rem;
+			border: 1px solid rgba(0, 229, 255, 0.4);
+			background: rgba(255, 255, 255, 0.05);
+			display: grid;
+			place-items: center;
+		}
+
+		.qr-core-canvas img,
+		.qr-core-canvas canvas {
+			max-width: 100%;
+			height: auto;
+			border-radius: 0.35rem;
+			background: #ffffff;
+			padding: 0.35rem;
+		}
+
+		.qr-placeholder {
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			color: #d0d0d0;
+			letter-spacing: 0.03em;
+			text-transform: uppercase;
+			padding: 0.4rem;
+		}
+
+		.qr-status-text {
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			letter-spacing: 0.03em;
+			color: #d9edf1;
+			margin-bottom: 0.3rem;
+		}
+
+		.qr-status-hint {
+			font-family: var(--font-mono);
+			font-size: 0.7rem;
+			letter-spacing: 0.04em;
+			color: #8ea1a7;
+		}
+
+		.qr-status-text[data-state="connected"],
+		.qr-status-text[data-state="already_logged_in"] {
+			color: #dbf7a2;
+		}
+
+		.qr-status-text[data-state="error"] {
+			color: #ffadb7;
+		}
+
+		.hub-switch-group {
+			display: flex;
+			justify-content: center;
+			gap: 0.5rem;
+		}
+
+		.hub-switch-btn {
+			border: 1px solid rgba(255, 255, 255, 0.2);
+			border-radius: 0.58rem;
+			padding: 0.5rem 0.75rem;
+			font-family: var(--font-mono);
+			font-size: 0.72rem;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: #d9ecef;
+			background: rgba(255, 255, 255, 0.05);
+			transition: all 0.2s ease;
+		}
+
+		.hub-switch-btn:hover,
+		.hub-switch-btn:focus-visible {
+			border-color: rgba(0, 229, 255, 0.55);
+			box-shadow: 0 0 0 0.2rem rgba(0, 229, 255, 0.16);
+			color: #ffffff;
+		}
+
+		.hub-switch-btn.active {
+			border-color: rgba(212, 237, 49, 0.8);
+			background: rgba(212, 237, 49, 0.17);
+			color: #f6ffd2;
+		}
+
 		@keyframes spin {
 			to { transform: rotate(360deg); }
 		}
@@ -344,11 +446,27 @@
 				<article class="core-wrap rounded-3 p-3 p-lg-4 text-center h-100">
 					<div class="orbital-ring">
 						<div class="video-core">
-							<video autoplay muted loop playsinline preload="auto" aria-label="Center video stream">
-								<source src="/assets/video/tantan.mp4" type="video/mp4" />
-								Your browser does not support HTML5 video playback.
-							</video>
-							<div class="video-overlay">The Hub</div>
+							<div id="hubVisualLayer" class="video-layer video-layer-hub">
+								<video autoplay muted loop playsinline preload="auto" aria-label="Center video stream">
+									<source src="https://raw.githubusercontent.com/alipbudiman/asset/main/tantan.mp4" type="video/mp4" />
+									Your browser does not support HTML5 video playback.
+								</video>
+								<div class="video-overlay">The Hub</div>
+							</div>
+							<div id="qrVisualLayer" class="video-layer video-layer-qr d-none">
+								<div id="qrCoreCanvas" class="qr-core-canvas" aria-live="polite">
+									<p class="qr-placeholder mb-0">Waiting for QR code...</p>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="qr-panel mt-2">
+						<p class="menu-label mb-2">[ bot auth ] qr login</p>
+						<p id="qrStatusText" class="qr-status-text" data-state="idle">Checking WhatsApp session...</p>
+						<p class="qr-status-hint mb-2">Auto-refresh every 2 seconds while waiting for scan.</p>
+						<div class="hub-switch-group" role="group" aria-label="Hub visual mode switch">
+							<button id="switchToHubBtn" type="button" class="hub-switch-btn active">The Hub</button>
+							<button id="switchToQRBtn" type="button" class="hub-switch-btn">QR Login</button>
 						</div>
 					</div>
 				</article>
@@ -370,6 +488,7 @@
 		<footer class="hub-footer mt-3 text-center">WhatsApp Agnetic AI - WaNexus 2.0 • web control module</footer>
 	</main>
 
+	<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 	<script>
 		const floatingNotification = document.getElementById("floatingNotification");
 		const floatingNotificationText = document.getElementById("floatingNotificationText");
@@ -377,6 +496,195 @@
 		const reportsNavLink = document.getElementById("reportsNavLink");
 		const pageLoadingModal = document.getElementById("pageLoadingModal");
 		const pageLoadingText = document.getElementById("pageLoadingText");
+		const qrCodeCanvas = document.getElementById("qrCoreCanvas");
+		const qrStatusText = document.getElementById("qrStatusText");
+		const qrStatusEndpoint = "/api/bot/qr/status";
+		const hubVisualLayer = document.getElementById("hubVisualLayer");
+		const qrVisualLayer = document.getElementById("qrVisualLayer");
+		const switchToHubBtn = document.getElementById("switchToHubBtn");
+		const switchToQRBtn = document.getElementById("switchToQRBtn");
+
+		let qrPollingTimer = null;
+		let lastQRCode = "";
+		let lastQRState = "";
+		let isManualVisualMode = false;
+
+		function setActiveSwitchButton(mode) {
+			switchToHubBtn.classList.toggle("active", mode === "hub");
+			switchToQRBtn.classList.toggle("active", mode === "qr");
+		}
+
+		function setVisualMode(mode) {
+			if (mode === "qr") {
+				hubVisualLayer.classList.add("d-none");
+				qrVisualLayer.classList.remove("d-none");
+				setActiveSwitchButton("qr");
+				return;
+			}
+
+			hubVisualLayer.classList.remove("d-none");
+			qrVisualLayer.classList.add("d-none");
+			setActiveSwitchButton("hub");
+		}
+
+		function syncVisualWithQRState(state, hasQRCode) {
+			const normalizedState = String(state || "idle").toLowerCase();
+
+			if (normalizedState === "connected" || normalizedState === "already_logged_in") {
+				setVisualMode("hub");
+				return;
+			}
+
+			if (isManualVisualMode) {
+				return;
+			}
+
+			if (
+				normalizedState === "scan_required" ||
+				normalizedState === "awaiting_scan" ||
+				normalizedState === "initializing" ||
+				hasQRCode
+			) {
+				setVisualMode("qr");
+				return;
+			}
+
+			setVisualMode("hub");
+		}
+
+		function clearQRCodeCanvas() {
+			qrCodeCanvas.innerHTML = "";
+		}
+
+		function renderQRPlaceholder(state) {
+			clearQRCodeCanvas();
+			const placeholder = document.createElement("p");
+			placeholder.className = "qr-placeholder mb-0";
+
+			if (state === "connected" || state === "already_logged_in") {
+				placeholder.textContent = "Bot is already connected.";
+			} else if (state === "error") {
+				placeholder.textContent = "Unable to load QR code right now.";
+			} else {
+				placeholder.textContent = "Waiting for QR code...";
+			}
+
+			qrCodeCanvas.appendChild(placeholder);
+		}
+
+		function renderQRCode(qrCode) {
+			if (!qrCode) {
+				renderQRPlaceholder(lastQRState);
+				return;
+			}
+
+			clearQRCodeCanvas();
+
+			if (typeof window.QRCode !== "function") {
+				renderQRPlaceholder("error");
+				return;
+			}
+
+			new window.QRCode(qrCodeCanvas, {
+				text: qrCode,
+				width: 220,
+				height: 220,
+				colorDark: "#0b0b0b",
+				colorLight: "#ffffff",
+				correctLevel: window.QRCode.CorrectLevel.M,
+			});
+		}
+
+		function setQRStatus(state, message) {
+			const normalizedState = String(state || "idle").trim().toLowerCase();
+			qrStatusText.dataset.state = normalizedState;
+
+			if (message) {
+				qrStatusText.textContent = message;
+				return;
+			}
+
+			switch (normalizedState) {
+				case "scan_required":
+					qrStatusText.textContent = "Scan this QR code using WhatsApp mobile app.";
+					break;
+				case "already_logged_in":
+				case "connected":
+					qrStatusText.textContent = "Bot is connected. QR scan is not required.";
+					break;
+				case "error":
+					qrStatusText.textContent = "Failed to load QR status from server.";
+					break;
+				default:
+					qrStatusText.textContent = "Waiting for WhatsApp login status...";
+			}
+		}
+
+		function stopQRPolling() {
+			if (!qrPollingTimer) {
+				return;
+			}
+
+			window.clearInterval(qrPollingTimer);
+			qrPollingTimer = null;
+		}
+
+		function startQRPolling() {
+			if (qrPollingTimer) {
+				return;
+			}
+
+			qrPollingTimer = window.setInterval(fetchQRStatus, 2000);
+		}
+
+		async function fetchQRStatus() {
+			try {
+				const response = await fetch(qrStatusEndpoint, {
+					headers: {
+						Accept: "application/json",
+						"Cache-Control": "no-cache",
+					},
+				});
+
+				if (!response.ok) {
+					throw new Error(`status ${response.status}`);
+				}
+
+				const payload = await response.json();
+				const qrPayload = payload && payload.success ? payload.data : null;
+
+				if (!qrPayload) {
+					throw new Error("invalid QR payload");
+				}
+
+				const nextState = String(qrPayload.state || "idle");
+				const nextCode = String(qrPayload.code || "");
+				const nextMessage = String(qrPayload.message || "");
+
+				setQRStatus(nextState, nextMessage);
+				syncVisualWithQRState(nextState, Boolean(nextCode));
+
+				if (nextState !== lastQRState || nextCode !== lastQRCode) {
+					if (nextCode) {
+						renderQRCode(nextCode);
+					} else {
+						renderQRPlaceholder(nextState);
+					}
+
+					lastQRState = nextState;
+					lastQRCode = nextCode;
+				}
+
+				if (nextState === "connected" || nextState === "already_logged_in") {
+					stopQRPolling();
+				} else {
+					startQRPolling();
+				}
+			} catch (error) {
+				setQRStatus("error", "Failed to sync QR status. Retrying...");
+				renderQRPlaceholder("error");
+			}
+		}
 
 		function showComingSoon(message) {
 			floatingNotificationText.textContent = message;
@@ -409,6 +717,22 @@
 				window.location.assign(targetURL);
 			}, 80);
 		});
+
+		switchToHubBtn.addEventListener("click", () => {
+			isManualVisualMode = true;
+			setVisualMode("hub");
+		});
+
+		switchToQRBtn.addEventListener("click", () => {
+			isManualVisualMode = true;
+			setVisualMode("qr");
+			if (!lastQRCode) {
+				renderQRPlaceholder(lastQRState);
+			}
+		});
+
+		fetchQRStatus();
+		startQRPolling();
 	</script>
 </body>
 </html>

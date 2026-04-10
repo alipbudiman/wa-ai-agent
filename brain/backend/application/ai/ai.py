@@ -33,6 +33,7 @@ class AI:
             # None  = default behavior, <think> tags muncul di content
             llm = ChatOllama(
                 model=model,
+                base_url=Config.ANTHROPIC_BASE_URL,
                 # temperature=temperature,
                 reasoning=reasoning,
             )

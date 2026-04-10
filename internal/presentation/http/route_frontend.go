@@ -16,6 +16,7 @@ import (
 	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/presentation/handler"
+	eventsrunner "github.com/alipbudiman/wa-ai-agent.git/internal/presentation/run"
 	"github.com/gin-gonic/gin"
 )
 
@@ -494,6 +495,10 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 		c.HTML(http.StatusOK, "index.gohtml", gin.H{
 			"MongoDBURL": cfg.Databases.MongoDB.URI,
 		})
+	})
+
+	router.GET("/api/bot/qr/status", func(c *gin.Context) {
+		SuccessHTTPResp(c, http.StatusOK, "", eventsrunner.GetQRLoginState())
 	})
 
 	router.GET("/access", func(c *gin.Context) {

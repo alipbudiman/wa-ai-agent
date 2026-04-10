@@ -1,7 +1,7 @@
 // @title WA AI Agent HTTP API
 // @version 1.0
 // @description Gin HTTP API for WhatsApp bot utilities and integrations.
-// @host localhost:8080
+// @host localhost:8001
 // @BasePath /
 // @schemes http
 package main
@@ -182,6 +182,20 @@ func brainRunner() {
 	}()
 }
 
+func shouldRunEmbeddedBrain() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("RUN_EMBEDDED_BRAIN")))
+	if raw == "" {
+		return true
+	}
+
+	switch raw {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
 func main() {
 	// Load .env if present (ignore if missing)
 	load_env_file := "use.env.file"
@@ -213,8 +227,11 @@ func main() {
 		return
 	}
 
-	// run brain
-	go brainRunner()
+	if shouldRunEmbeddedBrain() {
+		go brainRunner()
+	} else {
+		log.Println("Embedded brain runner disabled; using external brain service")
+	}
 
 	app := runbot.NewService(waRunner)
 

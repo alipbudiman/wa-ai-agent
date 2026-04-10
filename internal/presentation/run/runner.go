@@ -113,27 +113,38 @@ func ClientRunner(cfg Config) (*Runner, error) {
 func (r *Runner) Run(ctx context.Context) error {
 	store.DeviceProps.Os = proto.String(cases.Title(language.English).String(fmt.Sprintf("Chrome (%v)", runtime.GOOS)))
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
+	setQRLoginState("initializing", "", "starting WhatsApp connection")
+
 	if r == nil || r.client == nil {
+		setQRLoginState("error", "", "whatsapp client is not initialized")
 		return errors.New("whatsapp client is not initialized")
 	}
 
 	if r.client.Store.ID == nil {
+		setQRLoginState("awaiting_scan", "", "waiting for QR code from WhatsApp")
 		qrChan, err := r.client.GetQRChannel(ctx)
 		if err != nil {
+			setQRLoginState("error", "", "failed to create QR channel")
 			return fmt.Errorf("get QR channel: %w", err)
 		}
 
 		go r.consumeQR(qrChan)
+	} else {
+		setQRLoginState("already_logged_in", "", "session already authenticated")
 	}
 
 	if err := r.client.Connect(); err != nil {
+		setQRLoginState("error", "", "failed to connect WhatsApp client")
 		if r.container != nil {
 			_ = r.container.Close()
 		}
 		return fmt.Errorf("connect whatsapp client: %w", err)
 	}
 
+	setQRLoginState("connected", "", "WhatsApp client connected")
+
 	<-ctx.Done()
+	setQRLoginState("disconnecting", "", "shutting down WhatsApp client")
 	r.client.Disconnect()
 
 	if r.container != nil {
@@ -142,6 +153,8 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
+	setQRLoginState("disconnected", "", "WhatsApp client disconnected")
+
 	return nil
 }
 
@@ -149,11 +162,14 @@ func (r *Runner) consumeQR(qrChan <-chan whatsmeow.QRChannelItem) {
 	for evt := range qrChan {
 		switch evt.Event {
 		case whatsmeow.QRChannelEventCode:
+			setQRLoginState("scan_required", evt.Code, "scan QR code with WhatsApp mobile app")
 			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, log.Writer())
 			fmt.Println("Scan the QR code above to log in to WhatsApp")
 		case whatsmeow.QRChannelEventError:
+			setQRLoginState("error", "", fmt.Sprintf("QR error: %v", evt.Error))
 			log.Printf("QR error: %v", evt.Error)
 		default:
+			setQRLoginState("qr_event", "", fmt.Sprintf("QR event: %s", evt.Event))
 			log.Printf("QR event: %s", evt.Event)
 		}
 	}

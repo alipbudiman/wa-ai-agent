@@ -57,7 +57,7 @@ func Load() Config {
 
 		// Gin Server configuration
 		GinServer: cfg_struct.GinServerConfig{
-			Port:   env("GIN_SERVER_PORT", "8080"),
+			Port:   env("GIN_SERVER_PORT", "8001"),
 			Host:   env("GIN_SERVER_HOST", "localhost"),
 			AppMod: ginModEnv("APP_MODE", cfg_struct.DebugMode), // options: debug, release, test
 		},

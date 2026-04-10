@@ -8,3 +8,4 @@ use.env.file
 wa_session.db
 test.py
 TODO
+docker-note.md

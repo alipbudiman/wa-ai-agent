@@ -609,7 +609,6 @@ class ChatAgentUseCase:
             self.wa_integration_tool.send_message(sender=sender),
             self.terminalx_tool.delegate_to_worker(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
-            self.db_access_tool.log_system_lookup(sender=sender),
         ]
     
     def __tool_node(self, state: State):

@@ -26,7 +26,7 @@ class Config:
     LANGSMITH_API_KEY= os.getenv('LANGSMITH_API_KEY')
     LANGSMITH_PROJECT_NAME = os.getenv('LANGSMITH_PROJECT_NAME', 'wa_bot_ai_trace')
     
-    GIN_SERVER_PORT = os.getenv('GIN_SERVER_PORT', '8080')
+    GIN_SERVER_PORT = os.getenv('GIN_SERVER_PORT', '8001')
     GIN_SERVER_HOST = os.getenv('GIN_SERVER_HOST', 'localhost')
     
     # Anthropic API configuration

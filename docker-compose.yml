@@ -1,0 +1,68 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: wa-agent-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: wa-agent-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  brain:
+    build:
+      context: .
+      dockerfile: brain/Dockerfile
+    container_name: wa-agent-brain
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MONGODB_URI=mongodb://mongo:27017
+      - ANTHROPIC_BASE_URL=http://ollama:11434
+      - GIN_SERVER_HOST=wa-agent
+      - GIN_SERVER_PORT=8001
+    depends_on:
+      - mongo
+      - ollama
+    ports:
+      - "8000:8000"
+
+  wa-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wa-ai-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - RUN_EMBEDDED_BRAIN=false
+      - BRAIN_API_BASE_URL=http://brain:8000
+      - GIN_SERVER_HOST=0.0.0.0
+      - GIN_SERVER_PORT=8001
+      - MONGODB_URI=mongodb://mongo:27017
+      - WA_SESSION_DSN=file:/app/data/wa_session.db?_pragma=foreign_keys(1)
+      - ANTHROPIC_BASE_URL=http://ollama:11434
+    depends_on:
+      - brain
+      - mongo
+      - ollama
+    ports:
+      - "8001:8001"
+    volumes:
+      - wa_session_data:/app/data
+
+volumes:
+  mongo_data:
+  wa_session_data:
+  ollama_data:

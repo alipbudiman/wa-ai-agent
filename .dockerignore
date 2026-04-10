@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.vscode
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+wa_session.db
+.env
+playground
+assets/artifacts
+assets/video
+docker-note.md
+TODO

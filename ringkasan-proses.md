@@ -1,1 +1,0 @@
-# Ringkasan Analisis Proses Sistem 
