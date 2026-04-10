@@ -5,6 +5,7 @@ from langchain_core.tools import StructuredTool
 
 from backend.application.ai.tools.models import LogSystemEntry
 from backend.application.ai.tools.time import TimeTool
+from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 
 
 class DBAcess:
@@ -13,6 +14,7 @@ class DBAcess:
         self.tmp_msg_collection = MongoDB.MONGO_TEMPLATE_MSG_COLLECTION
         self.log_system_collection = MongoDB.MONGO_LOG_SYSTEM_COLLECTION
         self.time_tool = TimeTool()
+        self.wa_bot = WhatsAppIntegration()
 
         
     def db_get_current_pending_message(self, sender: str) -> str:
@@ -71,36 +73,13 @@ class DBAcess:
                 "PENDING_STATUS=NO_ON_HOLD_MESSAGE means no active on-hold message exists."
             ) 
         )
-    
-    # def db_set_agent_code_workdir(self, sender: str, work_dir: str) -> bool:
-    #     """
-    #     Set the current working directory for code agent execution for a sender.
-
-    #     This is used to maintain state across multiple code agent calls within the same conversation.
-    #     For example, if the agent needs to change directory to run certain commands, we can store that state here.
-
-    #     Returns:
-    #     - True if the operation was successful (upserted a document).
-    #     - False if there was an error during the database operation.
-    #     """
-    #     collection = self.db.get_collection(self.tmp_msg_collection)
-    #     result = collection.update_one(
-    #         {"user": sender},
-    #         {
-    #             "$set": {
-    #                 "agent_code_workdir": work_dir,
-    #                 "timestamp": self.time_tool.current_time(),
-    #                 }
-    #          },
-    #         upsert=True
-    #     )
-    #     return result.acknowledged
         
     def db_set_log_system(self, log_entry: LogSystemEntry) -> bool:
+        """Insert a log entry into the log system collection. This is currently used for recording pending messages and their status changes."""
         collection = self.db.get_collection(self.log_system_collection)
         result = collection.insert_one(log_entry.model_dump())
         return bool(result.inserted_id)
-
+    
     def db_get_historical_pending_messages(self, sender: str) -> list:
         """Reserved for future historical pending-message lookup."""
         collection = self.db.get_collection(self.log_system_collection)

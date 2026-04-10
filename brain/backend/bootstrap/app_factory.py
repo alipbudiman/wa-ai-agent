@@ -10,6 +10,7 @@ from backend.interface.api.router import create_chat_agent_router
 
 
 def create_app() -> FastAPI:
+
     app = FastAPI(
         title="Brain AI Agent API",
         description="FastAPI backend sebagai otak AI Agent."

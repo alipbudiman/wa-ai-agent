@@ -1,5 +1,6 @@
 
 import re
+from langchain_core.tools import StructuredTool
 
 
 KNOWN_WHATSAPP_SERVERS = {
@@ -124,3 +125,52 @@ class ParseTool:
             return f"{normalized_user}@{server}"
 
         return self._normalize_numeric_user(raw, number)
+
+    def parse_phone_number_tool(self) -> StructuredTool:
+        """Build a non-throwing parser tool for LLM use.
+
+        This wrapper prevents parser exceptions from aborting the LangGraph tool node.
+        """
+
+        def _parse(number: str) -> str:
+            raw = (number or "").strip()
+            if not raw:
+                return (
+                    "PARSE_STATUS: MISSING_INPUT\n"
+                    "normalized_identifier:\n"
+                    "reason: recipient is empty. Ask user for phone number or full WhatsApp JID."
+                )
+
+            # Name-only aliases (without digits/JID) must be clarified first.
+            if "@" not in raw and not re.search(r"\d", raw):
+                return (
+                    "PARSE_STATUS: NEED_EXPLICIT_NUMBER\n"
+                    "normalized_identifier:\n"
+                    "reason: recipient looks like a name/alias without numeric or JID information. "
+                    "Ask user for phone number or full JID before sending."
+                )
+
+            try:
+                normalized = self.parse_phone_number(raw)
+            except ValueError as err:
+                return (
+                    "PARSE_STATUS: INVALID\n"
+                    "normalized_identifier:\n"
+                    f"reason: {err}"
+                )
+
+            return (
+                "PARSE_STATUS: OK\n"
+                f"normalized_identifier: {normalized}"
+            )
+
+        return StructuredTool.from_function(
+            func=_parse,
+            name="parse_phone_number",
+            description=(
+                "Safely validate and normalize recipient phone/JID. "
+                "Never throws tool exceptions. "
+                "Use before send_message when recipient candidate includes digits or JID. "
+                "If PARSE_STATUS=NEED_EXPLICIT_NUMBER, ask user for number/JID and do not call send_message yet."
+            ),
+        )

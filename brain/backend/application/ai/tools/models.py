@@ -29,9 +29,9 @@ class SendMessageResponse(BaseModel):
     on_hold: bool = False
     
 class LogSystemEntry(BaseModel):
-    timestamp: str
-    level: LevelSystem
-    message: str
+    timestamp: str = Field(description="ISO 8601 format timestamp of the log entry.")
+    level: LevelSystem = Field(description="Log level indicating the severity or type of the log entry.")
+    message: str = Field(description="Main log message content describing the event or action.")
     metadata: dict | None = None
 
 class SendMessageInput(BaseModel):
@@ -40,6 +40,16 @@ class SendMessageInput(BaseModel):
 
 class CommandInput(BaseModel):
     command: str = Field(description="Command to execute in the terminal. Required.")
+
+class WorkerTaskInput(BaseModel):
+    task: str = Field(description="Task description for the agent to execute. Required.")
+    work_dir: str = Field(
+        default="playground/",
+        description=(
+            "Working directory for the agent's terminal commands. Optional. Defaults to 'playground/'. "
+            "The agent should check existence before creating, and never create outside 'playground/' unless explicitly requested."
+        ),
+    )
 
 class WebSearchInput(BaseModel):
     query: str = Field(

@@ -4,6 +4,9 @@ import re
 from pathlib import Path
 import time
 
+from langchain_core import messages
+from numpy import number
+
 from backend.application.ai.ai import AI
 from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ai.tools.time import TimeTool
@@ -27,7 +30,6 @@ from langchain_core.messages import trim_messages
 from typing_extensions import Literal
 
 
-
 logger = logging.getLogger('uvicorn.error')
 
 class State(MessagesState):
@@ -48,7 +50,7 @@ class ChatAgentUseCase:
         self.parse_tool = ParseTool()
         self.wa_integration_tool = WhatsAppIntegration()
         self.db_access_tool = DBAcess()
-        self.trminalx_tool = TerminalX()
+        self.terminalx_tool = TerminalX()
         self.instruction = Instruction()
         self._command_aliases = self.__build_command_aliases(self.instruction.chatbot_commands)
         self.mongo_cleint = MongoDB.get_client()
@@ -59,7 +61,7 @@ class ChatAgentUseCase:
             self.instruction.capability_description,
             self.websearch_tool.websearch_tool(),
             self.time_tool.current_time,
-            self.parse_tool.parse_phone_number,
+            self.parse_tool.parse_phone_number_tool(),
             self.wa_integration_tool.get_user_information,
             self.wa_integration_tool.broadcast_message,
         ]
@@ -579,7 +581,7 @@ class ChatAgentUseCase:
         to the base LLM so casual chat does not trigger tool/database operations
         or large context processing.
         """
-        last_message = self.__latest_user_text(state, max_messages=5)
+        last_message = self.__latest_user_text(state, max_messages=2)
         payload = [HumanMessage(content=last_message)] if last_message else state["messages"][-1:]
         response = self.__llm(reasoning=False).invoke(payload)
         
@@ -605,7 +607,9 @@ class ChatAgentUseCase:
             self.db_access_tool.get_current_pending_message(sender=sender),
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
-            self.trminalx_tool.simple_exec(sender=sender)
+            self.terminalx_tool.delegate_to_worker(sender=sender),
+            self.terminalx_tool.simple_exec(sender=sender),
+            self.db_access_tool.log_system_lookup(sender=sender),
         ]
     
     def __tool_node(self, state: State):
@@ -853,9 +857,9 @@ class ChatAgentUseCase:
                     }
                 )
                 return
-            else:
-                input_messages.append(SystemMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}\n{self.instruction.formatting_rule()}\n"))
-                input_messages.append(HumanMessage(content=messages))
+
+            input_messages.append(SystemMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}\n{self.instruction.formatting_rule()}\n"))
+            input_messages.append(HumanMessage(content=messages))
 
             result = await self.react_graph.ainvoke({
                 "messages": input_messages,
@@ -877,7 +881,12 @@ class ChatAgentUseCase:
 
                 if not results:
                     results = "Maaf, saya belum bisa menghasilkan jawaban. Coba kirim ulang pertanyaannya."
-
+                    self.db_access_tool.db_set_log_system(LogSystemEntry(
+                        timestamp=self.time_tool.current_time(),
+                        level=LevelSystem.ERROR.value,
+                        message=f"Message processed for {number} failed to generate response"
+                    ))
+                
                 self.wa_integration_tool.request_send_message(number, results, number)
                 return
             
@@ -899,7 +908,6 @@ class ChatAgentUseCase:
                 )
             self.wa_integration_tool.request_send_message(
                 number,
-                "Maaf, terjadi gangguan internal saat memproses pesan. Silakan coba lagi.",
+                "😭 Maaf, terjadi gangguan internal saat memproses pesan. Silakan coba lagi.",
                 number,
             )
-

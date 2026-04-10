@@ -9,6 +9,7 @@ class MongoDB:
     MONGO_DB_NAME = os.getenv('MONGODB_DB_NAME', 'wa_ai_agent_db')
     MONGO_TEMPLATE_MSG_COLLECTION = 'tmp_messages'
     MONGO_LOG_SYSTEM_COLLECTION = 'log_system'
+    MONGO_USER_INPUT_HISTORY_COLLECTION = 'input_history'
     
     @classmethod
     def get_client(cls) -> MongoClient:

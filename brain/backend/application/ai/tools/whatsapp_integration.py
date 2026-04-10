@@ -153,6 +153,8 @@ class WhatsAppIntegration:
                 "numeric user ID (for default server) or a full JID with server suffix such as "
                 "@s.whatsapp.net or @lid. Only call this tool when both recipient and message are "
                 "available. If one field is missing, ask for it first and do not execute this tool. "
+                "Do not pass name-only aliases (example: 'kereyhan') as recipient identifier. "
+                "If recipient is not numeric/JID and no confirmed number exists in context, ask for phone number/JID first. "
                 "For multi-turn chat, you may combine values from previous turns before calling. "
                 "Interpret tool response status carefully: status='on_hold' means message has NOT "
                 "been sent and still needs explicit user confirmation."
