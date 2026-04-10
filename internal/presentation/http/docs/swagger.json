@@ -215,6 +215,9 @@
                 },
                 "number": {
                     "type": "string"
+                },
+                "store": {
+                    "type": "boolean"
                 }
             }
         },

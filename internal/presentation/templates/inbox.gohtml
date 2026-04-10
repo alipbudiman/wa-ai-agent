@@ -1,0 +1,2192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inbox Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
+<style>
+:root {
+--color-bg: #090909;
+--color-bg-soft: #121212;
+--color-panel: #1a1a1a;
+--color-panel-line: rgba(255, 255, 255, 0.1);
+--color-text: #ffffff;
+--color-muted: #a0a0a0;
+--color-accent: #d4ed31;
+--color-cyan: #00e5ff;
+--color-danger: #ff4d5f;
+--font-primary: "Rajdhani", "Segoe UI", sans-serif;
+--font-mono: "JetBrains Mono", Consolas, monospace;
+}
+
+body {
+font-family: var(--font-primary);
+color: var(--color-text);
+background-color: var(--color-bg);
+background-image:
+linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+radial-gradient(circle at 12% -10%, rgba(212, 237, 49, 0.15), transparent 34%),
+radial-gradient(circle at 90% 8%, rgba(0, 229, 255, 0.12), transparent 30%);
+background-size: 40px 40px, 40px 40px, auto, auto;
+min-height: 100vh;
+}
+
+.app-shell {
+max-width: 1380px;
+}
+
+.panel-surface {
+background: linear-gradient(145deg, rgba(26, 26, 26, 0.98), rgba(18, 18, 18, 0.98));
+border: 1px solid var(--color-panel-line);
+border-radius: 0.95rem;
+box-shadow: 0 18px 30px rgba(0, 0, 0, 0.3);
+}
+
+.topbar-panel {
+padding: 1rem;
+margin-bottom: 1rem;
+}
+
+.topbar-row {
+display: flex;
+align-items: flex-start;
+justify-content: space-between;
+gap: 0.9rem;
+flex-wrap: wrap;
+}
+
+.tech-kicker {
+font-family: var(--font-mono);
+font-size: 0.72rem;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+color: var(--color-accent);
+margin-bottom: 0.35rem;
+}
+
+.page-title {
+margin: 0;
+font-size: 1.58rem;
+letter-spacing: 0.03em;
+text-transform: uppercase;
+}
+
+.page-subtitle {
+margin: 0.4rem 0 0;
+color: var(--color-muted);
+font-size: 0.9rem;
+}
+
+.breadcrumb-tech {
+margin: 0.22rem 0 0;
+font-family: var(--font-mono);
+font-size: 0.72rem;
+color: var(--color-muted);
+}
+
+.breadcrumb-tech a {
+color: #d8d8d8;
+}
+
+.breadcrumb-tech a:hover {
+color: #ffffff;
+}
+
+.header-actions {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 0.5rem;
+}
+
+.meta-row {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 0.55rem;
+margin-top: 0.8rem;
+}
+
+.chip-label {
+display: inline-flex;
+align-items: center;
+padding: 0.2rem 0.55rem;
+border-radius: 999px;
+background: rgba(255, 255, 255, 0.06);
+border: 1px solid rgba(255, 255, 255, 0.14);
+font-family: var(--font-mono);
+font-size: 0.68rem;
+letter-spacing: 0.05em;
+text-transform: uppercase;
+}
+
+.operator-value {
+margin: 0;
+font-family: var(--font-mono);
+font-size: 0.76rem;
+color: #eaf7ff;
+word-break: break-all;
+background: rgba(255, 255, 255, 0.05);
+border: 1px solid rgba(255, 255, 255, 0.16);
+border-radius: 0.45rem;
+padding: 0.26rem 0.45rem;
+}
+
+.summary-text {
+font-family: var(--font-mono);
+font-size: 0.72rem;
+color: var(--color-muted);
+}
+
+.busy-state {
+position: fixed;
+top: 1.05rem;
+left: 50%;
+z-index: 1310;
+display: inline-flex;
+align-items: center;
+gap: 0.45rem;
+padding: 0.44rem 0.72rem;
+border-radius: 0.58rem;
+border: 1px solid rgba(0, 229, 255, 0.44);
+background: rgba(8, 31, 36, 0.9);
+font-family: var(--font-mono);
+font-size: 0.72rem;
+letter-spacing: 0.03em;
+box-shadow: 0 14px 26px rgba(0, 0, 0, 0.4);
+opacity: 0;
+visibility: hidden;
+transform: translate(-50%, -12px);
+pointer-events: none;
+transition: opacity 0.22s ease, visibility 0.22s ease, transform 0.22s ease;
+}
+
+.busy-state.is-hidden {
+opacity: 0;
+visibility: hidden;
+pointer-events: none;
+transform: translate(-50%, -12px);
+}
+
+.busy-state:not(.is-hidden) {
+opacity: 1;
+visibility: visible;
+transform: translate(-50%, 0);
+pointer-events: auto;
+}
+
+.feedback-alert {
+position: fixed;
+top: 1.05rem;
+right: 1rem;
+z-index: 1320;
+min-width: 270px;
+max-width: min(92vw, 460px);
+padding: 0.7rem 0.9rem;
+border: 1px solid rgba(0, 229, 255, 0.46);
+background: rgba(0, 229, 255, 0.13);
+color: #d8fbff;
+font-family: var(--font-mono);
+font-size: 0.76rem;
+letter-spacing: 0.03em;
+border-radius: 0.62rem;
+box-shadow: 0 14px 26px rgba(0, 0, 0, 0.42);
+opacity: 0;
+visibility: hidden;
+transform: translateY(-12px);
+pointer-events: none;
+transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+}
+
+.feedback-alert.is-warning {
+border-color: rgba(255, 214, 107, 0.54);
+background: rgba(255, 214, 107, 0.16);
+color: #ffe8ad;
+}
+
+.feedback-alert.is-error {
+border-color: rgba(255, 77, 95, 0.56);
+background: rgba(255, 77, 95, 0.17);
+color: #ffd0d5;
+}
+
+.feedback-alert.is-hidden {
+opacity: 0;
+visibility: hidden;
+transform: translateY(-12px);
+pointer-events: none;
+}
+
+.feedback-alert:not(.is-hidden) {
+opacity: 1;
+visibility: visible;
+transform: translateY(0);
+pointer-events: auto;
+}
+
+.workspace-layout {
+display: grid;
+grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+gap: 1rem;
+height: clamp(500px, calc(100dvh - 220px), 840px);
+}
+
+.workspace-layout.threads-hidden {
+grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-layout.threads-hidden .threads-panel {
+display: none;
+}
+
+.threads-panel,
+.chat-panel {
+display: flex;
+flex-direction: column;
+min-height: 0;
+}
+
+.threads-panel {
+padding: 0.8rem;
+}
+
+.chat-panel {
+padding: 0.8rem;
+}
+
+.pane-header {
+display: flex;
+align-items: flex-start;
+justify-content: space-between;
+gap: 0.6rem;
+border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+padding-bottom: 0.72rem;
+margin-bottom: 0.72rem;
+}
+
+.pane-title {
+margin: 0;
+font-size: 0.98rem;
+text-transform: uppercase;
+letter-spacing: 0.06em;
+}
+
+.pane-subtitle {
+margin: 0.2rem 0 0;
+font-family: var(--font-mono);
+font-size: 0.68rem;
+color: var(--color-muted);
+word-break: break-all;
+}
+
+.badge-tech {
+display: inline-flex;
+align-items: center;
+padding: 0.18rem 0.5rem;
+border: 1px solid rgba(255, 255, 255, 0.16);
+border-radius: 999px;
+font-family: var(--font-mono);
+font-size: 0.65rem;
+letter-spacing: 0.05em;
+color: var(--color-muted);
+}
+
+.chat-pane-actions {
+display: flex;
+align-items: center;
+gap: 0.45rem;
+}
+
+.thread-list {
+flex: 1;
+min-height: 0;
+overflow: auto;
+padding-right: 0.2rem;
+display: flex;
+flex-direction: column;
+gap: 0.48rem;
+}
+
+.thread-item {
+width: 100%;
+border: 1px solid rgba(255, 255, 255, 0.12);
+background: rgba(255, 255, 255, 0.02);
+color: var(--color-text);
+border-radius: 0.7rem;
+padding: 0.62rem;
+text-align: left;
+transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.thread-item:hover {
+border-color: rgba(0, 229, 255, 0.62);
+}
+
+.thread-item.active {
+border-color: rgba(212, 237, 49, 0.58);
+background: rgba(212, 237, 49, 0.12);
+}
+
+.thread-head {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 0.45rem;
+}
+
+.thread-name {
+margin: 0;
+font-size: 0.9rem;
+line-height: 1.15;
+text-transform: uppercase;
+letter-spacing: 0.04em;
+}
+
+.thread-time {
+font-family: var(--font-mono);
+font-size: 0.64rem;
+color: var(--color-muted);
+text-transform: uppercase;
+letter-spacing: 0.04em;
+flex-shrink: 0;
+}
+
+.thread-sub {
+margin: 0.18rem 0 0;
+font-family: var(--font-mono);
+font-size: 0.66rem;
+color: var(--color-muted);
+word-break: break-all;
+}
+
+.thread-preview {
+margin: 0.42rem 0 0;
+font-size: 0.8rem;
+line-height: 1.3;
+color: #d7d7d7;
+}
+
+.thread-foot {
+margin-top: 0.44rem;
+display: flex;
+align-items: center;
+justify-content: flex-end;
+gap: 0.42rem;
+}
+
+.unread-badge {
+display: inline-flex;
+align-items: center;
+justify-content: center;
+min-width: 1.3rem;
+height: 1.3rem;
+padding: 0 0.3rem;
+border-radius: 999px;
+background: rgba(212, 237, 49, 0.2);
+border: 1px solid rgba(212, 237, 49, 0.55);
+font-family: var(--font-mono);
+font-size: 0.66rem;
+color: #f4ffc4;
+}
+
+.thread-empty,
+.conversation-empty {
+border: 1px dashed rgba(255, 255, 255, 0.2);
+border-radius: 0.68rem;
+padding: 0.95rem;
+font-family: var(--font-mono);
+font-size: 0.75rem;
+color: var(--color-muted);
+background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-stream {
+flex: 1;
+min-height: 0;
+overflow: auto;
+padding: 0.1rem 0.2rem 0.1rem 0;
+display: flex;
+flex-direction: column;
+gap: 0.72rem;
+}
+
+.message-card {
+border: 1px solid rgba(255, 255, 255, 0.14);
+border-radius: 0.82rem;
+background: rgba(255, 255, 255, 0.03);
+padding: 0.72rem;
+max-width: min(90%, 680px);
+width: fit-content;
+}
+
+.message-card.from-me {
+margin-left: auto;
+border-color: rgba(212, 237, 49, 0.46);
+background: rgba(212, 237, 49, 0.12);
+}
+
+.message-card.from-receiver {
+margin-right: auto;
+border-color: rgba(0, 229, 255, 0.32);
+background: rgba(0, 229, 255, 0.08);
+}
+
+.message-card.contact-info-bubble {
+border-style: dashed;
+}
+
+.message-top {
+display: flex;
+justify-content: space-between;
+align-items: flex-start;
+gap: 0.7rem;
+margin-bottom: 0.44rem;
+}
+
+.message-sender {
+margin: 0;
+font-size: 0.78rem;
+text-transform: uppercase;
+letter-spacing: 0.04em;
+}
+
+.message-time {
+margin: 0;
+font-family: var(--font-mono);
+font-size: 0.63rem;
+color: var(--color-muted);
+text-transform: uppercase;
+letter-spacing: 0.04em;
+flex-shrink: 0;
+}
+
+.message-content {
+margin: 0;
+font-size: 0.86rem;
+line-height: 1.4;
+white-space: pre-wrap;
+word-break: break-word;
+}
+
+.message-status {
+display: inline-flex;
+align-items: center;
+padding: 0.14rem 0.44rem;
+border-radius: 999px;
+font-family: var(--font-mono);
+font-size: 0.62rem;
+text-transform: uppercase;
+letter-spacing: 0.04em;
+margin-top: 0.4rem;
+}
+
+.message-status.unread {
+background: rgba(212, 237, 49, 0.2);
+border: 1px solid rgba(212, 237, 49, 0.5);
+color: #f2ffc0;
+}
+
+.message-status.read {
+background: rgba(255, 255, 255, 0.09);
+border: 1px solid rgba(255, 255, 255, 0.2);
+color: #d7d7d7;
+}
+
+.message-actions {
+display: flex;
+justify-content: flex-end;
+gap: 0.4rem;
+margin-top: 0.52rem;
+}
+
+.contact-info-box {
+border: 1px dashed rgba(255, 255, 255, 0.22);
+border-radius: 0.62rem;
+padding: 0.6rem;
+background: rgba(0, 0, 0, 0.18);
+}
+
+.contact-info-kicker {
+margin: 0 0 0.42rem;
+font-family: var(--font-mono);
+font-size: 0.65rem;
+text-transform: uppercase;
+letter-spacing: 0.06em;
+color: #c9f8ff;
+}
+
+.contact-info-row {
+display: grid;
+grid-template-columns: 82px 1fr;
+gap: 0.42rem;
+margin: 0;
+font-size: 0.8rem;
+line-height: 1.35;
+}
+
+.contact-info-row + .contact-info-row {
+margin-top: 0.24rem;
+}
+
+.contact-info-label {
+font-family: var(--font-mono);
+font-size: 0.66rem;
+text-transform: uppercase;
+letter-spacing: 0.05em;
+color: #b8d1d6;
+}
+
+.contact-info-value {
+font-family: var(--font-primary);
+word-break: break-word;
+}
+
+.conversation-composer {
+display: flex;
+align-items: center;
+gap: 0.5rem;
+border: 1px solid rgba(255, 255, 255, 0.14);
+border-radius: 0.78rem;
+background: rgba(255, 255, 255, 0.03);
+padding: 0.46rem;
+margin-top: 0.7rem;
+}
+
+.chat-input {
+flex-grow: 1;
+min-width: 0;
+background: var(--color-bg-soft);
+border: 1px solid rgba(255, 255, 255, 0.16);
+border-radius: 0.58rem;
+color: var(--color-text);
+font-family: var(--font-mono);
+font-size: 0.78rem;
+line-height: 1.2;
+padding: 0.5rem 0.7rem;
+}
+
+.chat-input::placeholder {
+color: rgba(218, 218, 218, 0.62);
+}
+
+.chat-input:focus {
+outline: none;
+border-color: rgba(212, 237, 49, 0.62);
+box-shadow: 0 0 0 0.15rem rgba(212, 237, 49, 0.14);
+}
+
+.chat-input:disabled {
+opacity: 0.62;
+cursor: not-allowed;
+}
+
+.btn-send-message {
+display: inline-flex;
+align-items: center;
+justify-content: center;
+min-width: 2.8rem;
+padding: 0.48rem 0.62rem;
+}
+
+.btn-send-message svg {
+width: 0.9rem;
+height: 0.9rem;
+}
+
+.composer-hint {
+margin: 0.42rem 0 0;
+font-family: var(--font-mono);
+font-size: 0.67rem;
+color: var(--color-muted);
+min-height: 1rem;
+}
+
+.btn-tech-primary {
+--bs-btn-bg: var(--color-accent);
+--bs-btn-border-color: var(--color-accent);
+--bs-btn-color: #151515;
+--bs-btn-hover-bg: #e2ff41;
+--bs-btn-hover-border-color: #e2ff41;
+--bs-btn-active-bg: #c6df2d;
+--bs-btn-active-border-color: #c6df2d;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 0.04em;
+}
+
+.btn-tech-outline {
+--bs-btn-color: var(--color-text);
+--bs-btn-border-color: var(--color-panel-line);
+--bs-btn-hover-bg: rgba(255, 255, 255, 0.08);
+--bs-btn-hover-border-color: rgba(255, 255, 255, 0.22);
+--bs-btn-active-bg: rgba(255, 255, 255, 0.12);
+--bs-btn-active-border-color: rgba(255, 255, 255, 0.25);
+text-transform: uppercase;
+letter-spacing: 0.04em;
+}
+
+.btn-tech-cyan {
+--bs-btn-bg: rgba(0, 229, 255, 0.12);
+--bs-btn-border-color: rgba(0, 229, 255, 0.4);
+--bs-btn-color: #d8fbff;
+--bs-btn-hover-bg: rgba(0, 229, 255, 0.2);
+--bs-btn-hover-border-color: rgba(0, 229, 255, 0.72);
+--bs-btn-active-bg: rgba(0, 229, 255, 0.26);
+--bs-btn-active-border-color: rgba(0, 229, 255, 0.88);
+text-transform: uppercase;
+letter-spacing: 0.04em;
+font-size: 0.68rem;
+padding: 0.2rem 0.46rem;
+}
+
+.btn-tech-danger {
+--bs-btn-bg: transparent;
+--bs-btn-border-color: rgba(255, 77, 95, 0.54);
+--bs-btn-color: #ffb8bf;
+--bs-btn-hover-bg: rgba(255, 77, 95, 0.16);
+--bs-btn-hover-border-color: rgba(255, 77, 95, 0.88);
+--bs-btn-hover-color: #ffd8dd;
+--bs-btn-active-bg: rgba(255, 77, 95, 0.22);
+--bs-btn-active-border-color: var(--color-danger);
+text-transform: uppercase;
+letter-spacing: 0.04em;
+font-size: 0.68rem;
+padding: 0.2rem 0.46rem;
+}
+
+.modal-content.tech-modal {
+background: linear-gradient(145deg, rgba(26, 26, 26, 0.98), rgba(13, 13, 13, 0.98));
+border: 1px solid rgba(255, 255, 255, 0.15);
+color: var(--color-text);
+}
+
+.modal-title {
+text-transform: uppercase;
+letter-spacing: 0.05em;
+}
+
+.form-label {
+font-family: var(--font-mono);
+font-size: 0.72rem;
+letter-spacing: 0.06em;
+text-transform: uppercase;
+color: var(--color-muted);
+}
+
+.form-control {
+background: var(--color-bg-soft);
+border-color: var(--color-panel-line);
+color: var(--color-text);
+font-family: var(--font-mono);
+}
+
+.form-control:focus {
+background: var(--color-bg-soft);
+border-color: var(--color-accent);
+box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+color: var(--color-text);
+}
+
+.thread-list::-webkit-scrollbar,
+.chat-stream::-webkit-scrollbar {
+width: 8px;
+height: 8px;
+}
+
+.thread-list::-webkit-scrollbar-thumb,
+.chat-stream::-webkit-scrollbar-thumb {
+background: rgba(255, 255, 255, 0.18);
+border-radius: 999px;
+}
+
+@media (max-width: 991.98px) {
+.feedback-alert {
+top: 0.85rem;
+right: 0.7rem;
+left: 0.7rem;
+max-width: none;
+min-width: 0;
+}
+
+.busy-state {
+top: 0.85rem;
+left: 0.7rem;
+right: 0.7rem;
+justify-content: center;
+transform: translateY(-12px);
+}
+
+.busy-state.is-hidden {
+transform: translateY(-12px);
+}
+
+.busy-state:not(.is-hidden) {
+transform: translateY(0);
+}
+
+.workspace-layout {
+grid-template-columns: 1fr;
+height: auto;
+min-height: calc(100dvh - 230px);
+}
+
+.workspace-layout.threads-hidden .threads-panel {
+display: none;
+}
+
+.threads-panel {
+min-height: 220px;
+}
+
+.chat-panel {
+min-height: 360px;
+}
+
+.thread-list,
+.chat-stream {
+max-height: min(52vh, 460px);
+}
+
+.page-title {
+font-size: 1.3rem;
+}
+
+.chat-pane-actions {
+flex-wrap: wrap;
+justify-content: flex-end;
+}
+}
+</style>
+</head>
+<body>
+<div class="feedback-alert is-hidden" id="feedbackAlert" role="alert"></div>
+<div id="busyState" class="busy-state is-hidden" role="status" aria-live="polite">
+<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+<span id="busyStateText">Working...</span>
+</div>
+
+<main id="inboxApp" class="container-fluid app-shell py-3 py-lg-4" data-inbox-base-url="{{ .SetupBaseURL }}" data-send-message-endpoint="{{ .SendMessageEndpoint }}">
+<section class="panel-surface topbar-panel">
+<div class="topbar-row">
+<div>
+<p class="tech-kicker">// INBOX CONTROL</p>
+<h1 class="page-title">Inbox Command Center</h1>
+<p class="page-subtitle">Manage thread history, review unread messages, and send outgoing replies from one workspace.</p>
+<p class="breadcrumb-tech"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/inbox" class="text-decoration-underline">Inbox</a></p>
+</div>
+<div class="header-actions">
+<button type="button" class="btn btn-tech-outline btn-sm js-action" id="refreshInboxBtn">Refresh</button>
+<button type="button" class="btn btn-tech-primary btn-sm js-action" data-bs-toggle="modal" data-bs-target="#operatorModal" id="openOperatorModalBtn">Operator</button>
+<button type="button" class="btn btn-tech-danger btn-sm js-action" id="deleteAllBtn">Delete All</button>
+</div>
+</div>
+
+<div class="meta-row">
+<span class="chip-label">Operator Address</span>
+<code class="operator-value" id="operatorAddressText">Not configured</code>
+<span class="summary-text" id="threadSummaryText">0 threads | 0 messages</span>
+</div>
+</section>
+
+<section id="workspaceLayout" class="workspace-layout">
+<aside class="panel-surface threads-panel" id="threadsPanel">
+<div class="pane-header">
+<div>
+<h2 class="pane-title">Threads by User</h2>
+<p class="pane-subtitle">Grouped by recipient JID</p>
+</div>
+<span id="threadCountBadge" class="badge-tech">0</span>
+</div>
+<div id="threadList" class="thread-list" aria-label="Conversation thread list">
+<div class="thread-empty">No inbox conversations yet.</div>
+</div>
+</aside>
+
+<section class="panel-surface chat-panel">
+<div class="pane-header">
+<div>
+<h2 class="pane-title" id="conversationTitle">Select a conversation</h2>
+<p class="pane-subtitle" id="conversationSubtitle">Choose a thread to inspect messages.</p>
+</div>
+<div class="chat-pane-actions">
+<button type="button" class="btn btn-tech-outline btn-sm" id="toggleThreadsBtn">Hide Threads</button>
+<button type="button" class="btn btn-tech-danger btn-sm js-action" id="deleteJIDBtn" disabled>Delete Conversation</button>
+</div>
+</div>
+
+<div class="chat-stream" id="conversationBody">
+<div class="conversation-empty">Pick one thread from the left panel.</div>
+</div>
+
+<div class="conversation-composer">
+<input type="text" id="chatInput" class="chat-input" placeholder="Select a conversation to send a message" autocomplete="off" disabled />
+<button type="button" class="btn btn-tech-primary btn-send-message js-action" id="sendChatBtn" aria-label="Send message" disabled>
+<svg viewBox="0 0 16 16" fill="none" role="presentation" aria-hidden="true"><path d="M14 2 2.7 7.2c-.42.2-.41.82.03 1L6.6 9.5l1.28 3.85c.14.44.75.48.95.07L14 2Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"></path><path d="M6.56 9.52 14 2.01" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"></path></svg>
+</button>
+</div>
+<p class="composer-hint" id="chatInputHint">Select a thread to enable outgoing messages.</p>
+</section>
+</section>
+</main>
+
+<div class="modal fade" id="operatorModal" tabindex="-1" aria-labelledby="operatorModalLabel" aria-hidden="true">
+<div class="modal-dialog modal-dialog-centered">
+<div class="modal-content tech-modal">
+<div class="modal-header border-bottom border-secondary-subtle">
+<h2 class="modal-title fs-5" id="operatorModalLabel">Operator Setup</h2>
+<button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+<div class="modal-body">
+<p class="text-muted mb-3" style="color:#ffffff">Set a WhatsApp JID to receive inbox notifications. Example: 6281234567890@s.whatsapp.net</p>
+<label for="operatorNumberInput" class="form-label">Operator Number/JID</label>
+<input id="operatorNumberInput" class="form-control" placeholder="6281234567890@s.whatsapp.net" />
+<div class="alert d-none mt-3 py-2 px-3 mb-0" id="operatorModalAlert" role="alert"></div>
+</div>
+<div class="modal-footer border-top border-secondary-subtle d-flex justify-content-between">
+<button type="button" class="btn btn-tech-danger js-action" id="deleteOperatorBtn">Delete Operator</button>
+<div class="d-flex gap-2">
+<button type="button" class="btn btn-tech-outline" data-bs-dismiss="modal">Close</button>
+<button type="button" class="btn btn-tech-primary js-action" id="saveOperatorBtn">Add / Update</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<script id="inboxSsrPayload" type="application/json">
+{
+"operator_address": {{ printf "%q" (printf "%v" .InboxAddress) }},
+"messages": [
+{{- range $index, $item := .InboxMessages }}
+{{- if $index }},{{ end }}
+{
+"jid": {{ printf "%q" (printf "%v" $item.JID) }},
+"msg_id": {{ printf "%q" $item.MsgID }},
+"name": {{ printf "%q" $item.FullName }},
+"push_name": {{ printf "%q" $item.PushName }},
+"number": {{ printf "%q" $item.Number }},
+"message": {{ printf "%q" $item.Message }},
+"received_at": {{ $item.ReceivedAt }},
+"from_me": {{ if $item.FromMe }}true{{ else }}false{{ end }},
+"read": {{ if $item.Read }}true{{ else }}false{{ end }}
+}
+{{- end }}
+]
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script>
+const appRoot = document.getElementById("inboxApp");
+const inboxBaseURL = ((appRoot && appRoot.dataset ? appRoot.dataset.inboxBaseUrl : "") || "/api/bot-setup/inbox").replace(/\/+$/, "");
+const sendMessageEndpoint = ((appRoot && appRoot.dataset ? appRoot.dataset.sendMessageEndpoint : "") || "/v1/message/send").trim();
+const payloadNode = document.getElementById("inboxSsrPayload");
+let ssrPayload = {};
+
+try {
+ssrPayload = JSON.parse(payloadNode ? payloadNode.textContent : "{}");
+} catch (_) {
+ssrPayload = {};
+}
+
+const initialOperatorAddress = ssrPayload.operator_address || "";
+const serverMessages = Array.isArray(ssrPayload.messages) ? ssrPayload.messages : [];
+
+const ui = {
+feedbackAlert: document.getElementById("feedbackAlert"),
+threadSummaryText: document.getElementById("threadSummaryText"),
+threadCountBadge: document.getElementById("threadCountBadge"),
+operatorAddressText: document.getElementById("operatorAddressText"),
+refreshInboxBtn: document.getElementById("refreshInboxBtn"),
+deleteAllBtn: document.getElementById("deleteAllBtn"),
+deleteJIDBtn: document.getElementById("deleteJIDBtn"),
+toggleThreadsBtn: document.getElementById("toggleThreadsBtn"),
+workspaceLayout: document.getElementById("workspaceLayout"),
+threadList: document.getElementById("threadList"),
+conversationBody: document.getElementById("conversationBody"),
+conversationTitle: document.getElementById("conversationTitle"),
+conversationSubtitle: document.getElementById("conversationSubtitle"),
+chatInput: document.getElementById("chatInput"),
+sendChatBtn: document.getElementById("sendChatBtn"),
+chatInputHint: document.getElementById("chatInputHint"),
+busyState: document.getElementById("busyState"),
+busyStateText: document.getElementById("busyStateText"),
+operatorModal: document.getElementById("operatorModal"),
+operatorNumberInput: document.getElementById("operatorNumberInput"),
+saveOperatorBtn: document.getElementById("saveOperatorBtn"),
+deleteOperatorBtn: document.getElementById("deleteOperatorBtn"),
+operatorModalAlert: document.getElementById("operatorModalAlert"),
+};
+
+const operatorModal = new bootstrap.Modal(ui.operatorModal);
+
+const state = {
+messages: normalizeMessages(serverMessages),
+threads: [],
+selectedJID: "",
+operatorAddress: normalizeAddress(initialOperatorAddress),
+isBusy: false,
+threadsCollapsed: false,
+feedbackShowTimerId: 0,
+feedbackHideTimerId: 0,
+feedbackAutoHideTimerId: 0,
+};
+
+const FEEDBACK_SHOW_DELAY_MS = 120;
+const FEEDBACK_HIDE_DELAY_MS = 220;
+const FEEDBACK_AUTO_HIDE_MS = 4200;
+
+function normalizeAddress(raw) {
+const value = String(raw || "").trim();
+if (!value || value === "@" || value === "@s.whatsapp.net" || value === "0@s.whatsapp.net") {
+return "";
+}
+return value;
+}
+
+function normalizeJID(raw) {
+if (!raw) {
+return "";
+}
+
+if (typeof raw === "string") {
+return raw.trim();
+}
+
+if (typeof raw === "object") {
+const user = String(raw.user || raw.User || "").trim();
+const server = String(raw.server || raw.Server || "").trim();
+if (user && server) {
+return `${user}@${server}`;
+}
+}
+
+return String(raw).trim();
+}
+
+function normalizeMessageText(rawMessage) {
+if (rawMessage === null || rawMessage === undefined) {
+return "";
+}
+
+let normalized = "";
+if (typeof rawMessage === "string") {
+normalized = rawMessage;
+} else if (typeof rawMessage === "object") {
+if (typeof rawMessage.text === "string") {
+normalized = rawMessage.text;
+} else if (typeof rawMessage.message === "string") {
+normalized = rawMessage.message;
+} else {
+try {
+normalized = JSON.stringify(rawMessage);
+} catch (_) {
+normalized = String(rawMessage);
+}
+}
+} else {
+normalized = String(rawMessage);
+}
+
+normalized = normalized.trim();
+
+for (let i = 0; i < 3; i++) {
+const candidate = normalized.trim();
+const looksLikeJSON = (
+(candidate.startsWith("{") && candidate.endsWith("}")) ||
+(candidate.startsWith("[") && candidate.endsWith("]")) ||
+(candidate.startsWith('"') && candidate.endsWith('"'))
+);
+if (!looksLikeJSON) {
+break;
+}
+
+try {
+const parsed = JSON.parse(candidate);
+if (typeof parsed === "string") {
+normalized = parsed;
+continue;
+}
+if (parsed && typeof parsed === "object") {
+if (typeof parsed.text === "string") {
+normalized = parsed.text;
+continue;
+}
+if (typeof parsed.message === "string") {
+normalized = parsed.message;
+continue;
+}
+}
+break;
+} catch (_) {
+break;
+}
+}
+
+return normalized
+.replace(/\r\n/g, "\n")
+.replace(/\\r\\n/g, "\n")
+.replace(/\\n/g, "\n")
+.replace(/\\"/g, '"')
+.replace(/\\'/g, "'")
+.trim();
+}
+
+function normalizeMsgID(rawID) {
+const value = String(rawID || "").trim();
+if (!value) {
+return "";
+}
+
+let normalized = value;
+for (let i = 0; i < 3; i++) {
+const candidate = normalized.trim();
+if (!(candidate.startsWith('"') && candidate.endsWith('"'))) {
+break;
+}
+
+try {
+const parsed = JSON.parse(candidate);
+if (typeof parsed !== "string") {
+break;
+}
+normalized = parsed;
+continue;
+} catch (_) {
+normalized = candidate.slice(1, -1);
+}
+}
+
+return String(normalized || "").trim();
+}
+
+function normalizeMessages(messages) {
+if (!Array.isArray(messages)) {
+return [];
+}
+
+return messages
+.map((message) => {
+const jid = normalizeJID(message.jid || message.JID);
+const msgID = normalizeMsgID(message.msg_id || message.msgID || message.MsgID || "");
+if (!jid || !msgID) {
+return null;
+}
+
+const fromMe = typeof message.from_me === "boolean"
+? message.from_me
+: typeof message.fromMe === "boolean"
+? message.fromMe
+: typeof message.FromMe === "boolean"
+? message.FromMe
+: false;
+
+const readValue = typeof message.read === "boolean"
+? message.read
+: typeof message.Read === "boolean"
+? message.Read
+: false;
+
+return {
+jid,
+msg_id: msgID,
+name: normalizeMessageText(message.name || message.full_name || message.FullName || ""),
+push_name: normalizeMessageText(message.push_name || message.pushName || message.PushName || ""),
+number: normalizeMessageText(message.number || message.Number || ""),
+message: normalizeMessageText(message.message || message.Message || message.text || message.Text || ""),
+received_at: Number(message.received_at || message.ReceivedAt || 0),
+from_me: fromMe,
+read: fromMe ? true : readValue,
+};
+})
+.filter((message) => message !== null);
+}
+
+function formatDateTime(unixSeconds) {
+const value = Number(unixSeconds);
+if (!value) {
+return "-";
+}
+
+const date = new Date(value * 1000);
+if (Number.isNaN(date.getTime())) {
+return "-";
+}
+
+return date.toLocaleString("en-US", {
+year: "numeric",
+month: "short",
+day: "2-digit",
+hour: "2-digit",
+minute: "2-digit",
+});
+}
+
+function formatDateShort(unixSeconds) {
+const value = Number(unixSeconds);
+if (!value) {
+return "--";
+}
+
+const date = new Date(value * 1000);
+if (Number.isNaN(date.getTime())) {
+return "--";
+}
+
+return date.toLocaleString("en-US", {
+month: "short",
+day: "2-digit",
+hour: "2-digit",
+minute: "2-digit",
+});
+}
+
+function truncateMessage(content, maxLength = 86) {
+const text = String(content || "").trim();
+if (!text) {
+return "No message content";
+}
+if (text.length <= maxLength) {
+return text;
+}
+return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function parseContactWrapper(rawMessage) {
+const normalized = normalizeMessageText(rawMessage);
+if (!normalized) {
+return null;
+}
+
+const hasWrapperStart = /^\s*;;;\s*Contact info:/i.test(normalized);
+const hasWrapperEnd = /;;;\s*$/i.test(normalized);
+if (!hasWrapperStart || !hasWrapperEnd) {
+return null;
+}
+
+const inner = normalized
+.replace(/^\s*;;;\s*Contact info:\s*/i, "")
+.replace(/\s*;;;\s*$/i, "")
+.trim();
+
+const contactInfo = { name: "", fullName: "", phone: "" };
+inner.split("\n").forEach((line) => {
+const cleanLine = line.trim();
+if (!cleanLine) {
+return;
+}
+const colonIndex = cleanLine.indexOf(":");
+if (colonIndex < 0) {
+return;
+}
+const key = cleanLine.slice(0, colonIndex).trim().toLowerCase();
+const value = cleanLine.slice(colonIndex + 1).trim();
+
+if (key === "name") {
+contactInfo.name = value;
+return;
+}
+if (key === "full name" || key === "fullname") {
+contactInfo.fullName = value;
+return;
+}
+if (key === "phone" || key === "waid" || key === "number") {
+contactInfo.phone = value;
+}
+});
+
+return {
+...contactInfo,
+displayName: contactInfo.fullName || contactInfo.name || contactInfo.phone || "Contact",
+};
+}
+
+function buildPreviewMessage(latestMessage) {
+if (!latestMessage) {
+return "No message content";
+}
+
+const actorPrefix = latestMessage.from_me ? "Me: " : "Receiver: ";
+const messageText = normalizeMessageText(latestMessage.message);
+const contactData = parseContactWrapper(messageText);
+if (contactData) {
+const phonePart = contactData.phone ? ` (${contactData.phone})` : "";
+return truncateMessage(`${actorPrefix}[Contact] ${contactData.displayName}${phonePart}`);
+}
+
+return truncateMessage(`${actorPrefix}${messageText || ""}`);
+}
+
+function displayName(thread) {
+return thread.full_name || thread.push_name || thread.number || thread.jid || "Unknown";
+}
+
+function buildThreads(messages) {
+const grouped = new Map();
+
+messages.forEach((message) => {
+if (!grouped.has(message.jid)) {
+grouped.set(message.jid, {
+jid: message.jid,
+full_name: "",
+push_name: "",
+number: "",
+messages: [],
+unread_count: 0,
+last_received_at: 0,
+preview: "",
+});
+}
+
+const thread = grouped.get(message.jid);
+thread.messages.push(message);
+if (!thread.full_name && message.name) {
+thread.full_name = message.name;
+}
+if (!thread.push_name && message.push_name) {
+thread.push_name = message.push_name;
+}
+if (!thread.number && message.number) {
+thread.number = message.number;
+}
+});
+
+const threads = [];
+grouped.forEach((thread) => {
+thread.messages.sort((a, b) => a.received_at - b.received_at);
+const latest = thread.messages[thread.messages.length - 1];
+thread.last_received_at = latest ? latest.received_at : 0;
+thread.preview = buildPreviewMessage(latest);
+thread.unread_count = thread.messages.reduce((count, item) => count + (!item.from_me && !item.read ? 1 : 0), 0);
+threads.push(thread);
+});
+
+threads.sort((a, b) => b.last_received_at - a.last_received_at);
+return threads;
+}
+
+function clearFeedbackTimers() {
+if (state.feedbackShowTimerId) {
+window.clearTimeout(state.feedbackShowTimerId);
+state.feedbackShowTimerId = 0;
+}
+if (state.feedbackHideTimerId) {
+window.clearTimeout(state.feedbackHideTimerId);
+state.feedbackHideTimerId = 0;
+}
+if (state.feedbackAutoHideTimerId) {
+window.clearTimeout(state.feedbackAutoHideTimerId);
+state.feedbackAutoHideTimerId = 0;
+}
+}
+
+function applyFeedbackState(message, isError, hidden) {
+ui.feedbackAlert.classList.remove("is-warning", "is-error");
+if (!hidden && isError) {
+ui.feedbackAlert.classList.add("is-error");
+}
+
+ui.feedbackAlert.textContent = hidden ? "" : message;
+ui.feedbackAlert.classList.toggle("is-hidden", hidden);
+}
+
+function setFeedback(message, isError) {
+clearFeedbackTimers();
+
+if (!message) {
+state.feedbackHideTimerId = window.setTimeout(() => {
+applyFeedbackState("", false, true);
+state.feedbackHideTimerId = 0;
+}, FEEDBACK_HIDE_DELAY_MS);
+return;
+}
+
+state.feedbackShowTimerId = window.setTimeout(() => {
+applyFeedbackState(message, isError, false);
+state.feedbackShowTimerId = 0;
+
+state.feedbackAutoHideTimerId = window.setTimeout(() => {
+setFeedback("", false);
+}, FEEDBACK_AUTO_HIDE_MS);
+}, FEEDBACK_SHOW_DELAY_MS);
+}
+
+function setModalFeedback(message, isError) {
+if (!message) {
+ui.operatorModalAlert.className = "alert d-none mt-3 py-2 px-3 mb-0";
+ui.operatorModalAlert.textContent = "";
+return;
+}
+
+ui.operatorModalAlert.textContent = message;
+ui.operatorModalAlert.className = `alert mt-3 py-2 px-3 mb-0 ${isError ? "alert-danger" : "alert-success"}`;
+}
+
+function getSelectedThread() {
+return state.threads.find((thread) => thread.jid === state.selectedJID);
+}
+
+function setComposerState() {
+const selectedThread = getSelectedThread();
+const hasSelectedThread = Boolean(selectedThread);
+const disabled = !hasSelectedThread || state.isBusy;
+
+ui.chatInput.disabled = disabled;
+ui.sendChatBtn.disabled = disabled;
+
+if (!hasSelectedThread) {
+ui.chatInput.placeholder = "Select a conversation to send a message";
+ui.chatInputHint.textContent = "Select a thread to enable outgoing messages.";
+return;
+}
+
+ui.chatInput.placeholder = "Type a message...";
+const targetNumber = resolveThreadNumber(selectedThread, state.selectedJID);
+ui.chatInputHint.textContent = targetNumber
+? `Sending to ${targetNumber}`
+: `Sending to ${state.selectedJID}`;
+}
+
+function updateThreadsToggleLabel() {
+ui.toggleThreadsBtn.textContent = state.threadsCollapsed ? "Show Threads" : "Hide Threads";
+}
+
+function setThreadsCollapsed(isCollapsed) {
+state.threadsCollapsed = Boolean(isCollapsed);
+ui.workspaceLayout.classList.toggle("threads-hidden", state.threadsCollapsed);
+updateThreadsToggleLabel();
+}
+
+function setBusy(isBusy, text) {
+state.isBusy = isBusy;
+ui.busyState.classList.toggle("is-hidden", !isBusy);
+ui.busyStateText.textContent = text || "Working...";
+
+const actionButtons = document.querySelectorAll(".js-action");
+actionButtons.forEach((button) => {
+button.disabled = isBusy;
+});
+
+setComposerState();
+}
+
+function createLocalMessageID() {
+return `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function resolveThreadNumber(thread, fallbackJID) {
+const explicitNumber = thread && thread.number ? String(thread.number).trim() : "";
+if (explicitNumber) {
+const explicitSeparatorIndex = explicitNumber.indexOf("@");
+if (explicitSeparatorIndex > 0) {
+return explicitNumber.slice(0, explicitSeparatorIndex);
+}
+return explicitNumber;
+}
+
+const normalizedJID = normalizeJID(fallbackJID);
+const separatorIndex = normalizedJID.indexOf("@");
+if (separatorIndex <= 0) {
+return normalizedJID;
+}
+
+return normalizedJID.slice(0, separatorIndex);
+}
+
+function appendLocalOutgoingMessage(jid, text) {
+const normalizedJID = normalizeJID(jid);
+if (!normalizedJID) {
+return;
+}
+
+const thread = getSelectedThread();
+state.messages.push({
+jid: normalizedJID,
+msg_id: createLocalMessageID(),
+name: normalizeMessageText(thread && thread.full_name ? thread.full_name : ""),
+push_name: normalizeMessageText(thread && thread.push_name ? thread.push_name : ""),
+number: resolveThreadNumber(thread, normalizedJID),
+message: normalizeMessageText(text),
+received_at: Math.floor(Date.now() / 1000),
+from_me: true,
+read: true,
+});
+}
+
+function renderOperatorAddress() {
+ui.operatorAddressText.textContent = state.operatorAddress || "Not configured";
+}
+
+function renderThreadSummary() {
+ui.threadSummaryText.textContent = `${state.threads.length} threads | ${state.messages.length} messages`;
+ui.threadCountBadge.textContent = String(state.threads.length);
+}
+
+function renderThreadList() {
+ui.threadList.innerHTML = "";
+
+if (!state.threads.length) {
+const empty = document.createElement("div");
+empty.className = "thread-empty";
+empty.textContent = "No inbox conversations yet.";
+ui.threadList.appendChild(empty);
+return;
+}
+
+state.threads.forEach((thread) => {
+const button = document.createElement("button");
+button.type = "button";
+button.className = "thread-item js-action";
+button.dataset.jid = thread.jid;
+if (thread.jid === state.selectedJID) {
+button.classList.add("active");
+}
+
+const header = document.createElement("div");
+header.className = "thread-head";
+
+const name = document.createElement("p");
+name.className = "thread-name";
+name.textContent = displayName(thread);
+
+const time = document.createElement("span");
+time.className = "thread-time";
+time.textContent = formatDateShort(thread.last_received_at);
+
+header.appendChild(name);
+header.appendChild(time);
+
+const sub = document.createElement("p");
+sub.className = "thread-sub";
+sub.textContent = thread.jid;
+
+const preview = document.createElement("p");
+preview.className = "thread-preview";
+preview.textContent = thread.preview;
+
+const footer = document.createElement("div");
+footer.className = "thread-foot";
+
+if (thread.unread_count > 0) {
+const badge = document.createElement("span");
+badge.className = "unread-badge";
+badge.textContent = String(thread.unread_count);
+footer.appendChild(badge);
+
+const markReadBtn = document.createElement("button");
+markReadBtn.type = "button";
+markReadBtn.className = "btn btn-tech-cyan js-action";
+markReadBtn.textContent = "Mark Read";
+markReadBtn.addEventListener("click", async (event) => {
+event.preventDefault();
+event.stopPropagation();
+await handleMarkThreadAsRead(thread.jid, {
+selectAfterMark: false,
+silent: false,
+});
+});
+footer.appendChild(markReadBtn);
+}
+
+button.appendChild(header);
+button.appendChild(sub);
+button.appendChild(preview);
+button.appendChild(footer);
+
+button.addEventListener("click", async () => {
+if (state.isBusy) {
+return;
+}
+
+if (thread.unread_count > 0) {
+await handleMarkThreadAsRead(thread.jid, {
+selectAfterMark: true,
+silent: true,
+});
+return;
+}
+
+state.selectedJID = thread.jid;
+renderThreadList();
+renderConversation();
+});
+
+ui.threadList.appendChild(button);
+});
+}
+
+function renderConversation(options = {}) {
+const {
+preserveScroll = false,
+previousScrollTop = 0,
+previousBottomOffset = 0,
+} = options;
+
+const thread = getSelectedThread();
+ui.conversationBody.innerHTML = "";
+
+if (!thread) {
+ui.conversationTitle.textContent = "Select a conversation";
+ui.conversationSubtitle.textContent = "Choose a thread to inspect messages.";
+ui.deleteJIDBtn.disabled = true;
+ui.chatInput.value = "";
+
+const empty = document.createElement("div");
+empty.className = "conversation-empty";
+empty.textContent = "Pick one thread from the left panel.";
+ui.conversationBody.appendChild(empty);
+setComposerState();
+return;
+}
+
+ui.conversationTitle.textContent = displayName(thread);
+ui.conversationSubtitle.textContent = `${thread.jid} | ${thread.number || "number unavailable"}`;
+ui.deleteJIDBtn.disabled = false;
+
+thread.messages.forEach((message) => {
+const messageText = normalizeMessageText(message.message);
+const contactData = parseContactWrapper(messageText);
+const card = document.createElement("article");
+card.className = `message-card ${message.from_me ? "from-me" : "from-receiver"}`;
+if (contactData) {
+card.classList.add("contact-info-bubble");
+}
+card.dataset.msgId = message.msg_id;
+
+const top = document.createElement("div");
+top.className = "message-top";
+
+const sender = document.createElement("p");
+sender.className = "message-sender";
+sender.textContent = message.from_me
+? "Me"
+: (message.name || message.push_name || message.number || "Receiver");
+
+const time = document.createElement("p");
+time.className = "message-time";
+time.textContent = formatDateTime(message.received_at);
+
+top.appendChild(sender);
+top.appendChild(time);
+card.appendChild(top);
+
+if (contactData) {
+const contactBox = document.createElement("div");
+contactBox.className = "contact-info-box";
+
+const kicker = document.createElement("p");
+kicker.className = "contact-info-kicker";
+kicker.textContent = "Contact Info";
+contactBox.appendChild(kicker);
+
+const appendContactRow = (label, value) => {
+if (!value) {
+return;
+}
+const row = document.createElement("p");
+row.className = "contact-info-row";
+
+const labelNode = document.createElement("span");
+labelNode.className = "contact-info-label";
+labelNode.textContent = label;
+
+const valueNode = document.createElement("span");
+valueNode.className = "contact-info-value";
+valueNode.textContent = value;
+
+row.appendChild(labelNode);
+row.appendChild(valueNode);
+contactBox.appendChild(row);
+};
+
+appendContactRow("Name", contactData.name);
+appendContactRow("Full Name", contactData.fullName);
+appendContactRow("Phone", contactData.phone);
+
+if (!contactData.name && !contactData.fullName && !contactData.phone) {
+const fallback = document.createElement("p");
+fallback.className = "message-content";
+fallback.textContent = messageText || "No message content";
+contactBox.appendChild(fallback);
+}
+
+card.appendChild(contactBox);
+} else {
+const content = document.createElement("p");
+content.className = "message-content";
+content.textContent = messageText || "No message content";
+card.appendChild(content);
+}
+
+const status = document.createElement("span");
+if (message.from_me) {
+status.className = "message-status read";
+status.textContent = "Sent";
+} else {
+status.className = `message-status ${message.read ? "read" : "unread"}`;
+status.textContent = message.read ? "Read" : "Unread";
+}
+card.appendChild(status);
+
+const actions = document.createElement("div");
+actions.className = "message-actions";
+
+if (!message.from_me && !message.read) {
+const markReadBtn = document.createElement("button");
+markReadBtn.type = "button";
+markReadBtn.className = "btn btn-tech-cyan btn-sm js-action";
+markReadBtn.textContent = "Mark Read";
+markReadBtn.addEventListener("click", () => {
+handleMarkMessageAsRead(message.msg_id, thread.jid);
+});
+actions.appendChild(markReadBtn);
+}
+
+const deleteBtn = document.createElement("button");
+deleteBtn.type = "button";
+deleteBtn.className = "btn btn-tech-danger btn-sm js-action";
+deleteBtn.textContent = "Delete";
+deleteBtn.addEventListener("click", () => {
+handleDeleteMessage(message.msg_id, thread.jid);
+});
+actions.appendChild(deleteBtn);
+
+card.appendChild(actions);
+ui.conversationBody.appendChild(card);
+});
+
+setComposerState();
+
+if (preserveScroll) {
+const maxConversationScroll = Math.max(0, ui.conversationBody.scrollHeight - ui.conversationBody.clientHeight);
+const isNearBottom = previousBottomOffset <= 24;
+ui.conversationBody.scrollTop = isNearBottom
+? maxConversationScroll
+: Math.min(previousScrollTop, maxConversationScroll);
+return;
+}
+
+ui.conversationBody.scrollTop = ui.conversationBody.scrollHeight;
+}
+
+function captureScrollSnapshot() {
+const threadScrollTop = ui.threadList ? ui.threadList.scrollTop : 0;
+const conversationScrollTop = ui.conversationBody ? ui.conversationBody.scrollTop : 0;
+const conversationBottomOffset = ui.conversationBody
+? Math.max(0, ui.conversationBody.scrollHeight - ui.conversationBody.clientHeight - conversationScrollTop)
+: 0;
+
+return {
+selectedJID: state.selectedJID,
+threadScrollTop,
+conversationScrollTop,
+conversationBottomOffset,
+};
+}
+
+function restoreScrollSnapshot(snapshot, preserveConversationScroll) {
+if (!snapshot) {
+return;
+}
+
+if (ui.threadList) {
+const maxThreadScroll = Math.max(0, ui.threadList.scrollHeight - ui.threadList.clientHeight);
+ui.threadList.scrollTop = Math.min(snapshot.threadScrollTop, maxThreadScroll);
+}
+
+if (preserveConversationScroll && ui.conversationBody) {
+const maxConversationScroll = Math.max(0, ui.conversationBody.scrollHeight - ui.conversationBody.clientHeight);
+const isNearBottom = snapshot.conversationBottomOffset <= 24;
+ui.conversationBody.scrollTop = isNearBottom
+? maxConversationScroll
+: Math.min(snapshot.conversationScrollTop, maxConversationScroll);
+}
+}
+
+function rebuildView(keepSelection = true, options = {}) {
+const {
+preserveScroll = false,
+snapshot = null,
+} = options;
+
+const previousSelection = state.selectedJID;
+state.threads = buildThreads(state.messages);
+
+if (keepSelection && previousSelection && state.threads.some((thread) => thread.jid === previousSelection)) {
+state.selectedJID = previousSelection;
+} else if (state.threads.length > 0) {
+state.selectedJID = state.threads[0].jid;
+} else {
+state.selectedJID = "";
+}
+
+renderOperatorAddress();
+renderThreadSummary();
+renderThreadList();
+
+const preserveConversationScroll = preserveScroll
+&& snapshot
+&& snapshot.selectedJID
+&& snapshot.selectedJID === state.selectedJID;
+
+renderConversation({
+preserveScroll: preserveConversationScroll,
+previousScrollTop: snapshot ? snapshot.conversationScrollTop : 0,
+previousBottomOffset: snapshot ? snapshot.conversationBottomOffset : 0,
+});
+
+restoreScrollSnapshot(snapshot, preserveConversationScroll);
+}
+
+async function runAction(label, action, errorPrefix, onError) {
+setBusy(true, label);
+try {
+await action();
+return true;
+} catch (error) {
+const message = error instanceof Error ? error.message : "Unknown error";
+setFeedback(`${errorPrefix}: ${message}`, true);
+if (typeof onError === "function") {
+onError(message);
+}
+return false;
+} finally {
+setBusy(false, "");
+}
+}
+
+async function requestJSON(url, options) {
+const response = await fetch(url, options);
+let result = {};
+
+try {
+result = await response.json();
+} catch (_) {
+result = {};
+}
+
+if (!response.ok || !result.success) {
+throw new Error(result.message || "Request failed");
+}
+
+return result;
+}
+
+async function syncInboxFromServer() {
+const result = await requestJSON(`${inboxBaseURL}/`, { method: "GET" });
+state.messages = normalizeMessages(result.data);
+}
+
+async function syncUnreadByJID(jid) {
+if (!jid) {
+return;
+}
+
+const result = await requestJSON(`${inboxBaseURL}/unread/${encodeURIComponent(jid)}`, { method: "GET" });
+const unreadIDs = Array.isArray(result.data)
+? result.data.map((id) => normalizeMsgID(id)).filter((id) => Boolean(id))
+: [];
+const unreadSet = new Set(unreadIDs);
+
+state.messages = state.messages.map((message) => {
+if (message.jid !== jid) {
+return message;
+}
+
+return {
+...message,
+read: !unreadSet.has(normalizeMsgID(message.msg_id)),
+};
+});
+}
+
+async function fetchUnreadMsgIDsByJID(jid) {
+if (!jid) {
+return [];
+}
+
+const result = await requestJSON(`${inboxBaseURL}/unread/${encodeURIComponent(jid)}`, { method: "GET" });
+return Array.isArray(result.data)
+? result.data.map((id) => normalizeMsgID(id)).filter((id) => Boolean(id))
+: [];
+}
+
+async function syncUnreadAllThreads() {
+const jidSet = new Set(state.messages.map((message) => message.jid));
+for (const jid of jidSet) {
+await syncUnreadByJID(jid);
+}
+}
+
+async function refreshOperatorAddress() {
+const result = await requestJSON(`${inboxBaseURL}/address`, { method: "GET" });
+state.operatorAddress = normalizeAddress(result.data);
+}
+
+async function handleRefreshInbox() {
+setFeedback("", false);
+const refreshSnapshot = captureScrollSnapshot();
+await runAction(
+"Refreshing inbox data...",
+async () => {
+await syncInboxFromServer();
+await syncUnreadAllThreads();
+rebuildView(true, {
+preserveScroll: true,
+snapshot: refreshSnapshot,
+});
+setFeedback("Inbox data refreshed successfully.", false);
+},
+"Failed to refresh inbox"
+);
+}
+
+async function handleDeleteAllMessages() {
+if (!state.messages.length) {
+setFeedback("No messages available to delete.", true);
+return;
+}
+
+if (!window.confirm("Delete all inbox messages? This action cannot be undone.")) {
+return;
+}
+
+await runAction(
+"Deleting all messages...",
+async () => {
+await requestJSON(`${inboxBaseURL}/all`, { method: "DELETE" });
+await syncInboxFromServer();
+state.selectedJID = "";
+rebuildView(false);
+setFeedback("All inbox messages deleted.", false);
+},
+"Failed to delete all messages"
+);
+}
+
+async function handleDeleteSelectedJID() {
+const jid = state.selectedJID;
+if (!jid) {
+setFeedback("Select a conversation before deleting by JID.", true);
+return;
+}
+
+if (!window.confirm(`Delete all messages for ${jid}?`)) {
+return;
+}
+
+await runAction(
+"Deleting conversation messages...",
+async () => {
+await requestJSON(`${inboxBaseURL}/jid`, {
+method: "DELETE",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({ jid }),
+});
+
+await syncInboxFromServer();
+rebuildView(false);
+setFeedback(`Conversation ${jid} deleted.`, false);
+},
+"Failed to delete conversation"
+);
+}
+
+async function handleDeleteMessage(msgID, jid) {
+const normalizedMsgID = normalizeMsgID(msgID);
+if (!normalizedMsgID) {
+return;
+}
+
+if (!window.confirm("Delete this message?")) {
+return;
+}
+
+await runAction(
+"Deleting message...",
+async () => {
+await requestJSON(`${inboxBaseURL}/`, {
+method: "DELETE",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({ msg_id: normalizedMsgID }),
+});
+
+await syncInboxFromServer();
+await syncUnreadByJID(jid);
+rebuildView(true);
+setFeedback("Message deleted successfully.", false);
+},
+"Failed to delete message"
+);
+}
+
+async function handleMarkMessageAsRead(msgID, jid) {
+const normalizedMsgID = normalizeMsgID(msgID);
+if (!normalizedMsgID) {
+return;
+}
+
+await runAction(
+"Marking message as read...",
+async () => {
+await requestJSON(`${inboxBaseURL}/read/${encodeURIComponent(normalizedMsgID)}`, { method: "GET" });
+
+state.messages = state.messages.map((message) => {
+if (message.jid !== jid) {
+return message;
+}
+
+if (normalizeMsgID(message.msg_id) !== normalizedMsgID) {
+return message;
+}
+
+return {
+...message,
+read: true,
+};
+});
+
+await syncUnreadByJID(jid);
+rebuildView(true);
+setFeedback("Message marked as read.", false);
+},
+"Failed to mark message as read"
+);
+}
+
+async function handleMarkThreadAsRead(jid, options = {}) {
+if (!jid) {
+return;
+}
+
+const {
+selectAfterMark = false,
+silent = false,
+} = options;
+
+await runAction(
+selectAfterMark ? "Opening conversation and marking unread messages..." : "Marking thread as read...",
+async () => {
+const localThread = state.threads.find((thread) => thread.jid === jid);
+const localUnreadMsgIDs = localThread
+? localThread.messages
+.filter((message) => !message.from_me && !message.read)
+.map((message) => normalizeMsgID(message.msg_id))
+.filter((id) => Boolean(id))
+: [];
+
+let unreadMsgIDs = localUnreadMsgIDs;
+if (!unreadMsgIDs.length) {
+unreadMsgIDs = await fetchUnreadMsgIDsByJID(jid);
+}
+
+const uniqueUnreadMsgIDs = Array.from(
+new Set(unreadMsgIDs.map((id) => normalizeMsgID(id)).filter((id) => Boolean(id)))
+);
+
+for (const msgID of uniqueUnreadMsgIDs) {
+await requestJSON(`${inboxBaseURL}/read/${encodeURIComponent(msgID)}`, { method: "GET" });
+}
+
+if (uniqueUnreadMsgIDs.length > 0) {
+const markedSet = new Set(uniqueUnreadMsgIDs);
+state.messages = state.messages.map((message) => {
+if (message.jid !== jid) {
+return message;
+}
+
+if (!markedSet.has(normalizeMsgID(message.msg_id))) {
+return message;
+}
+
+return {
+...message,
+read: true,
+};
+});
+}
+
+await syncUnreadByJID(jid);
+if (selectAfterMark) {
+state.selectedJID = jid;
+}
+
+rebuildView(true);
+
+if (!silent) {
+if (uniqueUnreadMsgIDs.length > 0) {
+setFeedback(
+selectAfterMark
+? "Conversation opened and unread messages marked as read."
+: "Unread messages for this user are marked as read.",
+false
+);
+} else if (selectAfterMark) {
+setFeedback("Conversation opened.", false);
+}
+}
+},
+"Failed to mark thread as read"
+);
+}
+
+async function handleSaveOperatorAddress() {
+const number = ui.operatorNumberInput.value.trim();
+if (!number) {
+setModalFeedback("Please input a valid operator number or JID.", true);
+return;
+}
+
+setModalFeedback("", false);
+await runAction(
+"Saving operator address...",
+async () => {
+await requestJSON(`${inboxBaseURL}/address`, {
+method: "PUT",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({ number }),
+});
+
+await refreshOperatorAddress();
+renderOperatorAddress();
+setModalFeedback("Operator address saved.", false);
+setFeedback("Operator address updated successfully.", false);
+operatorModal.hide();
+},
+"Failed to save operator address",
+(message) => setModalFeedback(message, true)
+);
+}
+
+async function handleDeleteOperatorAddress() {
+if (!state.operatorAddress) {
+setModalFeedback("Operator address is already empty.", true);
+return;
+}
+
+if (!window.confirm("Delete current operator address?")) {
+return;
+}
+
+setModalFeedback("", false);
+await runAction(
+"Deleting operator address...",
+async () => {
+await requestJSON(`${inboxBaseURL}/address`, { method: "DELETE" });
+await refreshOperatorAddress();
+renderOperatorAddress();
+ui.operatorNumberInput.value = "";
+setModalFeedback("Operator address deleted.", false);
+setFeedback("Operator address deleted successfully.", false);
+},
+"Failed to delete operator address",
+(message) => setModalFeedback(message, true)
+);
+}
+
+async function handleSendMessageFromComposer() {
+const targetJID = normalizeJID(state.selectedJID);
+if (!targetJID) {
+setFeedback("Select a conversation before sending a message.", true);
+return;
+}
+
+const selectedThread = getSelectedThread();
+const targetNumber = resolveThreadNumber(selectedThread, targetJID);
+if (!targetNumber) {
+setFeedback("Failed to resolve target number for this conversation.", true);
+return;
+}
+
+const outgoingMessage = normalizeMessageText(ui.chatInput.value);
+if (!outgoingMessage) {
+setFeedback("Message cannot be empty.", true);
+ui.chatInput.focus();
+return;
+}
+
+await runAction(
+"Sending message...",
+async () => {
+await requestJSON(sendMessageEndpoint, {
+method: "POST",
+headers: {
+"Accept": "application/json",
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+number: targetNumber,
+message: outgoingMessage,
+store: true,
+}),
+});
+
+appendLocalOutgoingMessage(targetJID, outgoingMessage);
+ui.chatInput.value = "";
+rebuildView(true);
+setFeedback("Message sent successfully.", false);
+
+window.requestAnimationFrame(() => {
+if (!ui.chatInput.disabled) {
+ui.chatInput.focus();
+}
+});
+},
+"Failed to send message"
+);
+}
+
+function bindEvents() {
+ui.refreshInboxBtn.addEventListener("click", handleRefreshInbox);
+ui.deleteAllBtn.addEventListener("click", handleDeleteAllMessages);
+ui.deleteJIDBtn.addEventListener("click", handleDeleteSelectedJID);
+ui.sendChatBtn.addEventListener("click", handleSendMessageFromComposer);
+ui.toggleThreadsBtn.addEventListener("click", () => {
+setThreadsCollapsed(!state.threadsCollapsed);
+});
+ui.chatInput.addEventListener("keydown", (event) => {
+if (event.key !== "Enter" || event.shiftKey) {
+return;
+}
+
+event.preventDefault();
+if (ui.sendChatBtn.disabled) {
+return;
+}
+
+handleSendMessageFromComposer();
+});
+ui.saveOperatorBtn.addEventListener("click", handleSaveOperatorAddress);
+ui.deleteOperatorBtn.addEventListener("click", handleDeleteOperatorAddress);
+ui.operatorModal.addEventListener("show.bs.modal", () => {
+ui.operatorNumberInput.value = state.operatorAddress;
+setModalFeedback("", false);
+});
+}
+
+function init() {
+bindEvents();
+renderOperatorAddress();
+
+const mobileDefaultCollapse = window.matchMedia("(max-width: 991.98px)").matches;
+setThreadsCollapsed(mobileDefaultCollapse);
+
+// Keep first-page hydration SSR-only; API sync is done after mutations or manual refresh.
+rebuildView(false);
+}
+
+init();
+</script>
+</body>
+</html>

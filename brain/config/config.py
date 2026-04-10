@@ -28,5 +28,11 @@ class Config:
     
     GIN_SERVER_PORT = os.getenv('GIN_SERVER_PORT', '8080')
     GIN_SERVER_HOST = os.getenv('GIN_SERVER_HOST', 'localhost')
+    
+    # Anthropic API configuration
+    ANTHROPIC_BASE_URL = os.getenv('ANTHROPIC_BASE_URL', 'http://localhost:11434')
+    ANTHROPIC_AUTH_TOKEN = os.getenv('ANTHROPIC_AUTH_TOKEN', 'ollama')
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+    
 
     # Other configurations can be added here as needed

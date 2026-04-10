@@ -6,24 +6,82 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
-type ContactVCardInfo struct {
-	N    string
-	FN   string
-	WAID string
+func normalizeCommandIntentToken(token string) string {
+	token = strings.TrimSpace(strings.ToLower(token))
+	if token == "" {
+		return ""
+	}
+
+	for token != "" {
+		r, size := utf8.DecodeRuneInString(token)
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			break
+		}
+		token = token[size:]
+	}
+
+	token = strings.TrimFunc(token, func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r))
+	})
+
+	return token
 }
 
-func (h *Agents) procTextMessage(v *events.Message) {
-	text, err := h.handleMessage(v)
-	if err != nil {
-		if errors.Is(err, errIgnoreOwnMessage) || errors.Is(err, errEmptyTextMessage) {
-			return
+func commandSuggestionByName() map[string]string {
+	commands := registeredCommands()
+	out := make(map[string]string, len(commands.All()))
+	for _, cmd := range commands.All() {
+		commandName := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(cmd.Command)), "/")
+		if commandName == "" {
+			continue
 		}
-		return
+		out[commandName] = cmd.Command
 	}
+
+	return out
+}
+
+func detectMalformedCommandIntent(text string) (bool, string) {
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText == "" || strings.HasPrefix(trimmedText, "/") {
+		return false, ""
+	}
+
+	parts := strings.Fields(trimmedText)
+	if len(parts) == 0 {
+		return false, ""
+	}
+
+	firstToken := parts[0]
+	normalizedToken := normalizeCommandIntentToken(firstToken)
+	if normalizedToken == "" {
+		return false, ""
+	}
+
+	knownCommands := commandSuggestionByName()
+	suggestedCommand, known := knownCommands[normalizedToken]
+	if !known {
+		return false, ""
+	}
+
+	// Exact plain words like "help" are considered command attempts only when
+	// they appear as standalone input to avoid hijacking normal sentences.
+	if firstToken == normalizedToken && len(parts) > 1 {
+		return false, ""
+	}
+
+	return true, suggestedCommand
+}
+
+func (h *Agents) procTextMessage(v *events.Message, text string) {
 
 	log.Printf("Received message from %s: %s", v.Info.Chat.String(), text)
 
@@ -36,9 +94,24 @@ func (h *Agents) procTextMessage(v *events.Message) {
 		if err := h.waclient.SendText(
 			context.Background(),
 			v.Info.Chat.String(),
-			fmt.Sprintf("Unknown command. Type %s to see available commands.", commands.Help.Command),
+			&waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Unknown command. Type %s to see available commands.", commands.Help.Command)),
+			},
 		); err != nil {
 			log.Printf("failed to send unknown command message: %v", err)
+		}
+		return
+	}
+
+	if malformed, suggestedCommand := detectMalformedCommandIntent(text); malformed {
+		hintMessage := fmt.Sprintf(
+			"It looks like you are trying to use a command. Use '/' prefix. Example: %s",
+			suggestedCommand,
+		)
+		if err := h.waclient.SendText(context.Background(), v.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(hintMessage),
+		}); err != nil {
+			log.Printf("failed to send malformed command hint: %v", err)
 		}
 		return
 	}
@@ -63,7 +136,7 @@ func parseContactVCard(vcard string) (*ContactVCardInfo, error) {
 		value := line[idx+1:]
 
 		parts := strings.Split(left, ";")
-		key := strings.ToUpper(strings.TrimSpace(parts[0]))
+		key := normalizeVCardPropertyName(parts[0])
 
 		switch key {
 		case "N":
@@ -82,6 +155,19 @@ func parseContactVCard(vcard string) (*ContactVCardInfo, error) {
 	}
 
 	return out, nil
+}
+
+func normalizeVCardPropertyName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	if dotIdx := strings.LastIndex(raw, "."); dotIdx >= 0 && dotIdx+1 < len(raw) {
+		raw = raw[dotIdx+1:]
+	}
+
+	return strings.ToUpper(strings.TrimSpace(raw))
 }
 
 func unfoldVCardLines(vcard string) []string {
@@ -153,29 +239,128 @@ func unescapeVCardValue(value string) string {
 	return replacer.Replace(strings.TrimSpace(value))
 }
 
+func appendUniqueNonEmpty(values []string, seen map[string]struct{}, raw string) []string {
+	normalized := strings.TrimSpace(raw)
+	if normalized == "" {
+		return values
+	}
+
+	if _, exists := seen[normalized]; exists {
+		return values
+	}
+
+	seen[normalized] = struct{}{}
+	return append(values, normalized)
+}
+
+func collectContactVCards(v *events.Message) []string {
+	if v == nil {
+		return nil
+	}
+
+	vcards := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+
+	if v.Message != nil && v.Message.ContactMessage != nil {
+		vcards = appendUniqueNonEmpty(vcards, seen, v.Message.ContactMessage.GetVcard())
+	}
+
+	if v.RawMessage != nil {
+		if rawContact := v.RawMessage.GetContactMessage(); rawContact != nil {
+			vcards = appendUniqueNonEmpty(vcards, seen, rawContact.GetVcard())
+		}
+	}
+
+	return vcards
+}
+
+func collectContactDisplayNames(v *events.Message) []string {
+	if v == nil {
+		return nil
+	}
+
+	displayNames := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+
+	if v.Message != nil && v.Message.ContactMessage != nil {
+		displayNames = appendUniqueNonEmpty(displayNames, seen, v.Message.ContactMessage.GetDisplayName())
+	}
+
+	if v.RawMessage != nil {
+		if rawContact := v.RawMessage.GetContactMessage(); rawContact != nil {
+			displayNames = appendUniqueNonEmpty(displayNames, seen, rawContact.GetDisplayName())
+		}
+	}
+
+	return displayNames
+}
+
+func firstNonEmpty(values []string) string {
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if normalized != "" {
+			return normalized
+		}
+	}
+
+	return ""
+}
+
 func (h *Agents) procContactMessage(v *events.Message) *ContactVCardInfo {
-	if v == nil || v.Message == nil || v.Message.ContactMessage == nil {
+	if v == nil {
 		return nil
 	}
 
-	vcard := strings.TrimSpace(v.Message.ContactMessage.GetVcard())
-	if vcard == "" {
+	vcards := collectContactVCards(v)
+	if len(vcards) == 0 {
 		return nil
 	}
 
-	info, err := parseContactVCard(vcard)
-	if err != nil {
+	var (
+		info       *ContactVCardInfo
+		parseError error
+	)
+
+	for _, vcard := range vcards {
+		info, parseError = parseContactVCard(vcard)
+		if parseError == nil {
+			break
+		}
+	}
+
+	if parseError != nil || info == nil {
 		if err := h.waclient.SendText(
 			context.Background(),
 			v.Info.Chat.String(),
-			"Received a contact message, but failed to parse contact info.",
+			&waE2E.Message{
+				Conversation: proto.String("Sorry, I couldn't parse the contact information you sent. Please make sure it's a valid vCard format."),
+			},
 		); err != nil {
 			log.Printf("failed to send unknown command message: %v", err)
+		}
+		if parseError != nil {
+			log.Printf("failed to parse contact vcard: %v", parseError)
 		}
 		return nil
 	}
 
+	if info.FN == "" {
+		if displayName := firstNonEmpty(collectContactDisplayNames(v)); displayName != "" {
+			info.FN = displayName
+		}
+	}
+
+	if info.N == "" && info.FN != "" {
+		info.N = info.FN
+	}
+
+	info.N = strings.ReplaceAll(info.N, ";", " ")
+
 	log.Printf("Received contact info:\nName: %s\nFull Name: %s\nPhone: %s", info.N, info.FN, info.WAID)
 
 	return info
+}
+
+func contactCardStringFormat(contact_info *ContactVCardInfo) string {
+	return fmt.Sprintf("Contact info:\nName: %s\nFull Name: %s\nPhone: %s", contact_info.N, contact_info.FN, contact_info.WAID)
 }

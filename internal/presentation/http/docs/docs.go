@@ -218,6 +218,9 @@ const docTemplate = `{
                 },
                 "number": {
                     "type": "string"
+                },
+                "store": {
+                    "type": "boolean"
                 }
             }
         },

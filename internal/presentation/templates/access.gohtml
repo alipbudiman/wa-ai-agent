@@ -147,6 +147,93 @@
 			font-size: 0.72rem;
 		}
 
+		.floating-loading {
+			position: fixed;
+			top: 0.95rem;
+			left: 50%;
+			transform: translate(-50%, -12px);
+			z-index: 1300;
+			display: flex;
+			align-items: center;
+			gap: 0.62rem;
+			max-width: min(560px, calc(100vw - 1.4rem));
+			padding: 0.72rem 0.95rem;
+			border: 1px solid rgba(0, 229, 255, 0.4);
+			background: rgba(0, 229, 255, 0.09);
+			backdrop-filter: blur(6px);
+			border-radius: 0.65rem;
+			color: #c9f7ff;
+			font-family: var(--font-mono);
+			font-size: 0.78rem;
+			letter-spacing: 0.03em;
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+		}
+
+		.floating-loading.show {
+			opacity: 1;
+			visibility: visible;
+			transform: translate(-50%, 0);
+		}
+
+		.floating-loading-dot {
+			width: 0.5rem;
+			height: 0.5rem;
+			border-radius: 50%;
+			background: var(--color-accent);
+			box-shadow: 0 0 10px rgba(212, 237, 49, 0.8);
+			flex-shrink: 0;
+		}
+
+		.feedback-toast {
+			position: fixed;
+			top: 1.05rem;
+			right: 1rem;
+			z-index: 1320;
+			min-width: 270px;
+			max-width: min(92vw, 460px);
+			padding: 0.7rem 0.9rem;
+			border: 1px solid rgba(0, 229, 255, 0.46);
+			background: rgba(0, 229, 255, 0.13);
+			color: #d8fbff;
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			letter-spacing: 0.03em;
+			border-radius: 0.62rem;
+			box-shadow: 0 14px 26px rgba(0, 0, 0, 0.42);
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+			pointer-events: none;
+			transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+		}
+
+		.feedback-toast.is-hidden {
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+		}
+
+		.feedback-toast:not(.is-hidden) {
+			opacity: 1;
+			visibility: visible;
+			transform: translateY(0);
+		}
+
+		.feedback-toast.is-warning {
+			border-color: rgba(255, 214, 107, 0.54);
+			background: rgba(255, 214, 107, 0.16);
+			color: #ffe8ad;
+		}
+
+		.feedback-toast.is-error {
+			border-color: rgba(255, 77, 95, 0.56);
+			background: rgba(255, 77, 95, 0.17);
+			color: #ffd0d5;
+		}
+
 		.access-table {
 			--bs-table-bg: transparent;
 			--bs-table-color: var(--color-text);
@@ -202,6 +289,19 @@
 		}
 
 		@media (max-width: 991.98px) {
+			.feedback-toast {
+				top: 0.85rem;
+				right: 0.7rem;
+				left: 0.7rem;
+				max-width: none;
+				min-width: 0;
+			}
+
+			.floating-loading {
+				top: 0.8rem;
+				max-width: calc(100vw - 1rem);
+			}
+
 			.section-title {
 				font-size: 0.98rem;
 			}
@@ -214,6 +314,13 @@
 	</style>
 </head>
 <body>
+	<div id="floatingLoading" class="floating-loading" role="status" aria-live="polite">
+		<span class="floating-loading-dot" aria-hidden="true"></span>
+		<span id="floatingLoadingText">Loading data...</span>
+	</div>
+
+	<div id="feedbackToast" class="feedback-toast is-hidden" role="alert"></div>
+
 	<main class="container tech-shell py-4 py-lg-5">
 		<section class="panel hero-panel rounded-3 p-3 p-md-4 mb-4">
 			<div class="d-flex flex-column flex-lg-row align-items-start justify-content-between gap-3">
@@ -249,7 +356,6 @@
 							<button type="submit" class="btn btn-tech-primary flex-grow-1" id="addButton">Add</button>
 							<button type="button" class="btn btn-tech-outline" id="resetButton">Reset</button>
 						</div>
-						<div class="alert d-none mt-3 py-2 px-3 mb-0" id="formMessage" role="alert"></div>
 					</form>
 				</section>
 			</div>
@@ -264,12 +370,7 @@
 						<span id="summaryText" class="text-muted-tech small">{{ len .AccessList }} access loaded</span>
 					</div>
 
-					<div id="loadingView" class="d-none align-items-center gap-2 mb-3 text-muted-tech small">
-						<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-						<span>Syncing data from API...</span>
-					</div>
-
-					<div class="table-responsive">
+					<div class="table-responsive" id="accessTableWrap">
 						<table class="table table-hover align-middle access-table">
 							<thead>
 								<tr>
@@ -312,6 +413,10 @@
 
 	<script>
 		const apiBaseURL = "{{ .AccessBaseURL }}" || "/api/access/";
+		const LOADING_HIDE_DELAY_MS = 90;
+		const FEEDBACK_SHOW_DELAY_MS = 120;
+		const FEEDBACK_HIDE_DELAY_MS = 220;
+		const FEEDBACK_AUTO_HIDE_MS = 4200;
 
 		const ui = {
 			form: document.getElementById("addAccessForm"),
@@ -321,28 +426,144 @@
 			addButton: document.getElementById("addButton"),
 			resetButton: document.getElementById("resetButton"),
 			refreshButton: document.getElementById("refreshButton"),
-			formMessage: document.getElementById("formMessage"),
-			loadingView: document.getElementById("loadingView"),
+			floatingLoading: document.getElementById("floatingLoading"),
+			floatingLoadingText: document.getElementById("floatingLoadingText"),
+			feedbackToast: document.getElementById("feedbackToast"),
+			accessTableWrap: document.getElementById("accessTableWrap"),
 			accessTableBody: document.getElementById("accessTableBody"),
 			summaryText: document.getElementById("summaryText"),
 		};
 
-		function setLoading(isLoading) {
-			ui.loadingView.classList.toggle("d-none", !isLoading);
-			ui.loadingView.classList.toggle("d-flex", isLoading);
-			ui.refreshButton.disabled = isLoading;
-			ui.addButton.disabled = isLoading;
-		}
+		const state = {
+			loadingCount: 0,
+			loadingHideTimerId: null,
+			feedbackShowTimerId: null,
+			feedbackHideTimerId: null,
+			feedbackAutoHideTimerId: null,
+		};
 
-		function setFormMessage(message, isError) {
-			if (!message) {
-				ui.formMessage.className = "alert d-none mt-3 py-2 px-3 mb-0";
-				ui.formMessage.textContent = "";
+		function clearLoadingHideTimer() {
+			if (!state.loadingHideTimerId) {
 				return;
 			}
 
-			ui.formMessage.textContent = message;
-			ui.formMessage.className = `alert mt-3 py-2 px-3 mb-0 ${isError ? "alert-danger" : "alert-success"}`;
+			window.clearTimeout(state.loadingHideTimerId);
+			state.loadingHideTimerId = null;
+		}
+
+		function showFloatingLoading(message) {
+			clearLoadingHideTimer();
+			state.loadingCount += 1;
+
+			if (message) {
+				ui.floatingLoadingText.textContent = message;
+			}
+
+			ui.floatingLoading.classList.add("show");
+		}
+
+		function hideFloatingLoading() {
+			state.loadingCount = Math.max(0, state.loadingCount - 1);
+			if (state.loadingCount > 0) {
+				return;
+			}
+
+			clearLoadingHideTimer();
+			state.loadingHideTimerId = window.setTimeout(() => {
+				ui.floatingLoading.classList.remove("show");
+				state.loadingHideTimerId = null;
+			}, LOADING_HIDE_DELAY_MS);
+		}
+
+		function setLoading(isLoading, message) {
+			ui.refreshButton.disabled = isLoading;
+			ui.addButton.disabled = isLoading;
+
+			const deleteButtons = ui.accessTableBody.querySelectorAll(".delete-btn");
+			deleteButtons.forEach((button) => {
+				button.disabled = isLoading;
+			});
+
+			if (isLoading) {
+				showFloatingLoading(message || "Syncing data from API...");
+				return;
+			}
+
+			hideFloatingLoading();
+		}
+
+		function clearFeedbackTimers() {
+			if (state.feedbackShowTimerId) {
+				window.clearTimeout(state.feedbackShowTimerId);
+				state.feedbackShowTimerId = null;
+			}
+
+			if (state.feedbackHideTimerId) {
+				window.clearTimeout(state.feedbackHideTimerId);
+				state.feedbackHideTimerId = null;
+			}
+
+			if (state.feedbackAutoHideTimerId) {
+				window.clearTimeout(state.feedbackAutoHideTimerId);
+				state.feedbackAutoHideTimerId = null;
+			}
+		}
+
+		function applyFeedbackState(message, tone, hidden) {
+			ui.feedbackToast.classList.remove("is-warning", "is-error");
+
+			if (!hidden) {
+				if (tone === "error") {
+					ui.feedbackToast.classList.add("is-error");
+				} else if (tone === "warning") {
+					ui.feedbackToast.classList.add("is-warning");
+				}
+			}
+
+			ui.feedbackToast.textContent = hidden ? "" : message;
+			ui.feedbackToast.classList.toggle("is-hidden", hidden);
+		}
+
+		function showFeedback(message, options = {}) {
+			const { tone = "info" } = options;
+			clearFeedbackTimers();
+
+			if (!message) {
+				state.feedbackHideTimerId = window.setTimeout(() => {
+					applyFeedbackState("", "info", true);
+					state.feedbackHideTimerId = null;
+				}, FEEDBACK_HIDE_DELAY_MS);
+				return;
+			}
+
+			state.feedbackShowTimerId = window.setTimeout(() => {
+				applyFeedbackState(message, tone, false);
+				state.feedbackShowTimerId = null;
+
+				state.feedbackAutoHideTimerId = window.setTimeout(() => {
+					showFeedback("");
+				}, FEEDBACK_AUTO_HIDE_MS);
+			}, FEEDBACK_SHOW_DELAY_MS);
+		}
+
+		function captureScrollSnapshot() {
+			return {
+				pageScrollY: window.scrollY || window.pageYOffset || 0,
+				tableScrollTop: ui.accessTableWrap ? ui.accessTableWrap.scrollTop : 0,
+			};
+		}
+
+		function restoreScrollSnapshot(snapshot) {
+			if (!snapshot) {
+				return;
+			}
+
+			window.scrollTo({ top: snapshot.pageScrollY, left: 0, behavior: "auto" });
+
+			if (ui.accessTableWrap) {
+				const maxScroll = Math.max(0, ui.accessTableWrap.scrollHeight - ui.accessTableWrap.clientHeight);
+				ui.accessTableWrap.scrollTop = Math.min(snapshot.tableScrollTop, maxScroll);
+			}
 		}
 
 		function formatDate(unixSeconds) {
@@ -484,14 +705,31 @@
 			return result;
 		}
 
-		async function fetchAccessList() {
-			setLoading(true);
+		async function fetchAccessList(options = {}) {
+			const {
+				preserveScroll = true,
+				showSuccessMessage = "",
+				loadingMessage = "Syncing data from API...",
+			} = options;
+
+			const refreshSnapshot = preserveScroll ? captureScrollSnapshot() : null;
+			setLoading(true, loadingMessage);
 			try {
 				const result = await requestJSON(apiBaseURL, { method: "GET" });
 				const rows = Array.isArray(result.data) ? result.data : [];
 				renderTable(rows);
+
+				if (refreshSnapshot) {
+					window.requestAnimationFrame(() => {
+						restoreScrollSnapshot(refreshSnapshot);
+					});
+				}
+
+				if (showSuccessMessage) {
+					showFeedback(showSuccessMessage, { tone: "info" });
+				}
 			} catch (error) {
-				setFormMessage(`Failed loading data: ${error.message}`, true);
+				showFeedback(`Failed loading data: ${error.message}`, { tone: "error" });
 			} finally {
 				setLoading(false);
 			}
@@ -499,7 +737,7 @@
 
 		async function addAccess(event) {
 			event.preventDefault();
-			setFormMessage("", false);
+			showFeedback("");
 
 			const name = ui.nameInput.value.trim();
 			const number = ui.numberInput.value.trim();
@@ -507,7 +745,7 @@
 			const expiredAtUnix = Math.floor(new Date(expiredAtRaw).getTime() / 1000);
 
 			if (!name || !number || !expiredAtRaw || Number.isNaN(expiredAtUnix)) {
-				setFormMessage("Please fill all fields with valid values.", true);
+				showFeedback("Please fill all fields with valid values.", { tone: "warning" });
 				return;
 			}
 
@@ -527,10 +765,10 @@
 				});
 
 				ui.form.reset();
-				setFormMessage("Access added successfully.", false);
-				await fetchAccessList();
+				showFeedback("Access added successfully.", { tone: "info" });
+				await fetchAccessList({ preserveScroll: true });
 			} catch (error) {
-				setFormMessage(`Failed to add access: ${error.message}`, true);
+				showFeedback(`Failed to add access: ${error.message}`, { tone: "error" });
 			} finally {
 				ui.addButton.disabled = false;
 			}
@@ -555,19 +793,25 @@
 					body: JSON.stringify({ number }),
 				});
 
-				setFormMessage("Access deleted successfully.", false);
-				await fetchAccessList();
+				showFeedback("Access deleted successfully.", { tone: "info" });
+				await fetchAccessList({ preserveScroll: true });
 			} catch (error) {
-				setFormMessage(`Failed to delete access: ${error.message}`, true);
+				showFeedback(`Failed to delete access: ${error.message}`, { tone: "error" });
 			}
 		}
 
 		ui.form.addEventListener("submit", addAccess);
 		ui.resetButton.addEventListener("click", () => {
 			ui.form.reset();
-			setFormMessage("", false);
+			showFeedback("");
 		});
-		ui.refreshButton.addEventListener("click", fetchAccessList);
+		ui.refreshButton.addEventListener("click", () => {
+			fetchAccessList({
+				preserveScroll: true,
+				showSuccessMessage: "Access list synchronized successfully.",
+				loadingMessage: "Syncing access records...",
+			});
+		});
 
 		hydrateServerRenderedRows();
 	</script>

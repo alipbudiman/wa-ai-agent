@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
@@ -7,6 +8,9 @@ from backend.application.ai.agents import ChatAgentUseCase
 from backend.application.health import CheckHealthUseCase
 from backend.application.report import ReportUseCase
 from backend.domain.report import LangSmithLogReport, LangSmithRunReport
+from backend.application.ai.tools.models import LevelSystem
+
+logger = logging.getLogger('uvicorn.error')
 
 
 class HealthResponse(BaseModel):
@@ -17,6 +21,8 @@ class HealthResponse(BaseModel):
 class ChatAgentRequest(BaseModel):
     number: str
     message: str
+    is_system: bool
+    level: str = "INFO"
 
 class ChatAgentResponse(BaseModel):
     status: str
@@ -61,7 +67,18 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
 
     @router.post("", response_model=ChatAgentResponse)
     async def chat_agent(request: ChatAgentRequest, background_tasks: BackgroundTasks):
-        background_tasks.add_task(usecase.ChatAgent, messages=request.message, number=request.number)
+        try:
+            level = LevelSystem[request.level.upper()]
+        except KeyError:
+            level = LevelSystem.INFO
+            logger.info(f"Invalid log level '{request.level}' received. Defaulting to INFO.")
+        background_tasks.add_task(
+            usecase.ChatAgent,
+            messages=request.message,
+            number=request.number,
+            is_system=request.is_system,
+            level=level,
+        )
         return ChatAgentResponse(
             status="success",
             response="success to call brain"

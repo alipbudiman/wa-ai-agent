@@ -28,7 +28,7 @@ func NewService(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter
 	}
 }
 
-func (s *Service) Reply(ctx context.Context, prompt string, jid types.JID) (string, error) {
+func (s *Service) Reply(ctx context.Context, prompt string, is_system bool, log_level ports.LogLevel, jid types.JID) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -46,7 +46,7 @@ func (s *Service) Reply(ctx context.Context, prompt string, jid types.JID) (stri
 			Role:    openai.ChatMessageRoleUser,
 			Content: prompt,
 		},
-	}, jid.ToNonAD().String())
+	}, jid.ToNonAD().String(), is_system, log_level)
 	if err != nil {
 		return "", fmt.Errorf("generate ai reply: %w", err)
 	}

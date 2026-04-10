@@ -18,6 +18,7 @@ type ErrorResponse struct {
 type SendMessageRequest struct {
 	Number  string `json:"number" binding:"required"`
 	Message string `json:"message" binding:"required"`
+	Store   bool   `json:"store,omitempty"`
 }
 
 type BroadcastMessageRequest struct {
@@ -49,4 +50,16 @@ type AddAccessRequest struct {
 
 type DeleteAccessRequest struct {
 	Number string `json:"number" binding:"required"`
+}
+
+type SetInboxAddressRequest struct {
+	Number string `json:"number" binding:"required"`
+}
+
+type DeleteMessageRequest struct {
+	MsgID string `json:"msg_id" binding:"required"`
+}
+
+type DeleteInboxMessageRequest struct {
+	JID string `json:"jid" binding:"required"`
 }

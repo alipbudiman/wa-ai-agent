@@ -109,12 +109,216 @@
 			font-weight: 600;
 		}
 
+		.btn-tech-danger {
+			--bs-btn-color: #ffb8bf;
+			--bs-btn-border-color: rgba(255, 77, 95, 0.52);
+			--bs-btn-hover-bg: rgba(255, 77, 95, 0.16);
+			--bs-btn-hover-border-color: rgba(255, 77, 95, 0.9);
+			--bs-btn-active-bg: rgba(255, 77, 95, 0.22);
+			--bs-btn-active-border-color: rgba(255, 77, 95, 1);
+		}
+
 		.not-found {
 			border: 1px solid rgba(255, 77, 95, 0.45);
 			background: rgba(255, 77, 95, 0.12);
 			color: #ffb8bf;
 			font-family: var(--font-mono);
 			font-size: 0.78rem;
+		}
+
+		.playground-layout {
+			display: grid;
+			grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+			gap: 0.8rem;
+			align-items: stretch;
+		}
+
+		.playground-panel {
+			border: 1px solid var(--color-panel-line);
+			border-radius: 0.75rem;
+			background: rgba(255, 255, 255, 0.02);
+			padding: 0.65rem;
+			height: clamp(320px, 56vh, 540px);
+			min-height: 0;
+			overflow: hidden;
+			display: flex;
+			flex-direction: column;
+		}
+
+		.playground-breadcrumb {
+			font-family: var(--font-mono);
+			font-size: 0.72rem;
+			color: var(--color-muted);
+			padding: 0.45rem 0.62rem;
+			border: 1px solid var(--color-panel-line);
+			border-radius: 0.55rem;
+			background: rgba(255, 255, 255, 0.02);
+			word-break: break-all;
+		}
+
+		.playground-status,
+		.playground-viewer-empty {
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			color: var(--color-muted);
+			border: 1px dashed rgba(255, 255, 255, 0.2);
+			border-radius: 0.55rem;
+			padding: 0.8rem;
+			text-align: center;
+			min-height: 0;
+		}
+
+		.playground-status {
+			flex: 1;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
+		.playground-viewer-empty {
+			flex: 1;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
+		.playground-status.is-error,
+		.playground-viewer-error {
+			color: #ffb8bf;
+			border-color: rgba(255, 77, 95, 0.45);
+			background: rgba(255, 77, 95, 0.1);
+		}
+
+		.playground-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0.45rem;
+			flex: 1;
+			min-height: 0;
+			overflow: auto;
+			padding-right: 0.15rem;
+		}
+
+		.playground-list::-webkit-scrollbar,
+		.playground-preview-content::-webkit-scrollbar {
+			width: 8px;
+			height: 8px;
+		}
+
+		.playground-list::-webkit-scrollbar-thumb,
+		.playground-preview-content::-webkit-scrollbar-thumb {
+			background: rgba(255, 255, 255, 0.2);
+			border-radius: 999px;
+		}
+
+		.playground-entry {
+			border: 1px solid rgba(255, 255, 255, 0.14);
+			border-radius: 0.62rem;
+			padding: 0.48rem;
+			background: rgba(255, 255, 255, 0.02);
+		}
+
+		.playground-entry-main {
+			width: 100%;
+			text-align: left;
+			border: 0;
+			background: transparent;
+			padding: 0;
+			color: var(--color-text);
+			font-size: 0.84rem;
+			line-height: 1.25;
+		}
+
+		.playground-entry-main:hover {
+			color: var(--color-accent);
+		}
+
+		.playground-entry-type {
+			font-family: var(--font-mono);
+			font-size: 0.62rem;
+			color: var(--color-muted);
+			letter-spacing: 0.05em;
+			text-transform: uppercase;
+			margin-right: 0.45rem;
+		}
+
+		.playground-entry-meta {
+			font-family: var(--font-mono);
+			font-size: 0.64rem;
+			color: var(--color-muted);
+			margin-top: 0.24rem;
+		}
+
+		.playground-entry-actions {
+			display: flex;
+			justify-content: flex-end;
+			gap: 0.35rem;
+			margin-top: 0.28rem;
+		}
+
+		.playground-viewer {
+			display: flex;
+			flex-direction: column;
+			gap: 0.55rem;
+			flex: 1;
+			min-height: 0;
+			height: 100%;
+		}
+
+		.playground-viewer-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.5rem;
+			border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+			padding-bottom: 0.4rem;
+		}
+
+		.playground-viewer-title {
+			margin: 0;
+			font-size: 0.88rem;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			word-break: break-word;
+		}
+
+		.playground-preview-content {
+			margin: 0;
+			padding: 0.75rem;
+			border-radius: 0.55rem;
+			border: 1px solid rgba(255, 255, 255, 0.12);
+			background: #0f0f0f;
+			color: #e7e7e7;
+			font-family: var(--font-mono);
+			font-size: 0.73rem;
+			line-height: 1.45;
+			flex: 1;
+			min-height: 0;
+			overflow: auto;
+			overflow-x: auto;
+			max-width: 100%;
+			white-space: pre;
+		}
+
+		.playground-viewer-meta {
+			font-family: var(--font-mono);
+			font-size: 0.68rem;
+			color: var(--color-muted);
+		}
+
+		@media (max-width: 991.98px) {
+			.playground-layout {
+				grid-template-columns: 1fr;
+			}
+
+			.playground-panel {
+				height: clamp(260px, 48vh, 420px);
+			}
+
+			.playground-list,
+			.playground-preview-content {
+				max-height: none;
+			}
 		}
 	</style>
 </head>
@@ -123,13 +327,13 @@
 		<section class="panel rounded-3 p-3 p-lg-4">
 			<div class="mb-3">
 				<p class="kicker mb-2">// Artifacts</p>
-				<h1 class="title h4 mb-2">{{ .ProcessDiagramTitle }}</h1>
-				<p class="muted-text mb-1">Preview image source: {{ .ProcessDiagramPath }}</p>
+				<h1 class="title h4 mb-2">{{ .Title }}</h1>
+				<p class="muted-text mb-1">An Accessible Resource is an asset that can be accessed and utilized by the agent during its operation.</p>
 				<p class="muted-text mb-0"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/artifacts" class="text-decoration-underline">Artifacts</a></p>
 			</div>
 
 			<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-				<p class="kicker mb-0">[ Preview ]</p>
+				<p class="kicker mb-0">[ Agent Process Flow ]</p>
 				<div class="d-flex gap-2">
 					<button type="button" id="unhideButton" class="btn btn-outline-light btn-tech btn-sm">Unhide</button>
 					<button type="button" id="hideButton" class="btn btn-outline-light btn-tech btn-sm" disabled>Hide</button>
@@ -146,6 +350,34 @@
 			<div id="notFoundAlert" class="not-found rounded-3 py-2 px-3 mt-3 d-none">
 				Image not found. Ensure the file exists at assets/artifacts/chat_agent_process_table.png and regenerate the diagram.
 			</div>
+
+			<div class="mt-4">
+				<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+					<p class="kicker mb-0">[ Aget Playground Folder ]</p>
+					<div class="d-flex gap-2">
+						<button type="button" id="playgroundBackButton" class="btn btn-outline-light btn-tech btn-sm" disabled>&lt;</button>
+						<button type="button" id="playgroundForwardButton" class="btn btn-outline-light btn-tech btn-sm" disabled>&gt;</button>
+						<button type="button" id="playgroundUpButton" class="btn btn-outline-light btn-tech btn-sm" disabled>Up</button>
+						<button type="button" id="playgroundCreateFolderButton" class="btn btn-outline-light btn-tech btn-sm">New Folder</button>
+						<button type="button" id="playgroundUploadButton" class="btn btn-outline-light btn-tech btn-sm">Upload File</button>
+						<button type="button" id="playgroundRefreshButton" class="btn btn-outline-light btn-tech btn-sm">Refresh</button>
+					</div>
+				</div>
+
+				<input id="playgroundUploadInput" class="d-none" type="file" />
+
+				<div id="playgroundBreadcrumb" class="playground-breadcrumb mb-3">playground/</div>
+
+				<div class="playground-layout">
+					<div class="playground-panel">
+						<div id="playgroundListStatus" class="playground-status">Loading playground folder...</div>
+						<div id="playgroundList" class="playground-list d-none"></div>
+					</div>
+					<div class="playground-panel">
+						<div id="playgroundViewer" class="playground-viewer-empty">Select a file to preview its content.</div>
+					</div>
+				</div>
+			</div>
 		</section>
 	</main>
 
@@ -157,7 +389,32 @@
 		const reloadButton = document.getElementById("reloadButton");
 		const notFoundAlert = document.getElementById("notFoundAlert");
 		const basePath = "{{ .ProcessDiagramPath }}";
+		const playgroundListEndpoint = "{{ .PlaygroundListEndpoint }}";
+		const playgroundFileEndpoint = "{{ .PlaygroundFileEndpoint }}";
+		const playgroundOpenEndpoint = "{{ .PlaygroundOpenEndpoint }}";
+		const playgroundDeleteEndpoint = "{{ .PlaygroundDeleteEndpoint }}";
+		const playgroundCreateFolderEndpoint = "{{ .PlaygroundCreateFolderEndpoint }}";
+		const playgroundUploadEndpoint = "{{ .PlaygroundUploadEndpoint }}";
+		const playgroundBackButton = document.getElementById("playgroundBackButton");
+		const playgroundForwardButton = document.getElementById("playgroundForwardButton");
+		const playgroundUpButton = document.getElementById("playgroundUpButton");
+		const playgroundCreateFolderButton = document.getElementById("playgroundCreateFolderButton");
+		const playgroundUploadButton = document.getElementById("playgroundUploadButton");
+		const playgroundRefreshButton = document.getElementById("playgroundRefreshButton");
+		const playgroundUploadInput = document.getElementById("playgroundUploadInput");
+		const playgroundBreadcrumb = document.getElementById("playgroundBreadcrumb");
+		const playgroundListStatus = document.getElementById("playgroundListStatus");
+		const playgroundList = document.getElementById("playgroundList");
+		const playgroundViewer = document.getElementById("playgroundViewer");
 		let hasLoadedImage = false;
+		const playgroundState = {
+			currentPath: "",
+			parentPath: "",
+			entries: [],
+			historyPaths: [],
+			historyIndex: -1,
+			isLoading: false,
+		};
 
 		function setImageVisible(isVisible) {
 			hiddenState.classList.toggle("d-none", isVisible);
@@ -171,6 +428,468 @@
 			const cacheBust = `t=${Date.now()}`;
 			imageEl.src = `${basePath}?${cacheBust}`;
 			hasLoadedImage = true;
+		}
+
+		function escapeHTML(rawValue) {
+			return String(rawValue || "")
+				.replace(/&/g, "&amp;")
+				.replace(/</g, "&lt;")
+				.replace(/>/g, "&gt;")
+				.replace(/\"/g, "&quot;")
+				.replace(/'/g, "&#39;");
+		}
+
+		function formatBytes(bytes) {
+			const value = Number(bytes || 0);
+			if (!value || value < 0) {
+				return "0 B";
+			}
+
+			const units = ["B", "KB", "MB", "GB"];
+			let size = value;
+			let unitIndex = 0;
+			while (size >= 1024 && unitIndex < units.length - 1) {
+				size /= 1024;
+				unitIndex += 1;
+			}
+
+			return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+		}
+
+		function formatTimestamp(isoDate) {
+			const parsed = new Date(isoDate);
+			if (Number.isNaN(parsed.getTime())) {
+				return "-";
+			}
+
+			return parsed.toLocaleString("en-US", {
+				year: "numeric",
+				month: "short",
+				day: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+			});
+		}
+
+		function buildPlaygroundEndpoint(base, relativePath) {
+			const params = new URLSearchParams();
+			if (relativePath) {
+				params.set("path", relativePath);
+			}
+			const queryString = params.toString();
+			return queryString ? `${base}?${queryString}` : base;
+		}
+
+		async function requestPlaygroundData(base, relativePath) {
+			const response = await fetch(buildPlaygroundEndpoint(base, relativePath), { method: "GET" });
+			let result = {};
+
+			try {
+				result = await response.json();
+			} catch (_) {
+				result = {};
+			}
+
+			if (!response.ok || !result.success) {
+				throw new Error(result.message || "Request failed");
+			}
+
+			return result.data || {};
+		}
+
+		async function requestPlaygroundDelete(relativePath) {
+			const response = await fetch(playgroundDeleteEndpoint, {
+				method: "DELETE",
+				headers: {
+					"Accept": "application/json",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ path: relativePath }),
+			});
+
+			let result = {};
+			try {
+				result = await response.json();
+			} catch (_) {
+				result = {};
+			}
+
+			if (!response.ok || !result.success) {
+				throw new Error(result.message || "Failed to delete target");
+			}
+
+			return result.data || {};
+		}
+
+		async function requestPlaygroundCreateFolder(parentPath, folderName) {
+			const response = await fetch(playgroundCreateFolderEndpoint, {
+				method: "POST",
+				headers: {
+					"Accept": "application/json",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					parent_path: parentPath || "",
+					folder_name: folderName,
+				}),
+			});
+
+			let result = {};
+			try {
+				result = await response.json();
+			} catch (_) {
+				result = {};
+			}
+
+			if (!response.ok || !result.success) {
+				throw new Error(result.message || "Failed to create folder");
+			}
+
+			return result.data || {};
+		}
+
+		async function requestPlaygroundUpload(file, folderPath) {
+			const formData = new FormData();
+			formData.append("file", file);
+			if (folderPath) {
+				formData.append("path", folderPath);
+			}
+
+			const response = await fetch(playgroundUploadEndpoint, {
+				method: "POST",
+				headers: {
+					"Accept": "application/json",
+				},
+				body: formData,
+			});
+
+			let result = {};
+			try {
+				result = await response.json();
+			} catch (_) {
+				result = {};
+			}
+
+			if (!response.ok || !result.success) {
+				throw new Error(result.message || "Failed to upload file");
+			}
+
+			return result.data || {};
+		}
+
+		function renderPlaygroundBreadcrumb(path) {
+			const normalized = String(path || "").trim();
+			playgroundBreadcrumb.textContent = normalized ? `playground/${normalized}` : "playground/";
+		}
+
+		function setPlaygroundListMessage(message, isError) {
+			playgroundListStatus.classList.remove("d-none", "is-error");
+			playgroundListStatus.textContent = message;
+			playgroundList.classList.add("d-none");
+			if (isError) {
+				playgroundListStatus.classList.add("is-error");
+			}
+		}
+
+		function buildOpenFileURL(relativePath) {
+			return buildPlaygroundEndpoint(playgroundOpenEndpoint, relativePath);
+		}
+
+		function pushPlaygroundHistory(path) {
+			const normalizedPath = String(path || "").trim();
+			const currentHistoryPath = playgroundState.historyPaths[playgroundState.historyIndex] || "";
+			if (playgroundState.historyIndex >= 0 && normalizedPath === currentHistoryPath) {
+				return;
+			}
+
+			if (playgroundState.historyIndex < playgroundState.historyPaths.length - 1) {
+				playgroundState.historyPaths = playgroundState.historyPaths.slice(0, playgroundState.historyIndex + 1);
+			}
+
+			playgroundState.historyPaths.push(normalizedPath);
+			playgroundState.historyIndex = playgroundState.historyPaths.length - 1;
+		}
+
+		function updatePlaygroundNavButtons() {
+			const hasBack = playgroundState.historyIndex > 0;
+			const hasForward = playgroundState.historyIndex >= 0 && playgroundState.historyIndex < playgroundState.historyPaths.length - 1;
+			const hasParent = playgroundState.currentPath !== "";
+
+			playgroundBackButton.disabled = playgroundState.isLoading || !hasBack;
+			playgroundForwardButton.disabled = playgroundState.isLoading || !hasForward;
+			playgroundUpButton.disabled = playgroundState.isLoading || !hasParent;
+			playgroundCreateFolderButton.disabled = playgroundState.isLoading;
+			playgroundUploadButton.disabled = playgroundState.isLoading;
+			playgroundRefreshButton.disabled = playgroundState.isLoading;
+		}
+
+		async function createPlaygroundFolder() {
+			const rawFolderName = window.prompt("Folder name:");
+			if (rawFolderName === null) {
+				return;
+			}
+
+			const folderName = String(rawFolderName || "").trim();
+			if (!folderName) {
+				setPlaygroundListMessage("Folder name is required.", true);
+				return;
+			}
+
+			playgroundState.isLoading = true;
+			updatePlaygroundNavButtons();
+			setPlaygroundListMessage("Creating folder...", false);
+
+			try {
+				await requestPlaygroundCreateFolder(playgroundState.currentPath, folderName);
+				await loadPlaygroundFolder(playgroundState.currentPath, {
+					pushHistory: false,
+					resetViewer: false,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to create folder";
+				setPlaygroundListMessage(message, true);
+				renderViewerMessage(message, true);
+				playgroundState.isLoading = false;
+				updatePlaygroundNavButtons();
+			}
+		}
+
+		async function uploadPlaygroundFile(file) {
+			if (!file) {
+				return;
+			}
+
+			playgroundState.isLoading = true;
+			updatePlaygroundNavButtons();
+			setPlaygroundListMessage(`Uploading ${file.name}...`, false);
+
+			try {
+				await requestPlaygroundUpload(file, playgroundState.currentPath);
+				await loadPlaygroundFolder(playgroundState.currentPath, {
+					pushHistory: false,
+					resetViewer: false,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to upload file";
+				setPlaygroundListMessage(message, true);
+				renderViewerMessage(message, true);
+				playgroundState.isLoading = false;
+				updatePlaygroundNavButtons();
+			} finally {
+				playgroundUploadInput.value = "";
+			}
+		}
+
+		async function deletePlaygroundEntry(entry) {
+			const targetPath = String(entry && entry.relative_path ? entry.relative_path : "").trim();
+			if (!targetPath) {
+				return;
+			}
+
+			const targetName = String(entry && entry.name ? entry.name : targetPath).trim();
+			const targetType = entry && entry.is_dir ? "folder" : "file";
+			const confirmationMessage = entry && entry.is_dir
+				? `Delete folder "${targetName}" and all its contents?`
+				: `Delete file "${targetName}"?`;
+
+			if (!window.confirm(confirmationMessage)) {
+				return;
+			}
+
+			playgroundState.isLoading = true;
+			updatePlaygroundNavButtons();
+			setPlaygroundListMessage(`Deleting ${targetType}...`, false);
+
+			try {
+				await requestPlaygroundDelete(targetPath);
+				await loadPlaygroundFolder(playgroundState.currentPath, {
+					pushHistory: false,
+					resetViewer: true,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : `Failed to delete ${targetType}`;
+				setPlaygroundListMessage(message, true);
+				renderViewerMessage(message, true);
+				playgroundState.isLoading = false;
+				updatePlaygroundNavButtons();
+			}
+		}
+
+		function renderPlaygroundEntries() {
+			playgroundList.innerHTML = "";
+
+			if (!playgroundState.entries.length) {
+				setPlaygroundListMessage("This folder is empty.", false);
+				return;
+			}
+
+			playgroundListStatus.classList.add("d-none");
+			playgroundList.classList.remove("d-none");
+
+			playgroundState.entries.forEach((entry) => {
+				const row = document.createElement("div");
+				row.className = "playground-entry";
+
+				const mainButton = document.createElement("button");
+				mainButton.type = "button";
+				mainButton.className = "playground-entry-main";
+				mainButton.innerHTML = `<span class="playground-entry-type">${entry.is_dir ? "Folder" : "File"}</span>${escapeHTML(entry.name)}`;
+
+				if (entry.is_dir) {
+					mainButton.addEventListener("click", () => {
+						loadPlaygroundFolder(entry.relative_path);
+					});
+				} else {
+					mainButton.addEventListener("click", () => {
+						previewPlaygroundFile(entry.relative_path);
+					});
+				}
+
+				const meta = document.createElement("div");
+				meta.className = "playground-entry-meta";
+				meta.textContent = `${formatBytes(entry.size)} | ${formatTimestamp(entry.modified_at)}`;
+
+				row.appendChild(mainButton);
+				row.appendChild(meta);
+
+				const actions = document.createElement("div");
+				actions.className = "playground-entry-actions";
+
+				if (!entry.is_dir) {
+					const openButton = document.createElement("a");
+					openButton.href = buildOpenFileURL(entry.relative_path);
+					openButton.target = "_blank";
+					openButton.rel = "noopener noreferrer";
+					openButton.className = "btn btn-outline-light btn-tech btn-sm";
+					openButton.textContent = "Open";
+					actions.appendChild(openButton);
+				}
+
+				const deleteButton = document.createElement("button");
+				deleteButton.type = "button";
+				deleteButton.className = "btn btn-tech-danger btn-sm";
+				deleteButton.textContent = "Delete";
+				deleteButton.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					deletePlaygroundEntry(entry);
+				});
+				actions.appendChild(deleteButton);
+
+				row.appendChild(actions);
+
+				playgroundList.appendChild(row);
+			});
+		}
+
+		function renderViewerMessage(message, isError) {
+			playgroundViewer.className = isError ? "playground-viewer-empty playground-viewer-error" : "playground-viewer-empty";
+			playgroundViewer.textContent = message;
+		}
+
+		function renderPlaygroundFilePreview(fileData) {
+			const safeFileName = escapeHTML(fileData.name || "file");
+			const openURL = buildOpenFileURL(fileData.relative_path || "");
+			const metadata = `${formatBytes(fileData.size)} | ${formatTimestamp(fileData.modified_at)} | ${fileData.content_type || "unknown"}`;
+
+			if (!fileData.is_text) {
+				playgroundViewer.className = "playground-viewer";
+				playgroundViewer.innerHTML = `
+					<div class="playground-viewer-header">
+						<h3 class="playground-viewer-title mb-0">${safeFileName}</h3>
+						<a href="${openURL}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Open File</a>
+					</div>
+					<p class="playground-viewer-meta mb-0">${metadata}</p>
+					<div class="playground-viewer-empty">Binary file preview is not shown here. Click Open File to view it.</div>
+				`;
+				return;
+			}
+
+			const safeContent = escapeHTML(fileData.content || "");
+			const truncatedNote = fileData.is_truncated
+				? "<p class=\"playground-viewer-meta mb-0\">Preview truncated to keep the page responsive.</p>"
+				: "";
+
+			playgroundViewer.className = "playground-viewer";
+			playgroundViewer.innerHTML = `
+				<div class="playground-viewer-header">
+					<h3 class="playground-viewer-title mb-0">${safeFileName}</h3>
+					<a href="${openURL}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Open File</a>
+				</div>
+				<p class="playground-viewer-meta mb-0">${metadata}</p>
+				${truncatedNote}
+				<pre class="playground-preview-content">${safeContent}</pre>
+			`;
+		}
+
+		async function loadPlaygroundFolder(relativePath, options = {}) {
+			const {
+				pushHistory = true,
+				resetViewer = true,
+			} = options;
+
+			setPlaygroundListMessage("Loading playground folder...", false);
+			playgroundState.isLoading = true;
+			updatePlaygroundNavButtons();
+
+			try {
+				const data = await requestPlaygroundData(playgroundListEndpoint, relativePath || "");
+				playgroundState.currentPath = String(data.current_path || "");
+				playgroundState.parentPath = String(data.parent_path || "");
+				playgroundState.entries = Array.isArray(data.entries) ? data.entries : [];
+				if (pushHistory) {
+					pushPlaygroundHistory(playgroundState.currentPath);
+				}
+
+				renderPlaygroundBreadcrumb(playgroundState.currentPath);
+				renderPlaygroundEntries();
+				if (resetViewer) {
+					renderViewerMessage("Select a file to preview its content.", false);
+				}
+				return true;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to load playground folder";
+				setPlaygroundListMessage(message, true);
+				renderViewerMessage("Unable to load preview panel because folder data is unavailable.", true);
+				return false;
+			} finally {
+				playgroundState.isLoading = false;
+				updatePlaygroundNavButtons();
+			}
+		}
+
+		async function navigatePlaygroundHistory(step) {
+			const targetIndex = playgroundState.historyIndex + step;
+			if (targetIndex < 0 || targetIndex >= playgroundState.historyPaths.length) {
+				return;
+			}
+
+			const previousIndex = playgroundState.historyIndex;
+			playgroundState.historyIndex = targetIndex;
+			updatePlaygroundNavButtons();
+
+			const targetPath = playgroundState.historyPaths[targetIndex] || "";
+			const success = await loadPlaygroundFolder(targetPath, {
+				pushHistory: false,
+				resetViewer: true,
+			});
+
+			if (!success) {
+				playgroundState.historyIndex = previousIndex;
+				updatePlaygroundNavButtons();
+			}
+		}
+
+		async function previewPlaygroundFile(relativePath) {
+			renderViewerMessage("Loading file preview...", false);
+
+			try {
+				const fileData = await requestPlaygroundData(playgroundFileEndpoint, relativePath);
+				renderPlaygroundFilePreview(fileData);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to load file preview";
+				renderViewerMessage(message, true);
+			}
 		}
 
 		imageEl.addEventListener("load", () => {
@@ -195,7 +914,53 @@
 
 		reloadButton.addEventListener("click", refreshImage);
 
+		playgroundBackButton.addEventListener("click", () => {
+			navigatePlaygroundHistory(-1);
+		});
+
+		playgroundForwardButton.addEventListener("click", () => {
+			navigatePlaygroundHistory(1);
+		});
+
+		playgroundRefreshButton.addEventListener("click", () => {
+			loadPlaygroundFolder(playgroundState.currentPath, {
+				pushHistory: false,
+				resetViewer: false,
+			});
+		});
+
+		playgroundUpButton.addEventListener("click", () => {
+			if (playgroundState.currentPath === "") {
+				return;
+			}
+
+			if (playgroundState.parentPath === "") {
+				loadPlaygroundFolder("");
+				return;
+			}
+			loadPlaygroundFolder(playgroundState.parentPath);
+		});
+
+		playgroundCreateFolderButton.addEventListener("click", () => {
+			createPlaygroundFolder();
+		});
+
+		playgroundUploadButton.addEventListener("click", () => {
+			if (playgroundState.isLoading) {
+				return;
+			}
+			playgroundUploadInput.click();
+		});
+
+		playgroundUploadInput.addEventListener("change", () => {
+			if (!playgroundUploadInput.files || playgroundUploadInput.files.length === 0) {
+				return;
+			}
+			uploadPlaygroundFile(playgroundUploadInput.files[0]);
+		});
+
 		setImageVisible(false);
+		loadPlaygroundFolder("");
 	</script>
 </body>
 </html>

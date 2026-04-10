@@ -40,8 +40,10 @@ type BrainAPI struct {
 }
 
 type chatAgentRequest struct {
-	Number  string `json:"number"`
-	Message string `json:"message"`
+	Number   string         `json:"number"`
+	Message  string         `json:"message"`
+	IsSystem bool           `json:"is_system"`
+	LogLevel ports.LogLevel `json:"log_level"`
 }
 
 type chatAgentResponse struct {
@@ -128,7 +130,7 @@ func (o *BrainAPI) doGETJSON(ctx context.Context, endpoint string, target any) e
 	return nil
 }
 
-func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string) (string, error) {
+func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string, is_system bool, log_level ports.LogLevel) (string, error) {
 	if o == nil || o.httpClient == nil {
 		return "", errAIAgentClientRequired
 	}
@@ -158,8 +160,10 @@ func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCom
 	}
 
 	payload, err := json.Marshal(chatAgentRequest{
-		Message: prompt,
-		Number:  number,
+		Message:  prompt,
+		Number:   number,
+		IsSystem: is_system,
+		LogLevel: log_level,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)

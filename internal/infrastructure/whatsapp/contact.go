@@ -13,13 +13,58 @@ func (c *BotClient) GetContact(ctx context.Context, number string) (types.Contac
 		return types.ContactInfo{}, err
 	}
 
-	ch, err := c.client.Store.Contacts.GetContact(ctx, jid.ToNonAD())
+	lookupJID := jid.ToNonAD()
+
+	ch, err := c.client.Store.Contacts.GetContact(ctx, lookupJID)
 	if err != nil {
 		return types.ContactInfo{}, fmt.Errorf("failed to get contact: %w", err)
 	}
+
+	if ch.Found {
+		return ch, nil
+	}
+
+	altJID, err := c.client.Store.GetAltJID(ctx, lookupJID)
+	if err != nil {
+		return ch, fmt.Errorf("failed to resolve alternate jid for %s: %w", lookupJID, err)
+	}
+	if altJID.IsEmpty() {
+		return ch, nil
+	}
+
+	altContact, err := c.client.Store.Contacts.GetContact(ctx, altJID.ToNonAD())
+	if err != nil {
+		return types.ContactInfo{}, fmt.Errorf("failed to get contact from alternate jid: %w", err)
+	}
+	if altContact.Found {
+		return altContact, nil
+	}
+
 	return ch, nil
 }
 
 func (c *BotClient) GetSelfJID(ctx context.Context) (types.JID, error) {
-	return c.client.Store.GetJID(), nil
+	jid := c.client.Store.GetJID()
+	if jid.IsEmpty() {
+		return types.JID{}, fmt.Errorf("self JID is empty")
+	}
+
+	lookupJID := jid.ToNonAD()
+
+	ch, err := c.client.Store.Contacts.GetContact(ctx, lookupJID)
+	if err != nil {
+		return types.JID{}, fmt.Errorf("failed to get self contact: %w", err)
+	}
+	if ch.Found {
+		return jid, nil
+	}
+
+	altJID, err := c.client.Store.GetAltJID(ctx, lookupJID)
+	if err != nil {
+		return types.JID{}, fmt.Errorf("failed to resolve alternate jid for self: %w", err)
+	}
+	if altJID.IsEmpty() {
+		return jid, nil
+	}
+	return altJID, nil
 }

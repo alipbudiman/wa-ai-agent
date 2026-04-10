@@ -1,0 +1,88 @@
+package rulebase
+
+import (
+	"fmt"
+
+	"go.mau.fi/whatsmeow/types/events"
+)
+
+const (
+	ai_ability = `
+	*AI Capabilities*:
+- These skills can be triggered through natural conversation (no special command format needed).
+- Web Search: Retrieve real-time information from the web.
+- Current Time: Get the current date and time.
+- Send Message: Send a WhatsApp message to a specified contact.
+- Get User Information: Fetch contact details for a given WhatsApp number.
+- Broadcast Message: Send a message to all contacts (one-way announcement via status story).
+	- Automation Task Handler: Coordinate repeatable workflows (collect, process, and dispatch) with consistent execution flow.
+	- Cronjob Scheduler Integration: Run time-based jobs for reminders, periodic checks, and scheduled notifications.
+	- Multi-Step Workflow Chaining: Combine multiple API operations in sequence (lookup, enrich, summarize, then send).
+	- Multi-API Interconnection: Bridge Go WhatsApp runtime and Python Brain API for modular orchestration.
+	- Observability and Tracing: Track agent thinking and tool execution flow for debugging and performance tuning.
+	`
+)
+
+var (
+	capabilityDescription string
+	menuString            string
+)
+
+type CommandCollection struct {
+	Help                 CommandInfo
+	PingPong             CommandInfo
+	About                CommandInfo
+	SendPendingMessage   CommandInfo
+	UnsendPendingMessage CommandInfo
+}
+
+type CommandAction func(*Agents, CommandArgs)
+
+type CommandInfo struct {
+	Name        string
+	Description string
+	Command     string
+	Function    CommandAction
+}
+
+type CommandArgs struct {
+	Text string
+	Evt  *events.Message
+}
+
+type AgentOnHoldMessage struct {
+	User          string `bson:"user"`
+	PendingNumber string `bson:"pending_number"`
+	Message       string `bson:"pending_message"`
+}
+
+type ContactVCardInfo struct {
+	N    string
+	FN   string
+	WAID string
+}
+
+type InboxContent struct {
+	Message     string
+	ContactInfo ContactVCardInfo
+}
+
+func (i *InboxContent) IsMessage() bool {
+	return i.Message != ""
+}
+
+func (i *InboxContent) IsContact() bool {
+	return i.ContactInfo.WAID != ""
+}
+
+func (i *InboxContent) String() string {
+	if i.IsMessage() {
+		return i.Message
+	}
+	if i.IsContact() {
+		wrapper := ";;;Contact info:\n%s\n;;;"
+		info := fmt.Sprintf("\nName: %s\nFull Name: %s\nPhone: %s", i.ContactInfo.N, i.ContactInfo.FN, i.ContactInfo.WAID)
+		return fmt.Sprintf(wrapper, info)
+	}
+	return ""
+}

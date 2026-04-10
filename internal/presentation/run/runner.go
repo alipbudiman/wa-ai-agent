@@ -98,21 +98,21 @@ func ClientRunner(cfg Config) (*Runner, error) {
 
 	var messageHandler ports.MessageHandler
 	if runner.responder != nil {
-		messageHandler, err = rulebase.NewAgents(runner.waclient, runner.responder, *cfg.AppConfig)
+		messageHandler, err = rulebase.NewAgents(runner.waclient, runner.responder, runner.manager, *cfg.AppConfig)
 		if err != nil {
 			_ = container.Close()
 			return nil, fmt.Errorf("init message handler: %w", err)
 		}
 	}
 
-	runner.client.AddEventHandler(eventshandler.EventTrace(messageHandler, manager))
+	runner.client.AddEventHandler(eventshandler.EventTrace(cfg.AppConfig, runner.waclient, messageHandler, manager))
 
 	return runner, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
 	store.DeviceProps.Os = proto.String(cases.Title(language.English).String(fmt.Sprintf("Chrome (%v)", runtime.GOOS)))
-	store.DeviceProps.RequireFullSync = proto.Bool(false)
+	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	if r == nil || r.client == nil {
 		return errors.New("whatsapp client is not initialized")
 	}

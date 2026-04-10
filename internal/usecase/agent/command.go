@@ -4,35 +4,46 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
+	"time"
 
-	"go.mau.fi/whatsmeow/types/events"
+	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
+	ai_providers_api "github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/ai/api"
+	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/databases"
+	"github.com/alipbudiman/wa-ai-agent.git/pkg"
+	"github.com/alipbudiman/wa-ai-agent.git/skilldev"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"google.golang.org/protobuf/proto"
 )
 
-const (
-	ai_ability = `
-	*AI Capabilities*:
-- These skills can be triggered through natural conversation (no special command format needed).
-- Web Search: Retrieve real-time information from the web.
-- Current Time: Get the current date and time.
-- Send Message: Send a WhatsApp message to a specified contact.
-- Get User Information: Fetch contact details for a given WhatsApp number.
-- Broadcast Message: Send a message to all contacts (one-way announcement via status story).
-	- Automation Task Handler: Coordinate repeatable workflows (collect, process, and dispatch) with consistent execution flow.
-	- Cronjob Scheduler Integration: Run time-based jobs for reminders, periodic checks, and scheduled notifications.
-	- Multi-Step Workflow Chaining: Combine multiple API operations in sequence (lookup, enrich, summarize, then send).
-	- Multi-API Interconnection: Bridge Go WhatsApp runtime and Python Brain API for modular orchestration.
-	- Observability and Tracing: Track agent thinking and tool execution flow for debugging and performance tuning.
-	`
-)
+func init() {
+	capabilityDescription = readCapabilityDescription()
+	menuString = CommandString()
 
-type CommandCollection struct {
-	Help     CommandInfo
-	PingPong CommandInfo
-	About    CommandInfo
+	md := skilldev.NewMarkdownWriter()
+	md.H1("WhatsApp AI Agent Command Menu").Text("Here are the available commands you can use to interact with the WhatsApp AI Agent:").BulletList(func() []string {
+		commands := registeredCommands()
+		var items []string
+		for _, cmd := range commands.All() {
+			items = append(items, fmt.Sprintf("%s - %s", cmd.Command, cmd.Description))
+		}
+		return items
+	}())
+
+	err := md.Save("skills/COMMAND_LISTS.md")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func readCapabilityDescription() string {
+	read_skills := skilldev.ReadSkills("CAPABILITY.md")
+	if read_skills == "" {
+		return strings.TrimSpace(ai_ability)
+	}
+
+	return read_skills
 }
 
 func registeredCommands() CommandCollection {
@@ -55,48 +66,23 @@ func registeredCommands() CommandCollection {
 			Command:     "/about",
 			Function:    (*Agents).About,
 		},
+		SendPendingMessage: CommandInfo{
+			Name:        "Send Pending Message",
+			Description: "Sends a pending message on hold to the specified number.",
+			Command:     "/send",
+			Function:    (*Agents).SendPendingMessageFromAgent,
+		},
+		UnsendPendingMessage: CommandInfo{
+			Name:        "Unsend Pending Message",
+			Description: "Cancels and removes the current pending on-hold message.",
+			Command:     "/unsend",
+			Function:    (*Agents).UnsendPendingMessageFromAgent,
+		},
 	}
 }
 
 func (c CommandCollection) All() []CommandInfo {
-	return []CommandInfo{c.Help, c.PingPong, c.About}
-}
-
-type CommandAction func(*Agents, CommandArgs)
-
-type CommandInfo struct {
-	Name        string
-	Description string
-	Command     string
-	Function    CommandAction
-}
-
-type CommandArgs struct {
-	Text string
-	Evt  *events.Message
-}
-
-func readCapabilityDescription() string {
-	paths := []string{"CAPABILITY.md"}
-
-	if _, currentFile, _, ok := runtime.Caller(0); ok {
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", ".."))
-		paths = append(paths, filepath.Join(repoRoot, "skills", "CAPABILITY.md"))
-	}
-
-	for _, path := range paths {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		trimmed := strings.TrimSpace(string(content))
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-
-	return strings.TrimSpace(ai_ability)
+	return []CommandInfo{c.Help, c.PingPong, c.About, c.SendPendingMessage, c.UnsendPendingMessage}
 }
 
 func CommandString() string {
@@ -108,20 +94,23 @@ func CommandString() string {
 	}
 	menuText.WriteString("\nUse the command followed by any required parameters to execute.")
 	menuText.WriteString("\nExample: /ping")
-	fmt.Fprintf(&menuText, "\n\n%s", readCapabilityDescription())
+	fmt.Fprintf(&menuText, "\n\n%s", capabilityDescription)
 	return menuText.String()
 }
 
 func (h *Agents) Help(args CommandArgs) {
-	menuText := CommandString()
-	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), menuText); err != nil {
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(menuString),
+	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
 
 }
 
 func (h *Agents) Ping(args CommandArgs) {
-	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), "Pong!"); err != nil {
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Pong!"),
+	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 		return
 	}
@@ -149,7 +138,241 @@ func (h *Agents) About(args CommandArgs) {
 		aboutText.WriteString(capability)
 	}
 
-	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), aboutText.String()); err != nil {
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(aboutText.String()),
+	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
+	var pending_msg AgentOnHoldMessage
+	filter := bson.M{"user": args.Evt.Info.Chat.String()}
+	err := databases.MongoManager.FindOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		"tmp_messages",
+		filter,
+		&pending_msg,
+	)
+
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("No pending messages found."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving pending message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	new_jid, err := h.waclient.ParseJID(pending_msg.PendingNumber)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Invalid pending number format: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	err = h.waclient.SendText(context.Background(), new_jid.String(), &waE2E.Message{
+		Conversation: proto.String(pending_msg.Message),
+	})
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send pending message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	// Clear the pending message after sending
+	delete_filter := bson.M{"user": args.Evt.Info.Chat.String()}
+	results, err := databases.MongoManager.DeleteOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		"tmp_messages",
+		delete_filter,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to clear pending message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if results.DeletedCount == 0 {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Pending message sent but failed to clear from database."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	name := pending_msg.PendingNumber
+
+	contact_info, err := h.waclient.GetContact(context.Background(), pending_msg.PendingNumber)
+	if err != nil {
+		log.Printf("error getting contact info for pending number %s: %v", pending_msg.PendingNumber, err)
+	}
+
+	name = contact_info.PushName
+	if contact_info.FullName != "" {
+		name = contact_info.FullName
+	}
+	
+	err = h.manager.StoreInboxMessage(ports.InboxMessage{
+		JID:        new_jid,
+		MsgID:      pkg.GenerateUID(),
+		FullName:   contact_info.FullName,
+		PushName:   contact_info.PushName,
+		Number:     pending_msg.PendingNumber,
+		Message:    pending_msg.Message,
+		FromMe:     true,
+		ReceivedAt: time.Now().Unix(),
+		Read:       false,
+	})
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(err.Error()),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		fmt.Sprintf("Send Message to %s has been sent.",
+			name),
+		true,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send confirmation message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("⚙️ Message has been sent by the agent"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	} else {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Failed to notify agent about sent pending message."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	}
+
+}
+
+func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
+	var pending_msg AgentOnHoldMessage
+	filter := bson.M{"user": args.Evt.Info.Chat.String()}
+	err := databases.MongoManager.FindOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		h.config.App.Manager.TemplateMsgCollectionName,
+		filter,
+		&pending_msg,
+	)
+
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("No pending messages found."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving pending message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	deleteFilter := bson.M{"user": args.Evt.Info.Chat.String()}
+	results, err := databases.MongoManager.DeleteOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		h.config.App.Manager.TemplateMsgCollectionName,
+		deleteFilter,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to cancel pending message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if results.DeletedCount == 0 {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("No pending messages found."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	name := pending_msg.PendingNumber
+	contact_info, err := h.waclient.GetContact(context.Background(), pending_msg.PendingNumber)
+	if err != nil {
+		log.Printf("error getting contact info for pending number %s: %v", pending_msg.PendingNumber, err)
+	}
+
+	name = contact_info.PushName
+	if contact_info.FullName != "" {
+		name = contact_info.FullName
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		fmt.Sprintf("Send message to %s has been canceled.", name),
+		true,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send cancellation confirmation: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("⚙️ Tell Agent to Unsend Pending Message"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
 	}
 }

@@ -4,11 +4,13 @@ import (
 	"log"
 	"runtime/debug"
 
+	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func EventTrace(messageHandler ports.MessageHandler, manager ports.Manager) func(evt any) {
+func EventTrace(cfg *config.Config, waclient ports.WhatsAppClient, messageHandler ports.MessageHandler, manager ports.Manager) func(evt any) {
 	return func(evt any) {
 		switch v := evt.(type) {
 		case *events.Connected:
@@ -34,13 +36,7 @@ func EventTrace(messageHandler ports.MessageHandler, manager ports.Manager) func
 					}
 				}()
 
-				isAllowed, err := manager.CheckAccess(msg.Info.Sender.User)
-				if err != nil {
-					log.Printf("error checking access for number %s: %v", msg.Info.Sender.User, err)
-					return
-				}
-				if !isAllowed {
-					log.Printf("number %s is not allowed to access the bot; ignoring message", msg.Info.Sender.User)
+				if v.Info.Chat.Server == types.BroadcastServer {
 					return
 				}
 

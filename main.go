@@ -44,9 +44,9 @@ func (r runtimeSwaggerDoc) ReadDoc() string {
 }
 
 var (
-	client   *whatsmeow.Client
-	waClient ports.WhatsAppClient
-	manager  ports.Manager
+	client        *whatsmeow.Client
+	waClient      ports.WhatsAppClient
+	manager       ports.Manager
 	chatCompleter ports.ChatCompleter
 )
 
@@ -137,8 +137,8 @@ func serverRunner(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	router = route.RouterV1(waClient, cfg, router)
-	router = route.ManagerRouter(manager, chatCompleter, cfg, router)
+	router = route.RouterV1(waClient, manager, cfg, router)
+	router = route.ManagerRouter(manager, chatCompleter, waClient, cfg, router)
 	router = route.FrontendRouter(manager, chatCompleter, cfg, router)
 	// Swagger UI route
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

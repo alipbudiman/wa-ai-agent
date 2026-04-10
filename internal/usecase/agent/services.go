@@ -7,12 +7,16 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	ai_providers_api "github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/ai/api"
+	"github.com/alipbudiman/wa-ai-agent.git/pkg"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -20,16 +24,18 @@ var (
 	errIgnoreOwnMessage = errors.New("ignore own message")
 	errEmptyTextMessage = errors.New("message does not contain text content")
 	waitingMessage      = "⏳ _Processing your request..._"
+	EmptyJID            = types.JID{}
 )
 
 type Agents struct {
 	waclient  ports.WhatsAppClient
 	responder ports.AgentResponder
+	manager   ports.Manager
 	config    config.Config
 	chatLocks sync.Map
 }
 
-func NewAgents(waclient ports.WhatsAppClient, responder ports.AgentResponder, config config.Config) (*Agents, error) {
+func NewAgents(waclient ports.WhatsAppClient, responder ports.AgentResponder, manager ports.Manager, config config.Config) (*Agents, error) {
 	if responder == nil {
 		return nil, errors.New("agent responder is required")
 	}
@@ -37,6 +43,7 @@ func NewAgents(waclient ports.WhatsAppClient, responder ports.AgentResponder, co
 	return &Agents{
 		waclient:  waclient,
 		responder: responder,
+		manager:   manager,
 		config:    config,
 	}, nil
 }
@@ -66,9 +73,6 @@ func (h *Agents) withChatLock(chatID string, fn func()) {
 func (r *Agents) handleMessage(v *events.Message) (string, error) {
 	if v == nil || v.Message == nil || v.Message.GetConversation() == "" && v.Message.GetExtendedTextMessage() == nil {
 		return "", errNilMessageEvent
-	}
-	if v.Info.IsFromMe {
-		return "", errIgnoreOwnMessage
 	}
 
 	conversationText := strings.TrimSpace(v.Message.GetConversation())
@@ -117,9 +121,17 @@ func (h *Agents) CommandHandler(v *events.Message, text string) bool {
 }
 
 func (h *Agents) ChatHandler(v *events.Message, text string) {
-	replyStatus, err := h.responder.Reply(context.Background(), text, v.Info.Sender)
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		text,
+		false,
+		ports.NONE,
+		v.Info.Sender,
+	)
 	if err != nil {
-		if err := h.waclient.SendText(context.Background(), v.Info.Chat.String(), fmt.Sprintf("🤖_Sorry, I encountered an error while processing your request._\nError Details: %s", err.Error())); err != nil {
+		if err := h.waclient.SendText(context.Background(), v.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while processing your request._\nError Details: %s", err.Error())),
+		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 			return
 		}
@@ -127,17 +139,127 @@ func (h *Agents) ChatHandler(v *events.Message, text string) {
 	}
 
 	if replyStatus == ai_providers_api.SUCCESS {
-		if err := h.waclient.SendQuoteMessage(context.Background(), v.Info.Chat.String(), h.langSmithMessage(), waitingMessage); err != nil {
+		if err := h.waclient.SendText(context.Background(), v.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("%s\n%s", waitingMessage, h.langSmithMessage())),
+		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 			return
 		}
+		// not used because quote message only available for phone device
+		// if err := h.waclient.SendQuoteMessage(context.Background(), v.Info.Chat.String(), h.langSmithMessage(), waitingMessage); err != nil {
+		// 	log.Printf("failed to send reply message: %v", err)
+		// 	return
+		// }
 	}
 
 	log.Printf("success process message to ai from %s", v.Info.Chat.String())
 }
 
+func (h *Agents) storeMessageToInbox(v *events.Message, content InboxContent) bool {
+	resolvedSender := v.Info.Sender.ToNonAD()
+	if !v.Info.SenderAlt.IsEmpty() && v.Info.SenderAlt.Server == types.DefaultUserServer {
+		resolvedSender = v.Info.SenderAlt.ToNonAD()
+	}
+
+	senderNumber := resolvedSender.User
+	if senderNumber == "" {
+		log.Printf("sender user is empty, raw sender=%s sender_alt=%s", v.Info.Sender.String(), v.Info.SenderAlt.String())
+		return false
+	}
+
+	isAllowed, err := h.manager.CheckAccess(senderNumber)
+	log.Printf("is allowed %v for user: %s (raw sender=%s sender_alt=%s)", isAllowed, senderNumber, v.Info.Sender.String(), v.Info.SenderAlt.String())
+	if err != nil {
+		log.Printf("error checking access for number %s: %v", senderNumber, err)
+		return false
+	}
+
+	if !isAllowed {
+		if v.Info.Chat.Server == types.BroadcastServer {
+			return false
+		}
+		contact_info, err := h.waclient.GetContact(context.Background(), resolvedSender.String())
+		if err != nil {
+			log.Printf("error getting contact info for sender %s: %v", resolvedSender.String(), err)
+			return false
+		}
+
+		if !contact_info.Found {
+			return false
+		}
+
+		address, err := h.manager.GetInboxAddress()
+		if err != nil {
+			log.Printf("error getting inbox address: %v", err)
+			return false
+		}
+
+		if address != EmptyJID {
+			contentMsg := "*Message Received Notification*"
+			name := contact_info.PushName
+			if name == "" {
+				name = contact_info.FullName
+			}
+			if name != "" {
+				contentMsg += fmt.Sprintf("\nFrom: %s", name)
+			}
+			contentMsg += fmt.Sprintf("\nNumber: %s (%s)", senderNumber, contact_info.FullName)
+			contentMsg += fmt.Sprintf("\nMessage:\n%s", content.String())
+
+			if err := h.waclient.SendText(context.Background(), address.String(), &waE2E.Message{
+				Conversation: proto.String(contentMsg),
+			}); err != nil {
+				log.Printf("error sending text message to inbox address: %v", err)
+			}
+
+			if content.IsContact() {
+				time.Sleep(2 * time.Second)
+
+				n := content.ContactInfo.N
+				if n == "" {
+					n = content.ContactInfo.FN
+				}
+				if err := h.waclient.SendContact(context.Background(), address.String(), ports.ContactCard{
+					FullName: n,
+					Number:   content.ContactInfo.WAID,
+				}, &waE2E.ContextInfo{
+					IsForwarded:     proto.Bool(true),
+					ForwardingScore: proto.Uint32(1),
+				},
+				); err != nil {
+					log.Printf("error sending contact message to inbox address: %v", err)
+				}
+			}
+		}
+
+		gen_msg_id := pkg.GenerateUID()
+		err = h.manager.StoreInboxMessage(ports.InboxMessage{
+			JID:        resolvedSender,
+			MsgID:      gen_msg_id,
+			FullName:   contact_info.FullName,
+			PushName:   contact_info.PushName,
+			Number:     senderNumber,
+			Message:    content.String(),
+			FromMe:     v.Info.IsFromMe,
+			ReceivedAt: time.Now().Unix(),
+			Read:       false,
+		})
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			if err := h.waclient.SendText(context.Background(), address.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while storing your message to inbox._\nError Details: %s", err.Error())),
+			}); err != nil {
+				log.Printf("error sending text message to user: %v", err)
+			}
+		}
+		return true
+	}
+
+	return false
+}
+
 func (h *Agents) HandleMessageEvent(v *events.Message) {
-	if v == nil {
+	if v == nil || v.Message == nil {
 		return
 	}
 
@@ -149,9 +271,26 @@ func (h *Agents) HandleMessageEvent(v *events.Message) {
 			return
 		}
 		if contact_info := h.procContactMessage(v); contact_info != nil {
-			h.ChatHandler(v, fmt.Sprintf("Received contact info:\nName: %s\nFull Name: %s\nPhone: %s", contact_info.N, contact_info.FN, contact_info.WAID))
+			if !h.storeMessageToInbox(v, InboxContent{
+				ContactInfo: *contact_info,
+			}) {
+				h.ChatHandler(v, contactCardStringFormat(contact_info))
+				log.Printf("processed contact message from %s", v.Info.Chat.String())
+			}
 			return
 		}
-		h.procTextMessage(v)
+
+		if text, err := h.handleMessage(v); err == nil {
+			log.Printf("error handling message event: %v", err)
+			if !h.storeMessageToInbox(v, InboxContent{
+				Message: text,
+			}) {
+				h.procTextMessage(v, text)
+				log.Printf("processed text message from %s", v.Info.Chat.String())
+			}
+			return
+		}
+
+		log.Printf("received message with unsupported type from %s; ignoring", v.Info.Chat.String())
 	})
 }

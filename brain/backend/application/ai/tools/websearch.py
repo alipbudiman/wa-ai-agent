@@ -88,7 +88,7 @@ class WebSearchTool:
         
         time_humanize_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        self.wa_bot.request_send_message(number, f"🌐Performing web search for query: '{query}' with topic: '{topic}'")
+        self.wa_bot.request_send_message(number, f"🌐Performing web search for query: '{query}' with topic: '{topic}'", number)
         
         tavily_search_tool = TavilySearch(
             max_results=max_results,
@@ -116,7 +116,7 @@ class WebSearchTool:
         res = f"Here are the search results for the query: '{query}':\n\n" + "\n".join(summerized_results)
         
         source_str = " , ".join(source_urls)
-        self.wa_bot.request_send_message(number, f"👌 Web search completed. Sources: {source_str}")
+        self.wa_bot.request_send_message(number, f"👌 Web search completed. Sources: {source_str}", number)
         
         return res
 
@@ -132,6 +132,10 @@ class WebSearchTool:
             func=self.websearch,
             name="websearch",
             description=(
+                "Use this tool when the available information is insufficient or outdated. If the current"
+                "knowledge base does not contain enough information to answer the user's query, invoke"
+                "websearch to retrieve the missing or additional information needed to provide a"
+                "comprehensive response."
                 "Search the web and summarize findings for the current chat request. "
                 "Use this when the user needs external/up-to-date information. "
                 "`number` must be the identifier of the current human/user who is "

@@ -13,6 +13,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	BOT_ROUTE_BASE string = "/v1"
+)
+
 // meHandler godoc
 // @Summary Get self information
 // @Description Return WhatsApp account information of the connected bot
@@ -87,19 +91,19 @@ func contactInfoHandler(waClient ports.WhatsAppClient) gin.HandlerFunc {
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /v1/message/send [post]
-func sendMessageHandler(waClient ports.WhatsAppClient) gin.HandlerFunc {
+func sendMessageHandler(waClient ports.WhatsAppClient, manager ports.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SendMessageRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
-
-		err := handler.SendMessage(waClient, req.Number, req.Message)
+		err := handler.SendMessage(waClient, manager, req.Number, req.Message, req.Store)
 		if err != nil {
 			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to send message")
 			return
 		}
+
 		SuccessHTTPResp(c, http.StatusOK, "message sent successfully", nil)
 	}
 }
@@ -132,12 +136,12 @@ func broadcastMessageHandler(waClient ports.WhatsAppClient) gin.HandlerFunc {
 	}
 }
 
-func RouterV1(waClient ports.WhatsAppClient, cfg *config.Config, router *gin.Engine) *gin.Engine {
-	v1 := router.Group("/v1")
+func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, cfg *config.Config, router *gin.Engine) *gin.Engine {
+	v1 := router.Group(BOT_ROUTE_BASE)
 	{
 		v1.GET("/me", meHandler(waClient))
 		v1.GET("/contact/info/:number", contactInfoHandler(waClient))
-		v1.POST("/message/send", sendMessageHandler(waClient))
+		v1.POST("/message/send", sendMessageHandler(waClient, manager))
 		v1.POST("/message/broadcast", broadcastMessageHandler(waClient))
 	}
 

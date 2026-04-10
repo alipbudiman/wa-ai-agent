@@ -19,6 +19,9 @@ func (m *Manager) CheckAccess(number string) (bool, error) {
 		&access_info,
 	)
 	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			return false, nil
+		}
 		return false, err
 	}
 

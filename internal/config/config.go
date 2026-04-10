@@ -5,6 +5,7 @@ import (
 	"os"
 
 	cfg_struct "github.com/alipbudiman/wa-ai-agent.git/internal/config/struct"
+	"github.com/alipbudiman/wa-ai-agent.git/pkg"
 )
 
 type Config struct {
@@ -64,17 +65,25 @@ func Load() Config {
 		// database configuration
 		Databases: cfg_struct.DatabaseConfig{
 			MongoDB: cfg_struct.MongoDBConfig{
-				URI:     env("MONGODB_URI", "mongodb://localhost:27017"),
-				DBAlias: env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				DBName:  env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+				URI:                   env("MONGODB_URI", "mongodb://localhost:27017"),
+				DBAlias:               env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+				DBName:                env("MONGODB_DB_NAME", "wa_ai_agent_db"),
 			},
 		},
 
 		// application configuration
 		App: cfg_struct.AppConfig{
 			Manager: cfg_struct.ManagerConfig{
-				AccessCollectionName: env("MANAGER_ACCESS_COLLECTION_NAME", "manager_access"),
-				BotConfigCollectionName: env("MANAGER_BOT_CONFIG_COLLECTION_NAME", "manager_bot_config"),
+				AccessCollectionName:    "manager_access",
+				BotConfigCollectionName: "manager_bot_config",
+				TemplateMsgCollectionName: "tmp_messages",
+				LogSystemCollectionName:   "log_system",
+				InboxCollectionName:       "inbox",
+			},
+			Dynamic: cfg_struct.DynamicManagerConfig{
+				RandID: func() string {
+					return pkg.GenerateUID() // Replace with actual random ID generation logic
+				},
 			},
 		},
 	}

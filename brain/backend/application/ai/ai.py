@@ -4,10 +4,14 @@ from langchain_ollama import ChatOllama
 from config.config import Config
 
 class AI:
-    def __init__(self):
+    def __init__(self, model: str = None):
         self.openrouter_api_key=Config.OPENROUTER_API_KEY
+        self.model = model
 
     def LLM(self, temperature: float = 0.7, reasoning: bool = True):
+        model = Config.OPENROUTER_MODEL if self.openrouter_api_key else Config.OLLAMA_MODEL
+        if self.model:
+            model = self.model
         if self.openrouter_api_key:
             # OpenRouter: reasoning menerima dict untuk konfigurasi effort & summary
             reasoning_config = {
@@ -17,8 +21,8 @@ class AI:
 
             llm = ChatOpenRouter(
                 api_key=self.openrouter_api_key,
-                model=Config.OPENROUTER_MODEL,
-                temperature=temperature,
+                model=model,
+                # temperature=temperature,
                 reasoning=reasoning_config
             )
             return llm
@@ -28,8 +32,8 @@ class AI:
             # False = reasoning dimatikan
             # None  = default behavior, <think> tags muncul di content
             llm = ChatOllama(
-                model=Config.OLLAMA_MODEL,
-                temperature=temperature,
+                model=model,
+                # temperature=temperature,
                 reasoning=reasoning,
             )
             return llm

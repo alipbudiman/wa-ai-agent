@@ -1,10 +1,18 @@
 package cfg_struct
 
 type ManagerConfig struct {
-	AccessCollectionName string
-	BotConfigCollectionName string
+	BotConfigCollectionName   string
+	AccessCollectionName      string
+	TemplateMsgCollectionName string
+	LogSystemCollectionName   string
+	InboxCollectionName       string
+}
+
+type DynamicManagerConfig struct {
+	RandID func() string
 }
 
 type AppConfig struct {
 	Manager ManagerConfig
+	Dynamic DynamicManagerConfig
 }

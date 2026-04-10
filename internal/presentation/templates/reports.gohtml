@@ -94,6 +94,93 @@
 			font-family: var(--font-mono);
 		}
 
+		.feedback-toast {
+			position: fixed;
+			top: 1.05rem;
+			right: 1rem;
+			z-index: 1320;
+			min-width: 270px;
+			max-width: min(92vw, 460px);
+			padding: 0.7rem 0.9rem;
+			border: 1px solid rgba(0, 229, 255, 0.46);
+			background: rgba(0, 229, 255, 0.13);
+			color: #d8fbff;
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			letter-spacing: 0.03em;
+			border-radius: 0.62rem;
+			box-shadow: 0 14px 26px rgba(0, 0, 0, 0.42);
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+			pointer-events: none;
+			transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+		}
+
+		.feedback-toast.is-hidden {
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+		}
+
+		.feedback-toast:not(.is-hidden) {
+			opacity: 1;
+			visibility: visible;
+			transform: translateY(0);
+		}
+
+		.feedback-toast.is-warning {
+			border-color: rgba(255, 214, 107, 0.54);
+			background: rgba(255, 214, 107, 0.16);
+			color: #ffe8ad;
+		}
+
+		.feedback-toast.is-error {
+			border-color: rgba(255, 77, 95, 0.56);
+			background: rgba(255, 77, 95, 0.17);
+			color: #ffd0d5;
+		}
+
+		.floating-loading {
+			position: fixed;
+			top: 0.95rem;
+			left: 50%;
+			transform: translate(-50%, -12px);
+			z-index: 1300;
+			display: flex;
+			align-items: center;
+			gap: 0.62rem;
+			max-width: min(560px, calc(100vw - 1.4rem));
+			padding: 0.72rem 0.95rem;
+			border: 1px solid rgba(0, 229, 255, 0.4);
+			background: rgba(0, 229, 255, 0.09);
+			backdrop-filter: blur(6px);
+			border-radius: 0.65rem;
+			color: #c9f7ff;
+			font-family: var(--font-mono);
+			font-size: 0.78rem;
+			letter-spacing: 0.03em;
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+		}
+
+		.floating-loading.show {
+			opacity: 1;
+			visibility: visible;
+			transform: translate(-50%, 0);
+		}
+
+		.floating-loading-dot {
+			width: 0.5rem;
+			height: 0.5rem;
+			border-radius: 50%;
+			background: var(--color-accent);
+			box-shadow: 0 0 10px rgba(212, 237, 49, 0.8);
+			flex-shrink: 0;
+		}
+
 		.btn-tech-outline {
 			--bs-btn-color: var(--color-text);
 			--bs-btn-border-color: var(--color-panel-line);
@@ -230,6 +317,16 @@
 			font-size: 0.8rem;
 		}
 
+		.pending-status-notice {
+			border: 1px solid rgba(212, 237, 49, 0.35);
+			background: rgba(212, 237, 49, 0.08);
+			border-radius: 0.7rem;
+			padding: 0.7rem 0.85rem;
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			color: #ecff9d;
+		}
+
 		.flowchart-board {
 			border: 1px solid rgba(0, 229, 255, 0.25);
 			background: linear-gradient(135deg, rgba(0, 229, 255, 0.06), rgba(255, 255, 255, 0.02));
@@ -269,12 +366,31 @@
 		.flow-step-input .flow-bullet { background: #4de6ff; }
 		.flow-step-process .flow-bullet { background: #d4ed31; }
 		.flow-step-child .flow-bullet { background: #7ae3ff; }
+		.flow-step-tool .flow-bullet { background: #7bffb8; }
 		.flow-step-output .flow-bullet { background: #ffd66b; }
 		.flow-step-end .flow-bullet { background: #ff8493; }
 
 		.flow-toggle-wrap {
 			padding-left: 1.45rem;
 			margin-top: 0.25rem;
+		}
+
+		.flow-compact-note {
+			border: 1px dashed rgba(255, 255, 255, 0.2);
+			background: rgba(255, 255, 255, 0.04);
+			border-radius: 0.55rem;
+			padding: 0.45rem 0.55rem;
+			margin-bottom: 0.45rem;
+		}
+
+		.flow-compact-note .flow-title {
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			letter-spacing: 0.05em;
+		}
+
+		.flow-compact-note .flow-meta {
+			margin-top: 0.12rem;
 		}
 
 		.flow-toggle-btn {
@@ -369,6 +485,19 @@
 		}
 
 		@media (max-width: 991.98px) {
+			.feedback-toast {
+				top: 0.85rem;
+				right: 0.7rem;
+				left: 0.7rem;
+				max-width: none;
+				min-width: 0;
+			}
+
+			.floating-loading {
+				top: 0.8rem;
+				max-width: calc(100vw - 1rem);
+			}
+
 			.section-title {
 				font-size: 0.98rem;
 			}
@@ -381,6 +510,11 @@
 	</style>
 </head>
 <body>
+	<div id="floatingLoading" class="floating-loading" role="status" aria-live="polite">
+		<span class="floating-loading-dot" aria-hidden="true"></span>
+		<span id="floatingLoadingText">Loading data...</span>
+	</div>
+
 	<main class="container tech-shell py-4 py-lg-5">
 		<section class="panel hero-panel rounded-3 p-3 p-md-4 mb-4">
 			<div class="d-flex flex-column flex-lg-row align-items-start justify-content-between gap-3">
@@ -391,13 +525,13 @@
 					<p class="muted-text mb-0"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/reports" class="text-decoration-underline">Reports</a></p>
 				</div>
 				<div class="d-flex flex-wrap gap-2">
-					<a href="/access" class="btn btn-tech-outline">Go To Access</a>
+					<a href="https://smith.langchain.com/" target="_blank" rel="noopener noreferrer" class="btn btn-tech-outline">Go To LangSmith</a>
 					<button type="button" class="btn btn-tech-primary" id="refreshRunsButton">Refresh Runs</button>
 				</div>
 			</div>
 		</section>
 
-		<div class="alert d-none" id="feedbackAlert" role="alert"></div>
+		<div class="feedback-toast is-hidden" id="feedbackAlert" role="alert"></div>
 
 		<div class="row g-4">
 			<div class="col-12 col-xl-5">
@@ -408,11 +542,6 @@
 							<h2 class="section-title mb-0">Run List</h2>
 						</div>
 						<span id="summaryText" class="text-muted-tech small">{{ len .LangSmithRuns }} runs loaded</span>
-					</div>
-
-					<div id="listLoadingView" class="d-none align-items-center gap-2 mb-3 text-muted-tech small">
-						<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-						<span>Syncing run list from API...</span>
 					</div>
 
 					<div class="table-responsive">
@@ -450,13 +579,6 @@
 
 			<div class="col-12 col-xl-7">
 				<section class="panel rounded-3 p-3 p-md-4 h-100 detail-stage" id="detailStage">
-					<div id="detailTransitionOverlay" class="detail-transition-overlay d-none" aria-hidden="true">
-						<div class="detail-transition-card" role="status" aria-live="polite">
-							<span class="detail-transition-spinner" aria-hidden="true"></span>
-							<span class="detail-transition-text">Switching run detail and rebuilding flow...</span>
-						</div>
-					</div>
-
 					<div class="d-flex align-items-center justify-content-between mb-3">
 						<div>
 							<p class="tech-kicker mb-1">[ inspect ]</p>
@@ -465,9 +587,9 @@
 						<span id="selectedRunLabel" class="text-muted-tech small">No run selected</span>
 					</div>
 
-					<div id="detailLoadingView" class="d-none align-items-center gap-2 mb-3 text-muted-tech small">
+					<div id="pendingStatusNotice" class="pending-status-notice d-none align-items-center gap-2 mb-3" role="status" aria-live="polite">
 						<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-						<span>Loading selected run detail...</span>
+						<span>Status is pending, waiting for completion... auto refresh every 15 seconds.</span>
 					</div>
 
 					<div id="detailPlaceholder" class="detail-placeholder mb-3">Select a run from the left table to load full report details.</div>
@@ -545,6 +667,10 @@
 
 	<script>
 		const reportsBaseURL = "{{ .ReportsBaseURL }}" || "/api/reports/";
+		const PENDING_RUN_REFRESH_INTERVAL_MS = 15000;
+		const FEEDBACK_SHOW_DELAY_MS = 120;
+		const FEEDBACK_HIDE_DELAY_MS = 220;
+		const FEEDBACK_AUTO_HIDE_MS = 4200;
 
 		const state = {
 			runs: [],
@@ -552,8 +678,15 @@
 			selectedRun: null,
 			listLoading: false,
 			detailLoading: false,
+			autoRefreshInFlight: false,
+			pendingAutoRefreshTimer: null,
 			rawVisible: false,
 			flowExpanded: false,
+			floatingLoadingCount: 0,
+			floatingLoadingHideTimer: null,
+			feedbackShowTimerId: null,
+			feedbackHideTimerId: null,
+			feedbackAutoHideTimerId: null,
 		};
 
 		const ui = {
@@ -561,11 +694,10 @@
 			runsTableBody: document.getElementById("runsTableBody"),
 			summaryText: document.getElementById("summaryText"),
 			feedbackAlert: document.getElementById("feedbackAlert"),
-			listLoadingView: document.getElementById("listLoadingView"),
-			detailLoadingView: document.getElementById("detailLoadingView"),
+			floatingLoading: document.getElementById("floatingLoading"),
+			floatingLoadingText: document.getElementById("floatingLoadingText"),
 			detailPlaceholder: document.getElementById("detailPlaceholder"),
 			detailContent: document.getElementById("detailContent"),
-			detailTransitionOverlay: document.getElementById("detailTransitionOverlay"),
 			selectedRunLabel: document.getElementById("selectedRunLabel"),
 			metricRunID: document.getElementById("metricRunID"),
 			metricStatus: document.getElementById("metricStatus"),
@@ -581,7 +713,78 @@
 			rawDataContainer: document.getElementById("rawDataContainer"),
 			jsonView: document.getElementById("jsonView"),
 			copyJsonButton: document.getElementById("copyJsonButton"),
+			pendingStatusNotice: document.getElementById("pendingStatusNotice"),
 		};
+
+		function clearFeedbackTimers() {
+			if (state.feedbackShowTimerId) {
+				window.clearTimeout(state.feedbackShowTimerId);
+				state.feedbackShowTimerId = null;
+			}
+
+			if (state.feedbackHideTimerId) {
+				window.clearTimeout(state.feedbackHideTimerId);
+				state.feedbackHideTimerId = null;
+			}
+
+			if (state.feedbackAutoHideTimerId) {
+				window.clearTimeout(state.feedbackAutoHideTimerId);
+				state.feedbackAutoHideTimerId = null;
+			}
+		}
+
+		function applyFeedbackToast(type, text, hidden) {
+			ui.feedbackAlert.classList.remove("is-warning", "is-error");
+
+			if (!hidden) {
+				if (type === "danger") {
+					ui.feedbackAlert.classList.add("is-error");
+				} else if (type === "warning") {
+					ui.feedbackAlert.classList.add("is-warning");
+				}
+			}
+
+			ui.feedbackAlert.textContent = hidden ? "" : text;
+			ui.feedbackAlert.classList.toggle("is-hidden", hidden);
+		}
+
+		function clearFloatingLoadingHideTimer() {
+			if (!state.floatingLoadingHideTimer) {
+				return;
+			}
+
+			window.clearTimeout(state.floatingLoadingHideTimer);
+			state.floatingLoadingHideTimer = null;
+		}
+
+		function showFloatingLoading(message) {
+			clearFloatingLoadingHideTimer();
+
+			state.floatingLoadingCount += 1;
+			if (message) {
+				ui.floatingLoadingText.textContent = message;
+			}
+
+			ui.floatingLoading.classList.add("show");
+		}
+
+		function hideFloatingLoading() {
+			state.floatingLoadingCount = Math.max(0, state.floatingLoadingCount - 1);
+			if (state.floatingLoadingCount > 0) {
+				return;
+			}
+
+			clearFloatingLoadingHideTimer();
+			state.floatingLoadingHideTimer = window.setTimeout(() => {
+				ui.floatingLoading.classList.remove("show");
+				state.floatingLoadingHideTimer = null;
+			}, 90);
+		}
+
+		function setPendingStatusNotice(isPending) {
+			ui.pendingStatusNotice.classList.toggle("d-flex", isPending);
+			ui.pendingStatusNotice.classList.toggle("d-none", !isPending);
+		}
 
 		function escapeHTML(value) {
 			return String(value)
@@ -593,42 +796,57 @@
 		}
 
 		function showAlert(type, text) {
-			ui.feedbackAlert.className = `alert alert-${type}`;
-			ui.feedbackAlert.textContent = text;
-			ui.feedbackAlert.classList.remove("d-none");
+			clearFeedbackTimers();
+
+			state.feedbackShowTimerId = window.setTimeout(() => {
+				applyFeedbackToast(type, text, false);
+				state.feedbackShowTimerId = null;
+
+				state.feedbackAutoHideTimerId = window.setTimeout(() => {
+					hideAlert();
+				}, FEEDBACK_AUTO_HIDE_MS);
+			}, FEEDBACK_SHOW_DELAY_MS);
 		}
 
 		function hideAlert() {
-			ui.feedbackAlert.classList.add("d-none");
-			ui.feedbackAlert.textContent = "";
+			clearFeedbackTimers();
+
+			state.feedbackHideTimerId = window.setTimeout(() => {
+				applyFeedbackToast("success", "", true);
+				state.feedbackHideTimerId = null;
+			}, FEEDBACK_HIDE_DELAY_MS);
 		}
 
 		function setListLoading(isLoading) {
 			state.listLoading = isLoading;
-			ui.listLoadingView.classList.toggle("d-flex", isLoading);
-			ui.listLoadingView.classList.toggle("d-none", !isLoading);
 			ui.refreshRunsButton.disabled = isLoading;
-		}
-
-		function setDetailLoading(isLoading) {
-			state.detailLoading = isLoading;
-			ui.detailLoadingView.classList.toggle("d-flex", isLoading);
-			ui.detailLoadingView.classList.toggle("d-none", !isLoading);
 
 			if (isLoading) {
-				ui.detailTransitionOverlay.classList.remove("d-none");
-				requestAnimationFrame(() => {
-					ui.detailTransitionOverlay.classList.add("show");
-				});
-			} else {
-				ui.detailTransitionOverlay.classList.remove("show");
-				ui.detailTransitionOverlay.classList.add("d-none");
+				showFloatingLoading("Syncing run list from API...");
+				return;
 			}
 
-			const selectButtons = ui.runsTableBody.querySelectorAll(".select-run-btn");
-			selectButtons.forEach((button) => {
-				button.disabled = isLoading;
-			});
+			hideFloatingLoading();
+		}
+
+		function setDetailLoading(isLoading, options = {}) {
+			const { showVisualFeedback = true, lockRunButtons = true } = options;
+			state.detailLoading = isLoading;
+
+			if (showVisualFeedback) {
+				if (isLoading) {
+					showFloatingLoading("Loading selected run detail...");
+				} else {
+					hideFloatingLoading();
+				}
+			}
+
+			if (lockRunButtons) {
+				const selectButtons = ui.runsTableBody.querySelectorAll(".select-run-btn");
+				selectButtons.forEach((button) => {
+					button.disabled = isLoading;
+				});
+			}
 		}
 
 		function setRawVisible(isVisible) {
@@ -668,6 +886,141 @@
 			return String(value);
 		}
 
+		function normalizeRunStatus(value) {
+			if (value === null || value === undefined) {
+				return "";
+			}
+			return String(value).trim().toLowerCase();
+		}
+
+		function normalizeToolName(value) {
+			if (value === null || value === undefined) {
+				return "";
+			}
+
+			const parsed = String(value).trim();
+			if (!parsed) {
+				return "";
+			}
+
+			const genericNames = new Set(["tool", "tools", "toolnode", "tool_node"]);
+			if (genericNames.has(parsed.toLowerCase())) {
+				return "";
+			}
+
+			return parsed;
+		}
+
+		function addToolName(toolSet, value) {
+			const normalized = normalizeToolName(value);
+			if (normalized) {
+				toolSet.add(normalized);
+			}
+		}
+
+		function collectToolNamesFromToolCalls(toolCalls, toolSet) {
+			if (!Array.isArray(toolCalls)) {
+				return;
+			}
+
+			toolCalls.forEach((toolCall) => {
+				if (!toolCall || typeof toolCall !== "object") {
+					return;
+				}
+
+				addToolName(toolSet, toolCall.name);
+				addToolName(toolSet, toolCall.tool_name);
+
+				if (toolCall.function && typeof toolCall.function === "object") {
+					addToolName(toolSet, toolCall.function.name);
+				}
+			});
+		}
+
+		function collectToolNamesFromMessages(messages, toolSet) {
+			if (!Array.isArray(messages)) {
+				return;
+			}
+
+			messages.forEach((message) => {
+				if (!message || typeof message !== "object") {
+					return;
+				}
+
+				const messageType = normalizeRunStatus(message.type || message.role);
+				if (messageType === "tool") {
+					addToolName(toolSet, message.name);
+				}
+
+				collectToolNamesFromToolCalls(message.tool_calls, toolSet);
+				if (message.additional_kwargs && typeof message.additional_kwargs === "object") {
+					collectToolNamesFromToolCalls(message.additional_kwargs.tool_calls, toolSet);
+				}
+
+				if (Array.isArray(message.content)) {
+					message.content.forEach((part) => {
+						if (!part || typeof part !== "object") {
+							return;
+						}
+
+						collectToolNamesFromToolCalls(part.tool_calls, toolSet);
+						addToolName(toolSet, part.name);
+						addToolName(toolSet, part.tool_name);
+
+						if (part.function && typeof part.function === "object") {
+							addToolName(toolSet, part.function.name);
+						}
+					});
+				}
+			});
+		}
+
+		function stopPendingAutoRefresh() {
+			if (state.pendingAutoRefreshTimer) {
+				window.clearTimeout(state.pendingAutoRefreshTimer);
+				state.pendingAutoRefreshTimer = null;
+			}
+		}
+
+		function schedulePendingAutoRefresh(runID) {
+			stopPendingAutoRefresh();
+
+			if (!runID) {
+				return;
+			}
+
+			state.pendingAutoRefreshTimer = window.setTimeout(async () => {
+				if (!state.selectedRunID || state.selectedRunID !== runID) {
+					stopPendingAutoRefresh();
+					return;
+				}
+
+				if (state.autoRefreshInFlight || state.detailLoading) {
+					schedulePendingAutoRefresh(runID);
+					return;
+				}
+
+				state.autoRefreshInFlight = true;
+				try {
+					await loadRunDetail(runID, { mode: "auto" });
+				} finally {
+					state.autoRefreshInFlight = false;
+				}
+			}, PENDING_RUN_REFRESH_INTERVAL_MS);
+		}
+
+		function syncPendingAutoRefresh(runID, runDetail) {
+			const isPending = normalizeRunStatus(runDetail && runDetail.status) === "pending";
+			const shouldContinue = Boolean(runID) && state.selectedRunID === runID && isPending;
+
+			if (shouldContinue) {
+				schedulePendingAutoRefresh(runID);
+				return;
+			}
+
+			stopPendingAutoRefresh();
+		}
+
 		function updateSummary(count) {
 			ui.summaryText.textContent = `${count} runs loaded`;
 		}
@@ -690,6 +1043,38 @@
 			return String(aiMessage.content);
 		}
 
+		function extractToolNames(runDetail) {
+			const toolSet = new Set();
+
+			const extraToolNames = runDetail && runDetail.extra && Array.isArray(runDetail.extra.tool_names)
+				? runDetail.extra.tool_names
+				: [];
+			extraToolNames.forEach((name) => addToolName(toolSet, name));
+
+			const childRuns = runDetail && Array.isArray(runDetail.child_runs) ? runDetail.child_runs : [];
+			childRuns.forEach((child) => {
+				if (!child || typeof child !== "object") {
+					return;
+				}
+
+				if (normalizeRunStatus(child.run_type) === "tool") {
+					addToolName(toolSet, child.name);
+				}
+			});
+
+			const inputMessages = runDetail && runDetail.inputs && Array.isArray(runDetail.inputs.messages)
+				? runDetail.inputs.messages
+				: [];
+			collectToolNamesFromMessages(inputMessages, toolSet);
+
+			const outputMessages = runDetail && runDetail.outputs && Array.isArray(runDetail.outputs.messages)
+				? runDetail.outputs.messages
+				: [];
+			collectToolNamesFromMessages(outputMessages, toolSet);
+
+			return Array.from(toolSet);
+		}
+
 		function renderFlowchart(runDetail) {
 			const steps = [];
 			steps.push({ title: "Start", meta: formatDateTime(runDetail.start_time), tone: "start" });
@@ -705,6 +1090,7 @@
 			}
 
 			const childRuns = runDetail && Array.isArray(runDetail.child_runs) ? runDetail.child_runs : [];
+			const toolNames = extractToolNames(runDetail);
 			const maxVisibleChildRuns = 6;
 			const extraChildCount = Math.max(childRuns.length - maxVisibleChildRuns, 0);
 			let hiddenChildCount = 0;
@@ -718,13 +1104,15 @@
 				visibleChildRuns.forEach((child, index) => {
 					const childName = child && child.name ? child.name : `Child Run ${index + 1}`;
 					const childType = child && child.run_type ? String(child.run_type).toUpperCase() : "STEP";
+					const childTypeNormalized = normalizeRunStatus(child && child.run_type);
+					const isToolStep = childTypeNormalized === "tool";
 					const childID = child && child.id ? String(child.id) : "-";
 					const compactID = childID === "-" ? childID : `${childID.slice(0, 8)}...`;
 
 					steps.push({
-						title: childName,
+						title: isToolStep ? `Tool: ${childName}` : childName,
 						meta: `${childType} · ${compactID}`,
-						tone: "child",
+						tone: isToolStep ? "tool" : "child",
 					});
 				});
 			} else {
@@ -732,6 +1120,14 @@
 					title: "Processing",
 					meta: runDetail && runDetail.run_type ? String(runDetail.run_type).toUpperCase() : "CHAIN",
 					tone: "process",
+				});
+			}
+
+			if (toolNames.length > 0) {
+				steps.push({
+					title: "Tools Used",
+					meta: toolNames.join(" | "),
+					tone: "tool",
 				});
 			}
 
@@ -762,9 +1158,19 @@
 				`;
 			}).join("");
 
+			const compactNotice = extraChildCount > 0 && !state.flowExpanded
+				? `
+					<div class="flow-compact-note">
+						<div class="flow-title">+${hiddenChildCount} More</div>
+						<div class="flow-meta">hidden for compact layout</div>
+					</div>
+				`
+				: "";
+
 			const toggleControl = extraChildCount > 0
 				? `
 					<div class="flow-toggle-wrap">
+						${compactNotice}
 						<button type="button" class="flow-toggle-btn" data-flow-toggle="true">
 							${state.flowExpanded ? `Hide ${extraChildCount} extra step(s)` : `Show +${hiddenChildCount} more step(s)`}
 						</button>
@@ -796,7 +1202,11 @@
 			ui.metricPromptTokens.textContent = toDisplayValue(runDetail.prompt_tokens);
 			ui.metricCompletionTokens.textContent = toDisplayValue(runDetail.completion_tokens);
 			ui.metricTotalTokens.textContent = toDisplayValue(runDetail.total_tokens);
-			ui.selectedRunLabel.textContent = `Selected Run: ${toDisplayValue(runDetail.id)}`;
+			const statusNormalized = normalizeRunStatus(runDetail.status);
+			setPendingStatusNotice(statusNormalized === "pending");
+			ui.selectedRunLabel.textContent = statusNormalized === "pending"
+				? `Selected Run: ${toDisplayValue(runDetail.id)} | pending (auto refresh 15s)`
+				: `Selected Run: ${toDisplayValue(runDetail.id)}`;
 			renderFlowchart(runDetail);
 
 			const cloned = { ...runDetail };
@@ -811,6 +1221,8 @@
 		function resetDetailView() {
 			state.selectedRun = null;
 			state.flowExpanded = false;
+			stopPendingAutoRefresh();
+			setPendingStatusNotice(false);
 			ui.detailContent.classList.add("d-none");
 			ui.detailPlaceholder.classList.remove("d-none");
 			ui.selectedRunLabel.textContent = "No run selected";
@@ -909,29 +1321,62 @@
 			}
 		}
 
-		async function loadRunDetail(runID) {
-			if (state.detailLoading) {
+		async function loadRunDetail(runID, options = {}) {
+			const { mode = "manual" } = options;
+			const isAuto = mode === "auto";
+
+			if (!isAuto && state.detailLoading) {
 				return;
 			}
 
-			hideAlert();
-			setDetailLoading(true);
+			if (!runID) {
+				return;
+			}
+
+			if (!isAuto) {
+				hideAlert();
+			}
+
+			if (!isAuto) {
+				setDetailLoading(true, { showVisualFeedback: true, lockRunButtons: true });
+				setPendingStatusNotice(false);
+			}
+
+			stopPendingAutoRefresh();
 			const previousSelectedRunID = state.selectedRunID;
-			state.selectedRunID = runID;
-			markSelectedRun(runID);
+			if (!isAuto) {
+				state.selectedRunID = runID;
+				markSelectedRun(runID);
+			}
 
 			try {
 				const detail = await fetchJSON(`${reportsBaseURL}langsmith/${encodeURIComponent(runID)}`);
-				renderDetail(detail || {});
-			} catch (error) {
-				state.selectedRunID = previousSelectedRunID;
-				markSelectedRun(previousSelectedRunID);
-				if (!state.selectedRun) {
-					resetDetailView();
+
+				// Avoid stale render when selection changed while request was in flight.
+				if (state.selectedRunID && state.selectedRunID !== runID) {
+					return;
 				}
-				showAlert("danger", `Failed to load run detail: ${error.message}`);
+
+				renderDetail(detail || {});
+				syncPendingAutoRefresh(runID, detail || {});
+			} catch (error) {
+				if (!isAuto) {
+					state.selectedRunID = previousSelectedRunID;
+					markSelectedRun(previousSelectedRunID);
+					if (!state.selectedRun) {
+						resetDetailView();
+					}
+					showAlert("danger", `Failed to load run detail: ${error.message}`);
+				} else {
+					const currentStatus = normalizeRunStatus(state.selectedRun && state.selectedRun.status);
+					if (state.selectedRunID === runID && currentStatus === "pending") {
+						schedulePendingAutoRefresh(runID);
+					}
+				}
 			} finally {
-				setDetailLoading(false);
+				if (!isAuto) {
+					setDetailLoading(false, { showVisualFeedback: true, lockRunButtons: true });
+				}
 			}
 		}
 
@@ -971,6 +1416,10 @@
 			} catch (_) {
 				showAlert("warning", "Clipboard copy failed. Please copy manually from the JSON panel.");
 			}
+		});
+
+		window.addEventListener("beforeunload", () => {
+			stopPendingAutoRefresh();
 		});
 
 		hydrateInitialRuns();

@@ -6,6 +6,23 @@ from config.config import Config
 class ReportUseCase:
     def __init__(self):
         self.langsmith_client = Client()  # Initialize LangSmith client for tracing
+
+    def _collect_tool_names(self, run) -> set[str]:
+        """Collect tool run names recursively from a LangSmith run tree."""
+        collected: set[str] = set()
+
+        for child in (getattr(run, "child_runs", None) or []):
+            child_name = str(getattr(child, "name", "") or "").strip()
+            child_type = str(getattr(child, "run_type", "") or "").strip().lower()
+
+            if child_type == "tool" and child_name and child_name.lower() != "tools":
+                collected.add(child_name)
+
+            nested_names = self._collect_tool_names(child)
+            if nested_names:
+                collected.update(nested_names)
+
+        return collected
     
     def get_list(self) -> list[LangSmithRunReport]:
         runs = self.langsmith_client.list_runs(
@@ -31,6 +48,11 @@ class ReportUseCase:
             load_child_runs=True,  # include child spans/runs
         )
 
+        extra_payload = dict(run_detail.extra or {})
+        tool_names = sorted(self._collect_tool_names(run_detail))
+        if tool_names:
+            extra_payload["tool_names"] = tool_names
+
         child_runs = []
         for child in (getattr(run_detail, "child_runs", None) or []):
             child_runs.append(
@@ -47,7 +69,7 @@ class ReportUseCase:
             start_time=run_detail.start_time,
             run_type=run_detail.run_type or "",
             end_time=run_detail.end_time,
-            extra=run_detail.extra or {},
+            extra=extra_payload,
             error=run_detail.error,
             serialized=run_detail.serialized,
             events=run_detail.events or [],
