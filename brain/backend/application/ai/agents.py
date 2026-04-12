@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import re
 import uuid
@@ -37,11 +38,11 @@ class State(MessagesState):
     sender: str
 
 class ChatAgentUseCase:
-    ASSISTANT_CONTEXT_MAX_TOKENS = 4500
-    SUMMARIZE_TRIGGER_TOKENS = 7000
-    SUMMARIZE_MIN_MESSAGES = 8
-    SUMMARIZE_KEEP_RECENT_MESSAGES = 8
-    SUMMARIZE_SOURCE_MAX_TOKENS = 3500
+    ASSISTANT_CONTEXT_MAX_TOKENS = 32000
+    SUMMARIZE_TRIGGER_TOKENS = 40000
+    SUMMARIZE_MIN_MESSAGES = 20
+    SUMMARIZE_KEEP_RECENT_MESSAGES = 20
+    SUMMARIZE_SOURCE_MAX_TOKENS = 40000
 
     def __init__(self):
         self.llm = AI()
@@ -58,6 +59,21 @@ class ChatAgentUseCase:
         self.checkpointer = MongoDBSaver(self.mongo_cleint, db_name="agent_memory_db", collection_name="agent_memory_collection")
         self.__init_langsmith()
         self.react_graph = self.__agent_logic()
+        
+        # sensitive tools that require extra caution and should need user confirmation before use can be listed here for additional guardrails or monitoring; currently we rely on the assistant's judgment and system instructions to use tools appropriately, but this list can be used to trigger extra checks or alerts when certain tools are invoked
+        self._sensitive_tools = [
+            self.filex_tool.delete_file_dir.__name__,
+        ]
+        
+        self._need_decide = {
+            str(self.terminalx_tool.simple_exec.__name__): {
+                "description": "Execute simple terminal commands without complex chaining or scripting. Use with caution and avoid commands that can cause harm or require elevated permissions.",
+                "sensitive": ["delete", "rm", "shutdown", "reboot", "format", "mkfs", "dd", ">:","|","&&",";"],
+            }
+
+        }
+        
+        # static tools that do not require state access can be initialized once and reused across turns/users; dynamic tools that require state access (e.g. sender) must be generated per turn in __get_tools
         self.__static_tools = [
             self.instruction.capability_description,
             self.websearch_tool.websearch_tool(),
@@ -66,9 +82,12 @@ class ChatAgentUseCase:
             self.wa_integration_tool.get_user_information,
             self.wa_integration_tool.broadcast_message,
             self.filex_tool.compress,
+            self.filex_tool.delete_file_dir,
         ]
         self._llm_cache: dict[str, any] = {}
         self._tool_node_cache: dict[str, ToolNode] = {}
+        self._human_interrup_chche: dict[str, str] = {} # user number -> interruption message
+        self._pending_sensitive_tool_calls: dict[str, list[dict]] = {}
         self._process_diagram_mermaid = ""
     
     @staticmethod
@@ -205,14 +224,18 @@ class ChatAgentUseCase:
 
         return False
 
-    def __route_after_assistant(self, state: State) -> Literal["tools", "end"]:
+    def __route_after_assistant(self, state: State) -> Literal["tools", "human_feedback", "end"]:
         """
         Route assistant output deterministically.
 
         Priority:
-        1) execute tools when the assistant emitted tool calls
-        2) finish turn when no further work is needed
+        1) request human confirmation for sensitive/risky tool calls
+        2) execute tools when safe to proceed
+        3) finish turn when no further work is needed
         """
+        if self.__pending_confirmation_calls(state):
+            return "human_feedback"
+
         if self.__has_pending_tool_calls(state):
             return "tools"
 
@@ -393,6 +416,185 @@ class ChatAgentUseCase:
         return "\n".join(reversed(collected))
 
     @staticmethod
+    def __coerce_tool_args(args: any) -> dict:
+        """Normalize tool-call args into dict shape."""
+        if isinstance(args, dict):
+            return args
+
+        if isinstance(args, str):
+            stripped = args.strip()
+            if not stripped:
+                return {}
+
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return {"raw": stripped}
+
+            if isinstance(parsed, dict):
+                return parsed
+
+            return {"value": parsed}
+
+        if args is None:
+            return {}
+
+        return {"value": str(args)}
+
+    def __normalize_tool_call(self, raw_call: any) -> dict | None:
+        """Normalize heterogeneous tool-call payloads into one structure."""
+        if not isinstance(raw_call, dict):
+            return None
+
+        name = str(raw_call.get("name") or "").strip()
+        args = raw_call.get("args")
+        call_id = raw_call.get("id")
+        call_type = raw_call.get("type", "tool_call")
+
+        # OpenAI-style wrapper: {"function": {"name": ..., "arguments": ...}}
+        function_payload = raw_call.get("function")
+        if isinstance(function_payload, dict):
+            if not name:
+                name = str(function_payload.get("name") or "").strip()
+            if args is None:
+                args = function_payload.get("arguments")
+
+        if not name:
+            return None
+
+        normalized = {
+            "name": name,
+            "args": self.__coerce_tool_args(args),
+            "id": str(call_id) if call_id else f"toolcall-{uuid.uuid4().hex[:12]}",
+            "type": str(call_type or "tool_call"),
+        }
+        return normalized
+
+    def __latest_ai_tool_calls(self, state: State) -> list[dict]:
+        """Get normalized tool calls from the most recent AI message."""
+        for message in reversed(state.get("messages", [])):
+            if not isinstance(message, AIMessage):
+                continue
+
+            direct_calls = getattr(message, "tool_calls", None) or []
+            normalized_direct = [
+                normalized
+                for normalized in (self.__normalize_tool_call(call) for call in direct_calls)
+                if normalized
+            ]
+            if normalized_direct:
+                return normalized_direct
+
+            additional_kwargs = getattr(message, "additional_kwargs", {}) or {}
+            raw_calls = additional_kwargs.get("tool_calls") or []
+            normalized_raw = [
+                normalized
+                for normalized in (self.__normalize_tool_call(call) for call in raw_calls)
+                if normalized
+            ]
+            if normalized_raw:
+                return normalized_raw
+
+            return []
+
+        return []
+
+    def __tool_call_requires_confirmation(self, tool_call: dict) -> tuple[bool, str]:
+        """Determine whether a tool call requires explicit human confirmation."""
+        tool_name = str(tool_call.get("name") or "").strip()
+        if not tool_name:
+            return False, ""
+
+        if tool_name in self._sensitive_tools:
+            return True, "Sensitive action requires explicit confirmation."
+
+        decision_rule = self._need_decide.get(tool_name)
+        if not decision_rule:
+            return False, ""
+
+        args_text = json.dumps(self.__coerce_tool_args(tool_call.get("args")), ensure_ascii=False).lower()
+        markers = [str(marker).lower() for marker in decision_rule.get("sensitive", [])]
+        if any(marker and marker in args_text for marker in markers):
+            return True, "Potentially risky command pattern detected."
+
+        return False, ""
+
+    def __pending_confirmation_calls(self, state: State) -> list[tuple[dict, str]]:
+        """Collect tool calls that should be gated by human confirmation."""
+        flagged: list[tuple[dict, str]] = []
+        for tool_call in self.__latest_ai_tool_calls(state):
+            needs_confirmation, reason = self.__tool_call_requires_confirmation(tool_call)
+            if needs_confirmation:
+                flagged.append((tool_call, reason))
+        return flagged
+
+    @staticmethod
+    def __human_feedback_intent(text: str) -> Literal["approve", "reject", "unknown"]:
+        """Interpret human confirmation response for pending sensitive actions."""
+        normalized = " ".join((text or "").strip().lower().split())
+        if not normalized:
+            return "unknown"
+
+        reject_markers = (
+            "batal",
+            "cancel",
+            "jangan",
+            "tidak",
+            "no",
+            "stop",
+            "ga jadi",
+            "gak jadi",
+            "nggak jadi",
+        )
+        if any(marker in normalized for marker in reject_markers):
+            return "reject"
+
+        approve_markers = (
+            "lanjut",
+            "setuju",
+            "yes",
+            "ya",
+            "ok",
+            "oke",
+            "confirm",
+            "konfirmasi",
+            "proceed",
+        )
+        if any(marker in normalized for marker in approve_markers):
+            return "approve"
+
+        return "unknown"
+
+    def __human_feedback_action_label(self, tool_call: dict) -> str:
+        """Build user-friendly action text for confirmation prompts."""
+        tool_name = str(tool_call.get("name") or "").strip()
+        args = self.__coerce_tool_args(tool_call.get("args"))
+
+        if tool_name == self.filex_tool.delete_file_dir.__name__:
+            target = str(args.get("file_path") or "").strip()
+            return f"Delete file/folder: {target or 'unknown target'}"
+
+        if tool_name == self.terminalx_tool.simple_exec.__name__:
+            command = str(args.get("command") or "").strip()
+            return f"Run terminal command: {command or 'unknown command'}"
+
+        return "Run a sensitive action"
+
+    def __build_human_feedback_message(self, flagged_calls: list[tuple[dict, str]]) -> str:
+        """Create a deterministic confirmation message for sensitive actions."""
+        lines = [
+            "Saya butuh konfirmasi sebelum menjalankan aksi sensitif ini:",
+        ]
+
+        for index, (tool_call, reason) in enumerate(flagged_calls, start=1):
+            lines.append(f"{index}. {self.__human_feedback_action_label(tool_call)}")
+            if reason:
+                lines.append(f"   Reason: {reason}")
+
+        lines.append("Balas 'lanjut' untuk menyetujui, atau 'batal' untuk membatalkan.")
+        return "\n".join(lines)
+
+    @staticmethod
     def __requires_context_route(text: str) -> bool:
         """
         Force assistant route for status-oriented delivery follow-up queries.
@@ -471,9 +673,9 @@ class ChatAgentUseCase:
 
         return None
 
-    def __assistant_payload(self, state: State) -> list:
+    def __message_guard_payload(self, state: State, use_tools: bool) -> list:
         """
-        Build assistant payload with a guaranteed non-system message.
+        Build model payload with a guaranteed non-system message.
 
         Some Ollama backends can fail when invoked with only system messages,
         which can happen after aggressive context trimming.
@@ -489,7 +691,7 @@ class ChatAgentUseCase:
                 )
                 assistant_messages = assistant_messages + [fallback_message]
 
-        return [self.__system_rule()] + assistant_messages
+        return [self.__system_rule(use_tools=use_tools)] + assistant_messages
         
     # only use for testing (skripsi)
     def __save_process_diagram(self, react_graph) -> None:
@@ -527,16 +729,28 @@ class ChatAgentUseCase:
     # Graph state routing (early filtering)
     def __route_query(self, state: State, max_latest_user_messages: int = 5) -> str:
         """
-        Classify the user intent into direct_chat or assistant at graph start.
+        Classify the next node at graph start.
 
-        Routing happens before the tool-capable path so simple conversational
-        turns can bypass tool/database-style work. Any actionable, ambiguous,
-        structured-data, or unusual message must go to assistant.
+        Routing happens before tool execution. direct_chat is the no-tool path,
+        while assistant is the tool-enabled path. Ambiguous/uncertain requests
+        must route to assistant for safety.
 
         Returns:
-            str: "command_guard", "direct_chat", or "assistant".
+            str: command_guard, direct_chat, assistant, human_feedback,
+            confirm_sensitive_tools, or cancel_sensitive_tools.
         """
+        sender = state.get("sender", "")
         recent_user_messages = self.__latest_user_text(state, max_messages=max_latest_user_messages).strip()
+
+        if self._pending_sensitive_tool_calls.get(sender):
+            decision_text = self.__latest_user_text(state, max_messages=1)
+            decision = self.__human_feedback_intent(decision_text)
+            if decision == "approve":
+                return "confirm_sensitive_tools"
+            if decision == "reject":
+                return "cancel_sensitive_tools"
+            return "human_feedback"
+
         if not recent_user_messages:
             return "direct_chat"
 
@@ -547,26 +761,7 @@ class ChatAgentUseCase:
         if command_intent:
             return "command_guard"
 
-        classifier_prompt = (
-            "Classify the latest user message into exactly one label: "
-            "direct_chat or assistant.\n"
-            "Output only one label with no extra text.\n"
-            "Rules:\n"
-            "1) direct_chat: greeting, thanks, short acknowledgement, or light small talk "
-            "with no request for action, lookup, processing, or tool usage.\n"
-            "2) assistant: everything else, including:\n"
-            "   - any request/question that needs reasoning or an action\n"
-            "   - any lookup/retrieval or tool-like intent\n"
-            "   - ambiguous or unusual messages\n"
-            "   - messages sharing contacts, phone numbers, links, personal data, or "
-            "other structured information\n"
-            "   - messages asking to send, save, verify, parse, or process information\n"
-            "Examples:\n"
-            "- 'hai', 'makasih', 'ok sip' => direct_chat\n"
-            "- 'ini nomor saya 0812..., tolong simpan', 'cek kontak ini', "
-            "'kirim informasi user', 'bantu cari data' => assistant\n"
-            "Return only one label with no extra text."
-        )
+        classifier_prompt = self.instruction.route_query_instruction()
 
         try:
             classification = self.__llm(reasoning=True).invoke([
@@ -586,14 +781,12 @@ class ChatAgentUseCase:
 
     def __direct_chat(self, state: State):
         """
-        Handle lightweight conversation without tools and without full history.
+        Handle no-tool conversation with bounded multi-turn context.
 
-        This path is intentionally minimal: it sends only the latest user text
-        to the base LLM so casual chat does not trigger tool/database operations
-        or large context processing.
+        direct_chat can still see conversation history (trimmed by
+        __assistant_context), but it does not bind tools.
         """
-        last_message = self.__latest_user_text(state, max_messages=2)
-        payload = [HumanMessage(content=last_message)] if last_message else state["messages"][-1:]
+        payload = self.__message_guard_payload(state, use_tools=False)
         response = self.__llm(reasoning=False).invoke(payload)
         
         return {"messages": [response]}
@@ -647,7 +840,7 @@ class ChatAgentUseCase:
             self._llm_cache[sender] = self.__llm(reasoning=True).bind_tools(tools)
         
         llm_with_tools = self._llm_cache[sender]
-        payload = self.__assistant_payload(state)
+        payload = self.__message_guard_payload(state, use_tools=True)
 
         if not self.__has_non_system_message(payload):
             logger.warning("Assistant payload is system-only for %s; returning safe fallback response.", sender)
@@ -660,23 +853,30 @@ class ChatAgentUseCase:
                 raise
 
             logger.warning(
-                "Assistant invoke failed with ResponseError for %s; retrying with reasoning=False. detail=%s",
+                "Assistant invoke failed with ResponseError for %s; retrying with reasoning=True. detail=%s",
                 sender,
                 err,
             )
-            retry_llm = self.__llm(reasoning=False).bind_tools(self.__get_tools(state))
+            retry_llm = self.__llm(reasoning=True).bind_tools(self.__get_tools(state))
             response = retry_llm.invoke(payload)
 
         return {"messages": [response]}
 
-    def __system_rule(self):
+    def __system_rule(self, use_tools: bool = True):
         """
-        Build the system instruction message for the tool-capable assistant.
+        Build the system instruction message for the current runtime mode.
 
         This keeps the policy source centralized so updates are applied
         consistently on every assistant turn.
         """
         build_msg = "SYSTEM RULES AND INSTRUCTIONS:\n" + self.instruction.system_instruction
+        runtime_mode = "assistant" if use_tools else "direct_chat"
+        build_msg += f"\n\nRUNTIME MODE: {runtime_mode}"
+        if use_tools:
+            build_msg += "\n- Tools are available for this turn. Use them when required by the task."
+        else:
+            build_msg += "\n- Tools are NOT available for this turn. Solve using reasoning and context only."
+
         capability_description = self.instruction.capability_description()
         if capability_description:
             build_msg += "\n\nCAPABILITY REFERENCE:\n" + capability_description
@@ -687,6 +887,74 @@ class ChatAgentUseCase:
 
         sys_msg = SystemMessage(content=build_msg)
         return sys_msg
+    
+    def __human_feedback(self, state: State):
+        """Ask for confirmation before executing sensitive/risky tool calls."""
+        sender = state.get("sender", "")
+
+        latest_tool_calls = self.__latest_ai_tool_calls(state)
+        flagged_calls = self.__pending_confirmation_calls(state)
+
+        if latest_tool_calls and flagged_calls:
+            self._pending_sensitive_tool_calls[sender] = latest_tool_calls
+        else:
+            cached_calls = self._pending_sensitive_tool_calls.get(sender, [])
+            flagged_calls = []
+            for tool_call in cached_calls:
+                needs_confirmation, reason = self.__tool_call_requires_confirmation(tool_call)
+                if needs_confirmation:
+                    flagged_calls.append((tool_call, reason))
+
+        if not flagged_calls:
+            self._pending_sensitive_tool_calls.pop(sender, None)
+            self._human_interrup_chche.pop(sender, None)
+            return {
+                "messages": [
+                    AIMessage(content="Tidak ada aksi sensitif yang menunggu konfirmasi.")
+                ]
+            }
+
+        feedback_message = self.__build_human_feedback_message(flagged_calls)
+        self._human_interrup_chche[sender] = feedback_message
+        return {"messages": [AIMessage(content=feedback_message)]}
+
+    def __confirm_sensitive_tools(self, state: State):
+        """Resume execution by replaying previously approved tool calls."""
+        sender = state.get("sender", "")
+        pending_calls = self._pending_sensitive_tool_calls.pop(sender, [])
+        self._human_interrup_chche.pop(sender, None)
+
+        if not pending_calls:
+            return {
+                "messages": [
+                    AIMessage(content="Tidak ada aksi sensitif yang menunggu konfirmasi.")
+                ]
+            }
+
+        normalized_calls = [
+            normalized
+            for normalized in (self.__normalize_tool_call(call) for call in pending_calls)
+            if normalized
+        ]
+        if not normalized_calls:
+            return {
+                "messages": [
+                    AIMessage(content="Konfirmasi diterima, tetapi aksi sensitif tidak valid.")
+                ]
+            }
+
+        return {"messages": [AIMessage(content="", tool_calls=normalized_calls)]}
+
+    def __cancel_sensitive_tools(self, state: State):
+        """Cancel pending sensitive execution after human rejection."""
+        sender = state.get("sender", "")
+        self._pending_sensitive_tool_calls.pop(sender, None)
+        self._human_interrup_chche.pop(sender, None)
+        return {
+            "messages": [
+                AIMessage(content="Baik, aksi sensitif dibatalkan.")
+            ]
+        }
 
     def __agent_logic(self):
         """
@@ -699,8 +967,8 @@ class ChatAgentUseCase:
         - tools -> assistant loop until no more tool calls
 
         Why this design:
-        - direct_chat keeps simple messages cheap and fast
-        - assistant path is reserved for tasks, lookups, and structured inputs
+        - direct_chat handles turns that can be solved without tools
+        - assistant path handles tool-enabled tasks and uncertain cases
         - tools are executed only on explicit tool-call outputs
         """
         # Build the state graph container.
@@ -714,10 +982,13 @@ class ChatAgentUseCase:
         # assistant decides whether tools are needed; tools executes tool calls.
         builder.add_node("pre_assistant", self.__pre_assistant)
         builder.add_node("assistant", self.__assistant)
-        # ToolNode runs only the configured tool functions.
-        builder.add_node("tools", self.__tool_node)
         builder.add_node("direct_chat", self.__direct_chat)
         builder.add_node("command_guard", self.__command_guard)
+        builder.add_node("human_feedback", self.__human_feedback)
+        builder.add_node("confirm_sensitive_tools", self.__confirm_sensitive_tools)
+        builder.add_node("cancel_sensitive_tools", self.__cancel_sensitive_tools)
+        # ToolNode runs only the configured tool functions.
+        builder.add_node("tools", self.__tool_node)
         
         # Route from START using early filtering.
         builder.add_conditional_edges(
@@ -725,13 +996,19 @@ class ChatAgentUseCase:
             self.__route_query,
             {
                 "command_guard": "command_guard",
-                "direct_chat": "direct_chat",  # Lightweight social/chat path.
-                "assistant": "pre_assistant"   # Actionable or ambiguous path.
+                "direct_chat": "direct_chat",  # No-tool path.
+                "assistant": "pre_assistant",   # Tool-enabled path.
+                "human_feedback": "human_feedback",
+                "confirm_sensitive_tools": "confirm_sensitive_tools",
+                "cancel_sensitive_tools": "cancel_sensitive_tools",
             }
         )
 
         # Command-like requests are handled with deterministic command guidance.
         builder.add_edge("command_guard", END)
+        builder.add_edge("human_feedback", END)
+        builder.add_edge("cancel_sensitive_tools", END)
+        builder.add_edge("confirm_sensitive_tools", "tools")
 
         # Before every assistant run, decide whether we should summarize first.
         builder.add_conditional_edges(
@@ -748,6 +1025,7 @@ class ChatAgentUseCase:
             self.__route_after_assistant,
             {
                 "tools": "tools",
+                "human_feedback": "human_feedback",
                 "end": END,
             }
         )

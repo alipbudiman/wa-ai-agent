@@ -81,13 +81,13 @@ func registeredCommands() CommandCollection {
 		SendPendingFile: CommandInfo{
 			Name:        "Send Pending File",
 			Description: "Sends a pending file on hold to the specified number.",
-			Command:     "/send-file",
+			Command:     "/file-send",
 			Function:    (*Agents).SendPendingFileFromAgent,
 		},
 		UnsendPendingFile: CommandInfo{
 			Name:        "Unsend Pending File",
 			Description: "Cancels and removes the current pending on-hold file.",
-			Command:     "/unsend-file",
+			Command:     "/file-unsend",
 			Function:    (*Agents).UnsendPendingFileFromAgent,
 		},
 	}
@@ -481,6 +481,25 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 	name = contact_info.PushName
 	if contact_info.FullName != "" {
 		name = contact_info.FullName
+	}
+
+	err = h.manager.StoreInboxMessage(ports.InboxMessage{
+		JID:        new_jid,
+		MsgID:      pkg.GenerateUID(),
+		FullName:   contact_info.FullName,
+		PushName:   contact_info.PushName,
+		Number:     pending_file.PendingNumber,
+		Message:    fmt.Sprintf("[File Attached] %s", pending_file.PendingCaption),
+		FromMe:     true,
+		ReceivedAt: time.Now().Unix(),
+		Read:       false,
+	})
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(err.Error()),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
 	}
 
 	replyStatus, err := h.responder.Reply(

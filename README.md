@@ -43,7 +43,14 @@ Expected services:
 
 ### First-time setup (recommended sequence)
 
-1. Start Ollama service first:
+1. Setup environment variables by copying the example template:
+
+```bash
+cp .env.example .env
+```
+*(Open `.env` and fill in your missing API Keys like Tavily & LangSmith)*
+
+2. Start Ollama service first:
 
 ```bash
 docker compose up -d ollama
