@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import uuid
 
 from langchain_core import messages
 from numpy import number
@@ -14,8 +15,9 @@ from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegratio
 from backend.application.ai.instruction import Instruction
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.dbaccess import DBAcess
-from backend.application.ai.tools.models import LevelSystem, LogSystemEntry
+from backend.application.ai.tools.models import InputHistory, LevelSystem, LogSystemEntry
 from backend.application.ai.tools.terimnalx import TerminalX
+from backend.application.ai.tools.filex import Filex
 from config.config import Config
 
 from langgraph.graph import StateGraph, START, END
@@ -49,6 +51,7 @@ class ChatAgentUseCase:
         self.wa_integration_tool = WhatsAppIntegration()
         self.db_access_tool = DBAcess()
         self.terminalx_tool = TerminalX()
+        self.filex_tool = Filex()
         self.instruction = Instruction()
         self._command_aliases = self.__build_command_aliases(self.instruction.chatbot_commands)
         self.mongo_cleint = MongoDB.get_client()
@@ -62,6 +65,7 @@ class ChatAgentUseCase:
             self.parse_tool.parse_phone_number_tool(),
             self.wa_integration_tool.get_user_information,
             self.wa_integration_tool.broadcast_message,
+            self.filex_tool.compress,
         ]
         self._llm_cache: dict[str, any] = {}
         self._tool_node_cache: dict[str, ToolNode] = {}
@@ -614,18 +618,19 @@ class ChatAgentUseCase:
             self.db_access_tool.get_current_pending_message(sender=sender),
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
+            self.wa_integration_tool.send_file(sender=sender),
             self.terminalx_tool.delegate_to_worker(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
         ]
     
-    def __tool_node(self, state: State):
+    async def __tool_node(self, state: State):
         sender = state.get("sender", "")
         
         if sender not in self._tool_node_cache:
             tools = self.__get_tools(state)
             self._tool_node_cache[sender] = ToolNode(tools)
         
-        return self._tool_node_cache[sender].invoke(state)
+        return await self._tool_node_cache[sender].ainvoke(state)
 
     def __assistant(self, state: State):
         """
@@ -863,7 +868,16 @@ class ChatAgentUseCase:
                     }
                 )
                 return
-
+                
+            task_id = str(uuid.uuid4())
+            self.db_access_tool.add_agent_input_log(InputHistory(
+                id=task_id,
+                timestamp=self.time_tool.current_time(),
+                sender=number,
+                message=messages,
+                status="processing",
+            ))
+            
             input_messages.append(SystemMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}\n{self.instruction.formatting_rule()}\n"))
             input_messages.append(HumanMessage(content=messages))
 
@@ -893,12 +907,15 @@ class ChatAgentUseCase:
                         message=f"Message processed for {number} failed to generate response"
                     ))
                 
+                self.db_access_tool.delete_agent_input_log(task_id)
                 self.wa_integration_tool.request_send_message(number, results, number)
                 return
             
+            self.db_access_tool.delete_agent_input_log(task_id)
             self.wa_integration_tool.request_send_message(number, results_message, number)
         except Exception as e:
             logger.exception("ChatAgent failed for %s", number)
+            self.db_access_tool.delete_agent_input_log(task_id)
             self.db_access_tool.db_set_log_system(LogSystemEntry(
                 timestamp=self.time_tool.current_time(),
                 level=LevelSystem.ERROR.value,

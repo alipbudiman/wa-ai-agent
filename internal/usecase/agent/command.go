@@ -78,11 +78,31 @@ func registeredCommands() CommandCollection {
 			Command:     "/unsend",
 			Function:    (*Agents).UnsendPendingMessageFromAgent,
 		},
+		SendPendingFile: CommandInfo{
+			Name:        "Send Pending File",
+			Description: "Sends a pending file on hold to the specified number.",
+			Command:     "/send-file",
+			Function:    (*Agents).SendPendingFileFromAgent,
+		},
+		UnsendPendingFile: CommandInfo{
+			Name:        "Unsend Pending File",
+			Description: "Cancels and removes the current pending on-hold file.",
+			Command:     "/unsend-file",
+			Function:    (*Agents).UnsendPendingFileFromAgent,
+		},
 	}
 }
 
 func (c CommandCollection) All() []CommandInfo {
-	return []CommandInfo{c.Help, c.PingPong, c.About, c.SendPendingMessage, c.UnsendPendingMessage}
+	return []CommandInfo{
+		c.Help,
+		c.PingPong,
+		c.About,
+		c.SendPendingMessage,
+		c.UnsendPendingMessage,
+		c.SendPendingFile,
+		c.UnsendPendingFile,
+	}
 }
 
 func CommandString() string {
@@ -147,7 +167,7 @@ func (h *Agents) About(args CommandArgs) {
 
 func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 	var pending_msg AgentOnHoldMessage
-	filter := bson.M{"user": args.Evt.Info.Chat.String()}
+	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_message"}
 	err := databases.MongoManager.FindOne(
 		h.config.Databases.MongoDB.DBAlias,
 		h.config.Databases.MongoDB.DBName,
@@ -194,7 +214,7 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 	}
 
 	// Clear the pending message after sending
-	delete_filter := bson.M{"user": args.Evt.Info.Chat.String()}
+	delete_filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_message"}
 	results, err := databases.MongoManager.DeleteOne(
 		h.config.Databases.MongoDB.DBAlias,
 		h.config.Databases.MongoDB.DBName,
@@ -288,7 +308,7 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 
 func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 	var pending_msg AgentOnHoldMessage
-	filter := bson.M{"user": args.Evt.Info.Chat.String()}
+	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_message"}
 	err := databases.MongoManager.FindOne(
 		h.config.Databases.MongoDB.DBAlias,
 		h.config.Databases.MongoDB.DBName,
@@ -314,7 +334,7 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 		return
 	}
 
-	deleteFilter := bson.M{"user": args.Evt.Info.Chat.String()}
+	deleteFilter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_message"}
 	results, err := databases.MongoManager.DeleteOne(
 		h.config.Databases.MongoDB.DBAlias,
 		h.config.Databases.MongoDB.DBName,
@@ -370,6 +390,218 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 	if replyStatus == ai_providers_api.SUCCESS {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String("⚙️ Tell Agent to Unsend Pending Message"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	}
+}
+
+func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
+	var pending_file AgentOnHoldFile
+	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
+	err := databases.MongoManager.FindOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		"tmp_messages",
+		filter,
+		&pending_file,
+	)
+
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("No pending files found."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving pending file: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	new_jid, err := h.waclient.ParseJID(pending_file.PendingNumber)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Invalid pending number format: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	err = h.waclient.SendFile(context.Background(), new_jid.String(), pending_file.PendingFile, pending_file.PendingCaption)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send pending file: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	// Clear the pending file after sending
+	delete_filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
+	results, err := databases.MongoManager.DeleteOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		"tmp_messages",
+		delete_filter,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to clear pending file: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if results.DeletedCount == 0 {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Pending file sent but failed to clear from database."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	name := pending_file.PendingNumber
+
+	contact_info, err := h.waclient.GetContact(context.Background(), pending_file.PendingNumber)
+	if err != nil {
+		log.Printf("error getting contact info for pending number %s: %v", pending_file.PendingNumber, err)
+	}
+
+	name = contact_info.PushName
+	if contact_info.FullName != "" {
+		name = contact_info.FullName
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		fmt.Sprintf("Send File to %s has been sent.",
+			name),
+		true,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send confirmation message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("⚙️ File has been sent by the agent"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	} else {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Failed to notify agent about sent pending file."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	}
+}
+
+func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
+	var pending_file AgentOnHoldFile
+	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
+	err := databases.MongoManager.FindOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		h.config.App.Manager.TemplateMsgCollectionName,
+		filter,
+		&pending_file,
+	)
+
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("No pending files found."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving pending file: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	deleteFilter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
+	results, err := databases.MongoManager.DeleteOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		h.config.App.Manager.TemplateMsgCollectionName,
+		deleteFilter,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to cancel pending file: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if results.DeletedCount == 0 {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("No pending files found."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	name := pending_file.PendingNumber
+	contact_info, err := h.waclient.GetContact(context.Background(), pending_file.PendingNumber)
+	if err != nil {
+		log.Printf("error getting contact info for pending number %s: %v", pending_file.PendingNumber, err)
+	}
+
+	name = contact_info.PushName
+	if contact_info.FullName != "" {
+		name = contact_info.FullName
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		fmt.Sprintf("Send file to %s has been canceled.", name),
+		true,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send cancellation confirmation: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("⚙️ Tell Agent to Unsend Pending File"),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 			return

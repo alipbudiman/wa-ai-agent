@@ -33,6 +33,7 @@ func Load() Config {
 			SessionDSN:     env("WA_SESSION_DSN", "file:wa_session.db?_pragma=foreign_keys(1)"),
 			DBLogLevel:     env("WA_DB_LOG_LEVEL", "INFO"),
 			ClientLogLevel: env("WA_CLIENT_LOG_LEVEL", "INFO"),
+			RequireFullSync: boolEnv("WA_REQUIRE_FULL_SYNC", false),
 		},
 		AIAgent: cfg_struct.AIAgentConfig{
 			OpenRouter: cfg_struct.OpenRouterConfig{
@@ -88,6 +89,14 @@ func Load() Config {
 			},
 		},
 	}
+}
+
+func boolEnv(key string, defaultVal bool) bool {
+	valStr := env(key, "")
+	if valStr == "" {
+		return defaultVal
+	}
+	return valStr == "true" || valStr == "1"
 }
 
 func env(key, fallback string) string {

@@ -34,9 +34,37 @@ class LogSystemEntry(BaseModel):
     message: str = Field(description="Main log message content describing the event or action.")
     metadata: dict | None = None
 
+class InputHistory(BaseModel):
+    id: str = Field(description="Unique identifier for the input history entry.")
+    timestamp: str = Field(description="format YYYY-MM-DD HH:MM:SS (human-readable time). e.g., 2026-04-11 14:35:22")
+    sender: str = Field(description="Identifier of the user who sent the input.")
+    message: str = Field(description="Content of the user input message.")
+    status: str = Field(description="Current status of the input (e.g., pending, processed, completed).")
+
 class SendMessageInput(BaseModel):
     number: str = Field(description="Recipient identifier. Required. Use a clean numeric user ID (e.g., 6281234567890) or a full WhatsApp JID when server must be preserved (e.g., 867051314767696@lid). Never guess or fabricate this value.")
     message: str = Field(description="Message content to send. Required.")
+
+class SendFileInput(BaseModel):
+    number: str = Field(
+        description=(
+            "Recipient identifier. Required. Use a clean numeric user ID "
+            "(e.g., 6281234567890) or a full WhatsApp JID when server must "
+            "be preserved (e.g., 867051314767696@lid). Never guess or fabricate this value."
+        )
+    )
+    file_path: str = Field(
+        description=(
+            "Absolute or relative path to the file to send. Required. "
+            "The file MUST be located inside the 'playground/' directory. "
+            "Always compress the file/folder first using the 'compress' tool before sending. "
+            "Pass the resulting compressed file path here."
+        )
+    )
+    caption: str | None = Field(
+        default=None,
+        description="Optional caption or description for the file being sent."
+    )
 
 class CommandInput(BaseModel):
     command: str = Field(description="Command to execute in the terminal. Required.")

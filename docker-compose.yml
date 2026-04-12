@@ -36,6 +36,8 @@ services:
       - ollama
     ports:
       - "8000:8000"
+    volumes:
+      - playground_data:/app/playground
 
   wa-agent:
     build:
@@ -61,8 +63,10 @@ services:
       - "8001:8001"
     volumes:
       - wa_session_data:/app/data
+      - playground_data:/app/playground
 
 volumes:
   mongo_data:
   wa_session_data:
   ollama_data:
+  playground_data:

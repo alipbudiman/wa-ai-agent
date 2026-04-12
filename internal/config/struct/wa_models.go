@@ -5,6 +5,7 @@ type WhatsAppConfig struct {
 	SessionDSN     string
 	DBLogLevel     string
 	ClientLogLevel string
+	RequireFullSync bool
 }
 
 type OpenRouterConfig struct {

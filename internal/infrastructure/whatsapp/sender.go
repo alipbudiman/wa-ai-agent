@@ -3,9 +3,12 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -88,6 +91,87 @@ func (s *BotClient) SendQuoteMessage(ctx context.Context, to, text, quote_msg st
 		if err != nil {
 			return fmt.Errorf("send quote message: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func (s *BotClient) SendFile(ctx context.Context, to string, filePath string, caption string) error {
+	jid, err := s.guardSenderInitialized(ctx, to, caption)
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+
+	mediaType, mimeType, err := s.detectMediaTypeFromFilePath(filePath)
+	if err != nil {
+		return fmt.Errorf("detect media type: %w", err)
+	}
+
+	uploaded, err := s.client.Upload(ctx, data, mediaType)
+	if err != nil {
+		return fmt.Errorf("upload file: %w", err)
+	}
+
+	msg := &waE2E.Message{}
+	fileName := filepath.Base(filePath)
+
+	switch mediaType {
+	case whatsmeow.MediaImage:
+		msg.ImageMessage = &waE2E.ImageMessage{
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mimeType),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uploaded.FileLength),
+			Caption:       proto.String(caption),
+		}
+	case whatsmeow.MediaVideo:
+		msg.VideoMessage = &waE2E.VideoMessage{
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mimeType),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uploaded.FileLength),
+			Caption:       proto.String(caption),
+		}
+	case whatsmeow.MediaAudio:
+		msg.AudioMessage = &waE2E.AudioMessage{
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mimeType),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uploaded.FileLength),
+		}
+	default:
+		// Default as Document (for ZIP, PDF, etc)
+		msg.DocumentMessage = &waE2E.DocumentMessage{
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mimeType),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uploaded.FileLength),
+			Title:         proto.String(fileName),
+			FileName:      proto.String(fileName),
+			Caption:       proto.String(caption),
+		}
+	}
+
+	_, err = s.client.SendMessage(ctx, *jid, msg)
+	if err != nil {
+		return fmt.Errorf("send file message: %w", err)
 	}
 
 	return nil

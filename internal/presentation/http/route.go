@@ -108,6 +108,33 @@ func sendMessageHandler(waClient ports.WhatsAppClient, manager ports.Manager) gi
 	}
 }
 
+// sendFileHandler godoc
+// @Summary Send a WhatsApp file
+// @Description Send a file message to a specific WhatsApp number
+// @Tags message
+// @Accept json
+// @Produce json
+// @Param request body SendFileRequest true "Send file payload"
+// @Success 200 {object} SuccessResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /v1/message/send-file [post]
+func sendFileHandler(waClient ports.WhatsAppClient, manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SendFileRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		err := handler.SendFile(waClient, manager, req.Number, req.FilePath, req.Caption)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to send file")
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "file sent successfully", nil)
+	}
+}
+
 // broadcastMessageHandler godoc
 // @Summary Broadcast a WhatsApp message
 // @Description Send a text message to all saved contacts
@@ -143,6 +170,7 @@ func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, cfg *config.
 		v1.GET("/contact/info/:number", contactInfoHandler(waClient))
 		v1.POST("/message/send", sendMessageHandler(waClient, manager))
 		v1.POST("/message/broadcast", broadcastMessageHandler(waClient))
+		v1.POST("/message/send-file", sendFileHandler(waClient, manager))
 	}
 
 	return router

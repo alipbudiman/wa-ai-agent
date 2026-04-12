@@ -16,6 +16,18 @@ definitions:
         example: false
         type: boolean
     type: object
+  route.SendFileRequest:
+    properties:
+      caption:
+        type: string
+      file_path:
+        type: string
+      number:
+        type: string
+    required:
+    - file_path
+    - number
+    type: object
   route.SendMessageRequest:
     properties:
       message:
@@ -152,6 +164,36 @@ paths:
           schema:
             $ref: '#/definitions/route.ErrorResponse'
       summary: Send a WhatsApp message
+      tags:
+      - message
+  /v1/message/send-file:
+    post:
+      consumes:
+      - application/json
+      description: Send a file message to a specific WhatsApp number
+      parameters:
+      - description: Send file payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/route.SendFileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/route.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/route.ErrorResponse'
+      summary: Send a WhatsApp file
       tags:
       - message
 schemes:

@@ -21,6 +21,12 @@ type SendMessageRequest struct {
 	Store   bool   `json:"store,omitempty"`
 }
 
+type SendFileRequest struct {
+	Number   string `json:"number" binding:"required"`
+	FilePath string `json:"file_path" binding:"required"`
+	Caption  string `json:"caption,omitempty"`
+}
+
 type BroadcastMessageRequest struct {
 	Message string `json:"message" binding:"required"`
 }

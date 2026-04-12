@@ -79,6 +79,16 @@ func SendMessage(waClient ports.WhatsAppClient, manager ports.Manager, number st
 	return nil
 }
 
+func SendFile(waClient ports.WhatsAppClient, manager ports.Manager, number string, filePath string, caption string) error {
+	err := waClient.SendFile(context.Background(), number, filePath, caption)
+	if err != nil {
+		log.Printf("failed to send file to %s: %v", number, err)
+		return err
+	}
+	log.Printf("file sent to %s successfully", number)
+	return nil
+}
+
 func BroadcastMessage(waClient ports.WhatsAppClient, message string) error {
 	err := waClient.SendText(context.Background(), types.StatusBroadcastJID.String(), &waE2E.Message{
 		Conversation: proto.String(message),

@@ -19,8 +19,8 @@ Manager UI: http://localhost:8001/access
 * Automated task handler pipelines for consistent and repeatable workflows.
 * Cron-ready scheduler for reminders, periodic checks, and notifications.
 * Multi-step workflow chaining (lookup → enrich → summarize → send).
+* Containerized environment built natively on `ubuntu:22.04` for extended system flexibility.
 * Observability and tracing for debugging and performance optimization.
-
 ## Docker (Go + Brain + MongoDB + Ollama)
 
 Prerequisites:
@@ -116,6 +116,7 @@ Note:
 
 - First pull can be slow because Ollama image and model are large.
 - Models are persisted in Docker volume `ollama_data`.
+- Playground files are persisted in Docker volume `playground_data` and shared between `brain` and `wa-agent` at `/app/playground`.
 - `docker compose down` stops containers but keeps volumes.
 - Use `docker compose down -v` only if you intentionally want to remove all persisted data (Mongo, WA session, Ollama models).
 

@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -71,4 +76,46 @@ func (s *BotClient) splitLongMessage(message string, maxLen int) []string {
 	}
 
 	return chunks
+}
+
+func (s *BotClient) detectMediaTypeFromFilePath(filePath string) (whatsmeow.MediaType, string, error) {
+	// NOTE: Cek extension dulu untuk deteksi cepat.
+	ext := strings.ToLower(filepath.Ext(filePath))
+	mimeType := strings.ToLower(mime.TypeByExtension(ext))
+	if i := strings.Index(mimeType, ";"); i >= 0 {
+		mimeType = mimeType[:i]
+	}
+
+	// NOTE: Sniff header file agar tidak hanya bergantung extension.
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+
+	header := make([]byte, 512)
+	n, _ := f.Read(header)
+	sniffed := strings.ToLower(http.DetectContentType(header[:n]))
+	if i := strings.Index(sniffed, ";"); i >= 0 {
+		sniffed = sniffed[:i]
+	}
+
+	// EXPLANATION: Kalau extension tidak jelas, pakai hasil sniff.
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		mimeType = sniffed
+	}
+
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return whatsmeow.MediaImage, mimeType, nil
+	case strings.HasPrefix(mimeType, "video/"):
+		return whatsmeow.MediaVideo, mimeType, nil
+	case strings.HasPrefix(mimeType, "audio/"):
+		return whatsmeow.MediaAudio, mimeType, nil
+	default:
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		return whatsmeow.MediaDocument, mimeType, nil
+	}
 }

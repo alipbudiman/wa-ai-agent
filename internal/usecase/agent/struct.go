@@ -34,6 +34,8 @@ type CommandCollection struct {
 	About                CommandInfo
 	SendPendingMessage   CommandInfo
 	UnsendPendingMessage CommandInfo
+	SendPendingFile      CommandInfo
+	UnsendPendingFile    CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)
@@ -54,6 +56,13 @@ type AgentOnHoldMessage struct {
 	User          string `bson:"user"`
 	PendingNumber string `bson:"pending_number"`
 	Message       string `bson:"pending_message"`
+}
+
+type AgentOnHoldFile struct {
+	User           string `bson:"user"`
+	PendingNumber  string `bson:"pending_number"`
+	PendingFile    string `bson:"pending_file"`
+	PendingCaption string `bson:"pending_caption"`
 }
 
 type ContactVCardInfo struct {

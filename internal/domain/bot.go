@@ -41,6 +41,7 @@ type AgentResponder interface {
 type WhatsAppClient interface {
 	GetContact(ctx context.Context, number string) (types.ContactInfo, error)
 	SendText(ctx context.Context, to string, message *waE2E.Message) error
+	SendFile(ctx context.Context, to string, filePath string, caption string) error
 	SendContact(ctx context.Context, to string, target ContactCard, context_info *waE2E.ContextInfo) error
 	ParseJID(target string) (types.JID, error)
 	SendQuoteMessage(ctx context.Context, to, text, quote_msg string) error

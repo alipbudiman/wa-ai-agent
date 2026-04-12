@@ -38,6 +38,7 @@ type Runner struct {
 	waclient      ports.WhatsAppClient
 	manager       ports.Manager
 	chatCompleter ports.ChatCompleter
+	appConfig     *appconfig.Config
 }
 
 func ClientRunner(cfg Config) (*Runner, error) {
@@ -75,6 +76,7 @@ func ClientRunner(cfg Config) (*Runner, error) {
 	runner := &Runner{
 		client:    client,
 		container: container,
+		appConfig: cfg.AppConfig,
 	}
 
 	waclient, err := whatsapp.NewBotClient(client)
@@ -112,7 +114,7 @@ func ClientRunner(cfg Config) (*Runner, error) {
 
 func (r *Runner) Run(ctx context.Context) error {
 	store.DeviceProps.Os = proto.String(cases.Title(language.English).String(fmt.Sprintf("Chrome (%v)", runtime.GOOS)))
-	store.DeviceProps.RequireFullSync = proto.Bool(true)
+	store.DeviceProps.RequireFullSync = proto.Bool(r.appConfig.WhatsApp.RequireFullSync)
 	setQRLoginState("initializing", "", "starting WhatsApp connection")
 
 	if r == nil || r.client == nil {

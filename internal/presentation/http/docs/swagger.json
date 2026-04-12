@@ -176,6 +176,52 @@
                     }
                 }
             }
+        },
+        "/v1/message/send-file": {
+            "post": {
+                "description": "Send a file message to a specific WhatsApp number",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message"
+                ],
+                "summary": "Send a WhatsApp file",
+                "parameters": [
+                    {
+                        "description": "Send file payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/route.SendFileRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/route.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/route.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -200,6 +246,24 @@
                 "success": {
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "route.SendFileRequest": {
+            "type": "object",
+            "required": [
+                "file_path",
+                "number"
+            ],
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "file_path": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "string"
                 }
             }
         },
