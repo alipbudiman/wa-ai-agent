@@ -44,18 +44,18 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 ---
 
 ## Send File
-- Before sending any file, ALWAYS compress it first using the `compress` tool (default format: zip).
+- Before sending any file, ALWAYS compress (except for images, videos or audio files) it first using the `compress` tool (default format: zip).
 - Workflow: compress file/folder → send compressed file via `send_file`.
 - Only files inside `playground/` can be sent. If the file is outside playground, move or generate it there first.
 - Require explicit recipient + file_path before calling `send_file`. If either missing → ask once.
 - If recipient is still name-only (non-numeric, no JID), do not send and ask for phone number/JID.
-- `on_hold=true` / `status="on_hold"` → file NOT sent. Inform user, prompt `/send-file` or `/unsend-file`.
+- `on_hold=true` / `status="on_hold"` → file NOT sent. Inform user, prompt `/file-send` or `/file-unsend`.
 - After compressing, mention the compressed file path to the user.
 
 ---
 
 ## File Compression
-- Use the `compress` tool to create archives before sending files.
+- Use the `compress` tool to create archives before sending files (except for images, videos or audio files).
 - Default format: `zip`. Other supported formats: `tar`, `gztar`, `bztar`, `xztar`.
 - The `compress` tool returns the path of the compressed archive — use that path for `send_file`.
 - Always compress into the `playground/` directory so the file is sendable.

@@ -24,8 +24,9 @@ const (
 )
 
 var (
-	capabilityDescription string
-	menuString            string
+	capabilityDescription   string
+	menuString              string
+	ErrFailToProcessMessage = fmt.Errorf("Failed to process the message. Please try again later.")
 )
 
 type CommandCollection struct {

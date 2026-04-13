@@ -94,7 +94,12 @@ class WhatsAppIntegration:
         sender_identifier = self._safe_normalize_identifier(sender) if sender else number
         sender_key = self._identity_key(sender_identifier)
         target_key = self._identity_key(number)
-        is_different_recipient = bool(sender_key and target_key and target_key != sender_key)
+        
+        # Determine if confirmation is needed.
+        # If the target is the same as the requester (sender), skip on-hold.
+        is_different_recipient = False
+        if sender_key and target_key:
+            is_different_recipient = (target_key != sender_key)
         
         try:
             if is_different_recipient:
@@ -235,7 +240,12 @@ class WhatsAppIntegration:
         sender_identifier = self._safe_normalize_identifier(sender) if sender else number
         sender_key = self._identity_key(sender_identifier)
         target_key = self._identity_key(number)
-        is_different_recipient = bool(sender_key and target_key and target_key != sender_key)
+        
+        # Determine if confirmation is needed.
+        # If the target is the same as the requester (sender), skip on-hold.
+        is_different_recipient = False
+        if sender_key and target_key:
+            is_different_recipient = (target_key != sender_key)
         
         try:
             if is_different_recipient:
@@ -305,14 +315,14 @@ class WhatsAppIntegration:
             description=(
                 "Send a file to a WhatsApp recipient. The file_path MUST point to a file "
                 "inside the 'playground/' directory — files outside playground are blocked. "
-                "Before calling this tool, ALWAYS compress the target file/folder first using the "
+                "Before calling this tool, ALWAYS compress (except for images, videos or audio files) the target file/folder first using the "
                 "'compress' tool (default format: zip). Pass the compressed file path as file_path. "
                 "Workflow: compress → send_file. "
                 "Only call this tool when recipient, file_path, and optional caption are available. "
                 "If the recipient is missing, ask for it first. Do not pass name-only aliases as recipient. "
                 "If recipient is not numeric/JID and no confirmed number exists in context, ask for phone number/JID first. "
                 "Interpret tool response status: status='on_hold' means file has NOT been sent "
-                "and needs explicit user confirmation via /send-file or /unsend-file."
+                "and needs explicit user confirmation via /file-send or /file-unsend."
             ),
             args_schema=SendFileInput
         )

@@ -174,9 +174,26 @@ func (h *Agents) About(args CommandArgs) {
 }
 
 func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
+	proc, err := h.throwToAgent(args, registeredCommands().SendPendingMessage.Command)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to process command: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	if proc {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Processing your request to send message..."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
 	var pending_msg AgentOnHoldMessage
 	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_message"}
-	err := databases.MongoManager.FindOne(
+	err = databases.MongoManager.FindOne(
 		h.config.Databases.MongoDB.DBAlias,
 		h.config.Databases.MongoDB.DBName,
 		"tmp_messages",
@@ -406,9 +423,26 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 }
 
 func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
+	proc, err := h.throwToAgent(args, registeredCommands().SendPendingFile.Command)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to process command: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	if proc {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Processing your request to send file..."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
 	var pending_file AgentOnHoldFile
 	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
-	err := databases.MongoManager.FindOne(
+	err = databases.MongoManager.FindOne(
 		h.config.Databases.MongoDB.DBAlias,
 		h.config.Databases.MongoDB.DBName,
 		"tmp_messages",

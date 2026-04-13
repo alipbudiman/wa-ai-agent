@@ -4,8 +4,6 @@ import os
 import re
 import uuid
 
-from langchain_core import messages
-from numpy import number
 
 from backend.application.ai.ai import AI
 from backend.application.ai.tools.websearch import WebSearchTool
@@ -56,7 +54,6 @@ class ChatAgentUseCase:
         self.terminalx_tool = TerminalX()
         self.filex_tool = Filex()
         self.instruction = Instruction()
-        self._command_aliases = self.__build_command_aliases(self.instruction.chatbot_commands)
         self.mongo_cleint = MongoDB.get_client()
         self.checkpointer = MongoDBSaver(self.mongo_cleint, db_name="agent_memory_db", collection_name="agent_memory_collection")
         self.__init_langsmith()
@@ -282,111 +279,6 @@ class ChatAgentUseCase:
         lowered = normalized.lower()
         return lowered.startswith("system execution log:") or lowered.startswith("[systemevent]")
 
-    @staticmethod
-    def __build_command_aliases(command_text: str) -> dict[str, str]:
-        """
-        Build a command lookup map from markdown command documentation.
-
-        The map accepts both slash form (`/help`) and bare form (`help`) and
-        resolves both into a canonical slash command value.
-        """
-        aliases: dict[str, str] = {}
-        for command in re.findall(r"/[a-zA-Z0-9_-]+", command_text or ""):
-            canonical = command.lower()
-            aliases[canonical] = canonical
-            bare = canonical.lstrip("/")
-            if bare:
-                aliases[bare] = canonical
-
-        return aliases
-
-    def __match_command_intent(self, text: str) -> tuple[bool, str, bool]:
-        """
-        Detect command-like input, including malformed prefix attempts.
-
-        Returns:
-            tuple[bool, str, bool]:
-            - matched flag
-            - canonical command (e.g. /help)
-            - malformed flag (True when missing/wrong prefix)
-        """
-        if not self._command_aliases:
-            return False, "", False
-
-        user_text = (text or "").strip()
-        if not user_text:
-            return False, "", False
-
-        parts = user_text.split()
-        if not parts:
-            return False, "", False
-
-        first = parts[0].strip().lower()
-        if not first:
-            return False, "", False
-
-        punctuation = ".,!?;:"
-
-        if first.startswith("/"):
-            candidate = first.rstrip(punctuation)
-            canonical = self._command_aliases.get(candidate)
-            if canonical:
-                return True, canonical, False
-            return False, "", False
-
-        malformed_prefixes = ("!", ".", "#", "$")
-        if first.startswith(malformed_prefixes):
-            normalized = first[1:].strip().rstrip(punctuation)
-            candidate = f"/{normalized}" if normalized else ""
-            canonical = self._command_aliases.get(candidate)
-            if canonical:
-                return True, canonical, True
-            return False, "", False
-
-        # Bare command words are treated as command intent only if standalone,
-        # so normal sentences such as "help saya ..." are not hijacked.
-        if len(parts) == 1:
-            candidate = f"/{first.rstrip(punctuation)}"
-            canonical = self._command_aliases.get(candidate)
-            if canonical:
-                return True, canonical, True
-
-        return False, "", False
-
-    def __command_guard_message(self, detected_command: str, malformed: bool) -> str:
-        """Return a deterministic command-help response for command-like input."""
-        command_menu = (self.instruction.chatbot_commands or "").strip()
-
-        if malformed:
-            intro = (
-                "I detected a command attempt with invalid format. "
-                "Use slash prefix for commands."
-            )
-        else:
-            intro = "I detected command context in your message."
-
-        response_lines = [
-            intro,
-            f"Try this command: {detected_command}",
-            "Use /help to see the complete command guide.",
-        ]
-
-        if command_menu:
-            response_lines.append("\nAvailable command reference:\n" + command_menu)
-
-        return "\n".join(response_lines)
-
-    def __command_guard(self, state: State):
-        """Handle command-like input without entering tool execution loops."""
-        latest_text = self.__latest_user_text(state)
-        matched, detected_command, malformed = self.__match_command_intent(latest_text)
-        if not matched:
-            guard_reply = "Use /help to see available commands."
-        else:
-            guard_reply = self.__command_guard_message(detected_command, malformed)
-
-        return {"messages": [AIMessage(content=guard_reply)]}
-
     def __latest_user_text(self, state: State, max_messages: int = 1) -> str:
         """
         Return concatenated latest user text messages from graph state.
@@ -475,34 +367,55 @@ class ChatAgentUseCase:
     @staticmethod
     def __looks_like_textual_tool_call(text: str) -> bool:
         normalized = (text or "").strip().upper()
-        return "[TOOL_CALL]" in normalized and "[/TOOL_CALL]" in normalized
+        if "[TOOL_CALL]" in normalized and "[/TOOL_CALL]" in normalized:
+            return True
+        if "<MINIMAX:TOOL_CALL>" in normalized and "</MINIMAX:TOOL_CALL>" in normalized:
+            return True
+        return False
 
     def __extract_textual_tool_calls(self, text: str) -> list[dict]:
         """
         Parse textual tool-call markup emitted by non-native tool-call models.
 
-        Example format:
-        [TOOL_CALL]
-        {tool => "simple_exec", args => {"command": "ls"}}
-        [/TOOL_CALL]
+        Supported formats:
+        1. [TOOL_CALL]{tool => "name", args => {...}}[/TOOL_CALL]
+        2. <minimax:tool_call><invoke name="name"><parameter name="p">val</parameter></invoke></minimax:tool_call>
         """
         source = (text or "").strip()
         if not self.__looks_like_textual_tool_call(source):
             return []
 
-        blocks = re.findall(r"\[TOOL_CALL\](.*?)\[/TOOL_CALL\]", source, flags=re.IGNORECASE | re.DOTALL)
         parsed_calls: list[dict] = []
 
+        # 1. Handle Minimax / XML tag style
+        minimax_blocks = re.findall(r"<minimax:tool_call>(.*?)</minimax:tool_call>", source, flags=re.IGNORECASE | re.DOTALL)
+        for block in minimax_blocks:
+            invokes = re.findall(r"<invoke name=\"(.*?)\">(.*?)</invoke>", block, flags=re.IGNORECASE | re.DOTALL)
+            for tool_name, params_block in invokes:
+                args = {}
+                params = re.findall(r"<parameter name=\"(.*?)\">(.*?)</parameter>", params_block, flags=re.IGNORECASE | re.DOTALL)
+                for p_name, p_val in params:
+                    args[p_name] = p_val.strip()
+                
+                parsed_calls.append({
+                    "name": tool_name.strip(),
+                    "args": args,
+                    "id": f"minimax-{uuid.uuid4().hex[:12]}",
+                    "type": "tool_call",
+                })
+
+        # 2. Handle [TOOL_CALL] custom pseudo-map style
+        blocks = re.findall(r"\[TOOL_CALL\](.*?)\[/TOOL_CALL\]", source, flags=re.IGNORECASE | re.DOTALL)
         for block in blocks:
             tool_match = re.search(r"tool\s*=>\s*[\"']?([a-zA-Z0-9_.:-]+)", block, flags=re.IGNORECASE)
             if not tool_match:
                 continue
 
             tool_name = tool_match.group(1).strip()
-            args: dict[str, str] = {}
+            args: dict[str, any] = {}
 
             # Extract common quoted key/value pairs first.
-            for key in ("command", "file_path", "format", "base_name", "task", "work_dir"):
+            for key in ("command", "file_path", "format", "base_name", "task", "work_dir", "number", "message", "sender"):
                 value_match = re.search(
                     rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"',
                     block,
@@ -553,6 +466,78 @@ class ChatAgentUseCase:
 
         logger.warning("Assistant returned textual tool-call markup; coercing to structured tool call.")
         return AIMessage(content="", tool_calls=parsed_calls)
+
+    @staticmethod
+    def __coerce_bool(value: any) -> bool | None:
+        """Convert mixed bool-like values to bool when possible."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes"}:
+                return True
+            if normalized in {"false", "0", "no"}:
+                return False
+        return None
+
+    def __parse_send_tool_payload(self, tool_text: str) -> dict:
+        """Parse send tool output from JSON or repr-like text into dict."""
+        text = (tool_text or "").strip()
+        if not text:
+            return {}
+
+        try:
+            payload = json.loads(text)
+            if isinstance(payload, dict):
+                return payload
+        except json.JSONDecodeError:
+            pass
+
+        payload: dict[str, any] = {}
+
+        # Common repr patterns from Pydantic/BaseModel string output.
+        message_match = re.search(r"message[=:]\\s*['\"]([^'\"]*)['\"]", text, flags=re.IGNORECASE)
+        if message_match:
+            payload["message"] = message_match.group(1).strip()
+
+        status_match = re.search(r"status[=:]\\s*['\"]?([a-zA-Z_]+)['\"]?", text, flags=re.IGNORECASE)
+        if status_match:
+            payload["status"] = status_match.group(1).strip().lower()
+
+        success_match = re.search(r"success[=:]\\s*(true|false)", text, flags=re.IGNORECASE)
+        if success_match:
+            payload["success"] = success_match.group(1).lower() == "true"
+
+        on_hold_match = re.search(r"on_hold[=:]\\s*(true|false)", text, flags=re.IGNORECASE)
+        if on_hold_match:
+            payload["on_hold"] = on_hold_match.group(1).lower() == "true"
+
+        return payload
+
+    def __format_send_tool_feedback(self, tool_name: str, tool_text: str) -> str:
+        """Build concise user-facing text from send tool output."""
+        payload = self.__parse_send_tool_payload(tool_text)
+        message = str(payload.get("message") or "").strip()
+        status = str(payload.get("status") or "").strip().lower()
+        on_hold = self.__coerce_bool(payload.get("on_hold"))
+        success = self.__coerce_bool(payload.get("success"))
+
+        if on_hold is True or status == "on_hold":
+            return message or "Your request is still on-hold and has not been sent yet."
+
+        if success is True or status in {"sent", "success"}:
+            if message:
+                return message
+            if tool_name == "send_file":
+                return "File has been sent successfully."
+            if tool_name == "send_message":
+                return "Message has been sent successfully."
+            return "Request completed successfully."
+
+        if message:
+            return message
+
+        return (tool_text or "").strip()
 
     def __latest_ai_tool_calls(self, state: State) -> list[dict]:
         """Get normalized tool calls from the most recent AI message."""
@@ -866,7 +851,7 @@ class ChatAgentUseCase:
         must route to assistant for safety.
 
         Returns:
-            str: command_guard, direct_chat, assistant, human_feedback,
+            str: direct_chat, assistant, human_feedback,
             confirm_sensitive_tools, or cancel_sensitive_tools.
         """
         sender = state.get("sender", "")
@@ -890,10 +875,6 @@ class ChatAgentUseCase:
 
         if self.__requires_context_route(recent_user_messages):
             return "assistant"
-
-        command_intent, _, _ = self.__match_command_intent(recent_user_messages)
-        if command_intent:
-            return "command_guard"
 
         classifier_prompt = self.instruction.route_query_instruction()
 
@@ -920,8 +901,25 @@ class ChatAgentUseCase:
         direct_chat can still see conversation history (trimmed by
         __assistant_context), but it does not bind tools.
         """
+        sender = state.get("sender", "")
         payload = self.__message_guard_payload(state, use_tools=False)
-        response = self.__llm(reasoning=False).invoke(payload)
+        
+        try:
+            response = self.__llm(reasoning=False).invoke(payload)
+        except Exception as err:
+            # Handle Ollama Service Unavailable (503) or other temporary API failures.
+            logger.warning("Assistant direct_chat invoke failed with %s for %s; retrying with reasoning=True.", err, sender)
+            try:
+                # Fallback to a reasoning model or different endpoint.
+                retry_llm = self.__llm(reasoning=True)
+                response = retry_llm.invoke(payload)
+            except Exception as retry_err:
+                logger.error("Fallback direct chat retry also failed for %s: %s", sender, retry_err)
+                return {
+                    "messages": [
+                        AIMessage(content="Sorry, the service is temporarily unavailable. Please try again soon.")
+                    ]
+                }
         
         return {"messages": [response]}
     
@@ -1104,7 +1102,7 @@ class ChatAgentUseCase:
 
         Flow overview:
         - START -> route_query (early intent filter)
-        - route_query -> command_guard, direct_chat, or assistant
+        - route_query -> direct_chat or assistant
         - assistant -> tools only when tool calls are requested
         - tools -> assistant loop until no more tool calls
 
@@ -1125,7 +1123,6 @@ class ChatAgentUseCase:
         builder.add_node("pre_assistant", self.__pre_assistant)
         builder.add_node("assistant", self.__assistant)
         builder.add_node("direct_chat", self.__direct_chat)
-        builder.add_node("command_guard", self.__command_guard)
         builder.add_node("human_feedback", self.__human_feedback)
         builder.add_node("confirm_sensitive_tools", self.__confirm_sensitive_tools)
         builder.add_node("cancel_sensitive_tools", self.__cancel_sensitive_tools)
@@ -1137,7 +1134,6 @@ class ChatAgentUseCase:
             START,
             self.__route_query,
             {
-                "command_guard": "command_guard",
                 "direct_chat": "direct_chat",  # No-tool path.
                 "assistant": "pre_assistant",   # Tool-enabled path.
                 "human_feedback": "human_feedback",
@@ -1146,8 +1142,6 @@ class ChatAgentUseCase:
             }
         )
 
-        # Command-like requests are handled with deterministic command guidance.
-        builder.add_edge("command_guard", END)
         builder.add_edge("human_feedback", END)
         builder.add_edge("cancel_sensitive_tools", END)
         builder.add_edge("confirm_sensitive_tools", "tools")
@@ -1204,16 +1198,20 @@ class ChatAgentUseCase:
         # If background dispatch text is present, return it directly to avoid
         # post-tool LLM paraphrases that can overclaim completion.
         delegate_tool_fallback = ""
+        send_tool_fallback = ""
         for tool_message in reversed(current_turn_messages):
             if not isinstance(tool_message, ToolMessage):
                 continue
 
             tool_name = str(getattr(tool_message, "name", "") or "").strip().lower()
-            if tool_name != "delegate_to_worker":
-                continue
-
             tool_text = self.__content_to_text(getattr(tool_message, "content", ""))
             if not tool_text:
+                continue
+
+            if tool_name in {"send_file", "send_message", "broadcast_message"} and not send_tool_fallback:
+                send_tool_fallback = self.__format_send_tool_feedback(tool_name, tool_text)
+
+            if tool_name != "delegate_to_worker":
                 continue
 
             if "dispatched in the background" in tool_text.lower():
@@ -1227,6 +1225,8 @@ class ChatAgentUseCase:
         if not ai_messages:
             if delegate_tool_fallback:
                 return delegate_tool_fallback
+            if send_tool_fallback:
+                return send_tool_fallback
             return ''
 
         for ai_message in reversed(ai_messages):
@@ -1272,6 +1272,9 @@ class ChatAgentUseCase:
 
         if delegate_tool_fallback:
             return delegate_tool_fallback
+
+        if send_tool_fallback:
+            return send_tool_fallback
 
         return ''
     
@@ -1348,11 +1351,21 @@ class ChatAgentUseCase:
             if not results_message:
                 err = "Assistant returned empty content for '%s'; running fallback completion."
                 logger.warning(err, number)
-                message_sys = f"[SYSTEM MESSAGE] {err}. Please provide more information. Json Output:\n {str(result)}"
-                fallback_response = self.__llm(reasoning=True).invoke([
-                    AIMessage(content=message_sys)
-                ])
-                results = self.__content_to_text(getattr(fallback_response, "content", ""))
+                message_sys = (
+                    "The previous run produced no final user-visible response. "
+                    "Generate one concise user-facing reply in plain text based on this state excerpt:\n"
+                    f"{str(result)[:3000]}"
+                )
+                results = ""
+                try:
+                    fallback_response = self.__llm(reasoning=False).invoke([
+                        HumanMessage(content=message_sys)
+                    ])
+                    results = self.__content_to_text(getattr(fallback_response, "content", ""))
+                except Exception as fallback_err:
+                    logger.warning("Fallback completion failed for %s: %s", number, fallback_err)
+                    if fallback_err.__class__.__name__ == "ResponseError" and "503" in str(fallback_err):
+                        results = "Sorry, model service is temporarily unavailable (503). Please retry in a moment."
 
                 if not results:
                     results = "Sorry, I couldn't generate a response yet. Please resend your question."
