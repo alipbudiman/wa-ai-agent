@@ -37,17 +37,28 @@ Operational slash commands are defined in COMMAND_LISTS.md.
 
 - delegate_to_worker:
 	- Handles multi-step engineering tasks, code/file workflows, and iterative troubleshooting.
-	- Uses Claude agent runtime with scoped tools: Bash, Read, Write, Edit, Glob, LS.
+	- Uses Claude agent runtime with scoped tools: Bash, Read, Write, Edit, Glob, LS, TodoWrite, TodoRead.
 	- Supports persistent working directory context.
 	- Sends step progress updates back to the active WhatsApp chat during execution.
+	- Loads skill guidance from local or global skill paths when available.
 
-## 5) Conversation and Command Guard Behavior
+## 5) Skills Runtime Integration
+
+- Skills CLI (`npx skills`) is available in both Docker services (`wa-agent` and `brain`).
+- `find-skills` is preinstalled in container runtime (global scope).
+- Runtime can discover skill guidance from these paths:
+	- project-local: `.agents/skills/find-skills/SKILL.md`
+	- global: `~/.agents/skills/find-skills/SKILL.md`
+- Repository lock metadata is used when present: `skills-lock.json`.
+- Skill-assisted discovery is intended for capability lookup and recommendation workflows.
+
+## 6) Conversation and Command Guard Behavior
 
 - Carries valid context across turns within the same conversation.
 - Corrects malformed command attempts (example: !help, .ping) to slash-command format guidance.
 - Uses command menu as source of truth for command suggestions.
 
-## 6) Safety and Operating Constraints
+## 7) Safety and Operating Constraints
 
 - No send action when recipient is name-only alias without numeric/JID confirmation.
 - For send action, assistant asks for missing required fields instead of guessing.
@@ -56,9 +67,12 @@ Operational slash commands are defined in COMMAND_LISTS.md.
 - Destructive actions require explicit user confirmation.
 - Default worker workspace is playground/ unless user explicitly requests another path.
 
-## 7) Current Limits and Notes
+## 8) Current Limits and Notes
 
 - Historical pending-message retrieval exists but is marked as reserved/future-oriented.
 - Web search requires TAVILY_API_KEY to be configured.
 - Worker execution depends on configured model/runtime availability.
-- No cron scheduler capability is currently implemented in the active toolset.
+- Current default bundled skill is `find-skills`; additional skills are not auto-bundled.
+- No dedicated slash commands exist yet for `skills find/add/update/check`; use terminal/worker flow.
+- Skill install/update changes in Docker require image rebuild/recreate to be reflected in running containers.
+- Scheduler-related workflows are not yet exposed as a dedicated public command flow in this capability list.

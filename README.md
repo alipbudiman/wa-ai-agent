@@ -97,6 +97,19 @@ Ensure all services are running smoothly:
 docker compose ps
 ```
 
+### 6. Verify `npx skills` in Containers
+Both `wa-agent` and `brain` images now install Node.js, the `skills` CLI, and run this build-time setup:
+```bash
+npx skills add https://github.com/vercel-labs/skills --skill find-skills -g -a universal -y
+```
+
+Use these commands to verify `npx` and the installed skill at runtime:
+```bash
+docker compose exec wa-agent sh -lc "node -v && npm -v && npx --yes skills --version && npx --yes skills list -g --json"
+docker compose exec brain sh -lc "node -v && npm -v && npx --yes skills --version && npx --yes skills list -g --json"
+```
+Expected: CLI version is printed and `find-skills` appears in the global skills list.
+
 To stop the entire stack cleanly:
 ```bash
 docker compose down

@@ -8,8 +8,16 @@ RUN apt-get update && apt-get install -y \
     wget \
     tar \
     git \
+    curl \
+    gnupg \
     build-essential \
     ca-certificates \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update && apt-get install -y \
+    nodejs \
+    && npm install -g skills@latest \
     && rm -rf /var/lib/apt/lists/*
 
 RUN wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz \
@@ -17,8 +25,13 @@ RUN wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz \
     && rm go1.25.0.linux-amd64.tar.gz
 
 ENV PATH="/usr/local/go/bin:${PATH}"
+ENV DISABLE_TELEMETRY=1
 
 WORKDIR /app
+
+RUN npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -g -a universal -y \
+    && npx --yes skills list -g --json > /dev/null \
+    && skills --version > /dev/null
 
 COPY go.mod go.sum ./
 RUN go mod download

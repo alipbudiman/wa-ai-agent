@@ -177,7 +177,7 @@ class TerminalX:
             fallback = (self._playground_root / self.__task_slug(task)).resolve()
             fallback.mkdir(parents=True, exist_ok=True)
             return str(fallback)
-
+    
     def __build_worker_prompt(self, task: str, work_dir: str) -> str:
         clean_task = (task or "").strip()
         return (
@@ -190,6 +190,48 @@ class TerminalX:
             "USER TASK:\n"
             f"{clean_task}"
         )
+
+    def __build_worker_skill_context(self) -> tuple[str, list[str]]:
+        """Build robust skill references for worker system prompt and filesystem scope."""
+        repo_skills_root = (self._repo_root / ".agents" / "skills").resolve()
+        global_skills_root = (Path.home() / ".agents" / "skills").resolve()
+
+        repo_skill_md = repo_skills_root / "find-skills" / "SKILL.md"
+        global_skill_md = global_skills_root / "find-skills" / "SKILL.md"
+        repo_lock = (self._repo_root / "skills-lock.json").resolve()
+
+        existing_refs = [
+            str(path)
+            for path in (repo_skill_md, global_skill_md, repo_lock)
+            if path.exists()
+        ]
+
+        add_dirs: list[str] = []
+        seen_dirs: set[str] = set()
+        for path in (self._repo_root, repo_skills_root, global_skills_root):
+            if not path.exists() or not path.is_dir():
+                continue
+            path_str = str(path)
+            if path_str in seen_dirs:
+                continue
+            seen_dirs.add(path_str)
+            add_dirs.append(path_str)
+
+        if existing_refs:
+            refs_text = ", ".join(existing_refs)
+            prompt = (
+                "Use installed skill guidance when relevant. "
+                f"Read these files when available: {refs_text}. "
+                "If user asks to discover capabilities or install skills, follow find-skills guidance from those files."
+            )
+            return prompt, add_dirs
+
+        fallback_prompt = (
+            "Use installed skill guidance when relevant. "
+            "Look for find-skills docs in project `.agents/skills/find-skills/SKILL.md` "
+            "or global `~/.agents/skills/find-skills/SKILL.md` when those files exist."
+        )
+        return fallback_prompt, add_dirs
 
     def __delegate_tool_description(self) -> str:
         repo_root = str(self._repo_root)
@@ -350,6 +392,7 @@ class TerminalX:
             logger.info("Using Ollama model for worker: %s", ollama_config.model)
         
         safe_work_dir = self.__safe_worker_dir(task=prompt, work_dir=work_dir)
+        skill_system_prompt, skill_add_dirs = self.__build_worker_skill_context()
 
         async def _auto_approve_tool(tool_name, tool_input, context):
             """Auto-approve all tool permission requests."""
@@ -371,7 +414,9 @@ class TerminalX:
             permission_mode="default",
             can_use_tool=_auto_approve_tool,
             cwd=safe_work_dir,
+            add_dirs=skill_add_dirs,
             stderr=lambda line: logger.warning("[Worker:%s][SDK stderr] %s", sender, line),
+            system_prompt=skill_system_prompt,
         )
 
         logger.info("[Worker:%s] Starting SDK query (model=%s, cwd=%s, permission=default+auto_approve)", sender, worker_model, safe_work_dir)

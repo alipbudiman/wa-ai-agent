@@ -4,14 +4,26 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     software-properties-common \
+    curl \
+    gnupg \
     && add-apt-repository -y ppa:deadsnakes/ppa \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update && apt-get install -y \
     python3.13 \
     python3.13-venv \
     python3-pip \
+    nodejs \
+    && npm install -g skills@latest \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/brain
+ENV DISABLE_TELEMETRY=1
+
+RUN npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -g -a universal -y \
+    && npx --yes skills list -g --json > /dev/null \
+    && skills --version > /dev/null
 
 # Create and activate virtual environment
 RUN python3.13 -m venv /opt/venv

@@ -83,40 +83,35 @@ class WhatsAppIntegration:
                 on_hold=False,
             )
         
-        is_from_group = self._is_group_jid(sender)
-        target_number = sender if is_from_group else number
+        try:
+            number = self.parse_tool.parse_phone_number(number)
+        except ValueError as e:
+            return SendMessageResponse(
+                success=False,
+                message=str(e),
+                data=None,
+                status="failed",
+                on_hold=False,
+            )
+
+        sender_identifier = self._safe_normalize_identifier(sender) if sender else number
+        sender_key = self._identity_key(sender_identifier)
+        target_key = self._identity_key(number)
+
+        # Determine if confirmation is needed.
+        # If the target is the same as the requester (sender), skip on-hold.
         is_different_recipient = False
+        if sender_key and target_key:
+            is_different_recipient = (target_key != sender_key)
 
         logger.debug(
-            "request_send_message sender=%s number=%s target=%s is_from_group=%s",
+            "request_send_message sender=%s number=%s sender_key=%s target_key=%s is_different_recipient=%s",
             sender,
             number,
-            target_number,
-            is_from_group,
+            sender_key,
+            target_key,
+            is_different_recipient,
         )
-        
-        if not is_from_group:
-            try:
-                number = self.parse_tool.parse_phone_number(number)
-            except ValueError as e:
-                return SendMessageResponse(
-                    success=False,
-                    message=str(e),
-                    data=None,
-                    status="failed",
-                    on_hold=False,
-                )
-            target_number = number
-                
-            sender_identifier = self._safe_normalize_identifier(sender) if sender else number
-            sender_key = self._identity_key(sender_identifier)
-            target_key = self._identity_key(number)
-            
-            # Determine if confirmation is needed.
-            # If the target is the same as the requester (sender), skip on-hold.
-            is_different_recipient = False
-            if sender_key and target_key:
-                is_different_recipient = (target_key != sender_key)
         
         try:
             if is_different_recipient:
@@ -157,7 +152,7 @@ class WhatsAppIntegration:
             
             response = requests.post(
                 f"{self.__get_self_url()}message/send",
-                json={"number": target_number, "message": message},
+                json={"number": number, "message": message},
                 timeout=120,
             )
             response.raise_for_status()
@@ -179,7 +174,7 @@ class WhatsAppIntegration:
                 on_hold=False,
             )
         except Exception as e:
-            logger.exception("Unexpected error sending message to '%s'", target_number)
+            logger.exception("Unexpected error sending message to '%s'", number)
             return SendMessageResponse(
                 success=False,
                 message=f"failed to send message: {e}",

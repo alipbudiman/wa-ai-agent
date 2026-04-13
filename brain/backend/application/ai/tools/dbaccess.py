@@ -34,11 +34,7 @@ class DBAcess:
         })
         
         if results:
-            if results.get("parameter") == "send_file":
-                file_name = str(results.get("pending_file", "")).split("/")[-1]
-                caption = results.get("pending_caption", "")
-                return f"[FILE: {file_name}] {caption}".strip()
-            return results.get("pending_message", "")
+            return str(results)
         else: return ""
     
     def get_current_pending_message(self, sender: str) -> StructuredTool:

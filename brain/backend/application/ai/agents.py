@@ -496,19 +496,19 @@ class ChatAgentUseCase:
         payload: dict[str, any] = {}
 
         # Common repr patterns from Pydantic/BaseModel string output.
-        message_match = re.search(r"message[=:]\\s*['\"]([^'\"]*)['\"]", text, flags=re.IGNORECASE)
+        message_match = re.search(r"message[=:]\s*['\"]([^'\"]*)['\"]", text, flags=re.IGNORECASE)
         if message_match:
             payload["message"] = message_match.group(1).strip()
 
-        status_match = re.search(r"status[=:]\\s*['\"]?([a-zA-Z_]+)['\"]?", text, flags=re.IGNORECASE)
+        status_match = re.search(r"status[=:]\s*['\"]?([a-zA-Z_]+)['\"]?", text, flags=re.IGNORECASE)
         if status_match:
             payload["status"] = status_match.group(1).strip().lower()
 
-        success_match = re.search(r"success[=:]\\s*(true|false)", text, flags=re.IGNORECASE)
+        success_match = re.search(r"success[=:]\s*(true|false)", text, flags=re.IGNORECASE)
         if success_match:
             payload["success"] = success_match.group(1).lower() == "true"
 
-        on_hold_match = re.search(r"on_hold[=:]\\s*(true|false)", text, flags=re.IGNORECASE)
+        on_hold_match = re.search(r"on_hold[=:]\s*(true|false)", text, flags=re.IGNORECASE)
         if on_hold_match:
             payload["on_hold"] = on_hold_match.group(1).lower() == "true"
 
@@ -538,6 +538,54 @@ class ChatAgentUseCase:
             return message
 
         return (tool_text or "").strip()
+
+    def __send_tool_outcome_kind(self, tool_text: str) -> str:
+        """Classify send tool outcome to enforce deterministic user messaging."""
+        raw_text = str(tool_text or "").strip()
+        lowered = raw_text.lower()
+        payload = self.__parse_send_tool_payload(tool_text)
+        status = str(payload.get("status") or "").strip().lower()
+        on_hold = self.__coerce_bool(payload.get("on_hold"))
+        success = self.__coerce_bool(payload.get("success"))
+
+        if on_hold is True or status == "on_hold":
+            return "on_hold"
+
+        if success is True or status in {"sent", "success"}:
+            return "sent"
+
+        if success is False or status in {"failed", "error", "invalid"}:
+            return "failed"
+
+        # Fallback heuristics for plain-text tool outputs that do not expose
+        # structured fields (status/on_hold/success).
+        if any(marker in lowered for marker in {
+            "on-hold",
+            "on_hold",
+            "not been sent yet",
+            "waiting for confirmation",
+            "pending confirmation",
+        }):
+            return "on_hold"
+
+        if any(marker in lowered for marker in {
+            "failed to send",
+            "error sending",
+            "request failed",
+            "status=failed",
+            "status: failed",
+        }):
+            return "failed"
+
+        if any(marker in lowered for marker in {
+            "sent successfully",
+            "has been sent",
+            "status=sent",
+            "status: sent",
+        }):
+            return "sent"
+
+        return "unknown"
 
     def __latest_ai_tool_calls(self, state: State) -> list[dict]:
         """Get normalized tool calls from the most recent AI message."""
@@ -674,7 +722,7 @@ class ChatAgentUseCase:
                 lines.append(f"   Why confirmation is required: {reason_label}")
 
         lines.append("Should I continue?")
-        lines.append("Reply with: continue (approve) or cancel (reject).")
+        lines.append("Reply with: continue / ok (approve) or cancel / no (reject).")
         return "\n".join(lines)
 
     @staticmethod
@@ -1199,6 +1247,7 @@ class ChatAgentUseCase:
         # post-tool LLM paraphrases that can overclaim completion.
         delegate_tool_fallback = ""
         send_tool_fallback = ""
+        send_tool_outcome = "unknown"
         for tool_message in reversed(current_turn_messages):
             if not isinstance(tool_message, ToolMessage):
                 continue
@@ -1210,6 +1259,7 @@ class ChatAgentUseCase:
 
             if tool_name in {"send_file", "send_message", "broadcast_message"} and not send_tool_fallback:
                 send_tool_fallback = self.__format_send_tool_feedback(tool_name, tool_text)
+                send_tool_outcome = self.__send_tool_outcome_kind(tool_text)
 
             if tool_name != "delegate_to_worker":
                 continue
@@ -1228,6 +1278,10 @@ class ChatAgentUseCase:
             if send_tool_fallback:
                 return send_tool_fallback
             return ''
+
+        # Preserve true delivery state from tool output when request is not sent yet.
+        if send_tool_fallback and send_tool_outcome in {"on_hold", "failed"}:
+            return send_tool_fallback
 
         for ai_message in reversed(ai_messages):
             content = ai_message.content
@@ -1388,11 +1442,11 @@ class ChatAgentUseCase:
                     ))
                 
                 self.db_access_tool.delete_agent_input_log(task_id)
-                self.wa_integration_tool.request_send_message(number, results, send_to)
+                self.wa_integration_tool.request_send_message(send_to, results, send_to)
                 return
             
             self.db_access_tool.delete_agent_input_log(task_id)
-            self.wa_integration_tool.request_send_message(number, results_message, send_to)
+            self.wa_integration_tool.request_send_message(send_to, results_message, send_to)
         except Exception as e:
             logger.exception("ChatAgent failed for %s", number)
             self.db_access_tool.delete_agent_input_log(task_id)
@@ -1410,7 +1464,7 @@ class ChatAgentUseCase:
                     }
                 )
             self.wa_integration_tool.request_send_message(
-                number,
+                send_to,
                 f"😭 Sorry, an internal error occurred while processing your message. Please try again\nDetail: {str(e)}",
                 send_to,
             )
