@@ -84,7 +84,7 @@ class TerminalX:
     def __is_windows_abs_path(self, value: str) -> bool:
         return bool(re.match(r"^[a-zA-Z]:[\\/]", (value or "").strip()))
 
-    def __should_delegate_from_simple_exec(self, command: str) -> tuple[bool, list[str]]:
+    def __should_run_worker_from_simple_exec(self, command: str) -> tuple[bool, list[str]]:
         """Detect commands that are too complex for simple_exec one-shot mode."""
         cmd = (command or "").strip()
         lower = cmd.lower()
@@ -184,6 +184,7 @@ class TerminalX:
             "WORKSPACE EXECUTION RULES:\n"
             f"- Active workspace: {work_dir}\n"
             f"- Shared playground root: {self._playground_root}\n"
+            "- Treat USER TASK below as canonical user intent; do not replace it with unrelated diagnostic/test tasks.\n"
             "- Save all generated files inside the active workspace unless user explicitly requests another location.\n"
             "- After creating or editing files, verify persistence by running LS and reading the saved file(s).\n"
             "- In final output, list concrete saved file paths.\n\n"
@@ -193,22 +194,38 @@ class TerminalX:
 
     def __build_worker_skill_context(self) -> tuple[str, list[str]]:
         """Build robust skill references for worker system prompt and filesystem scope."""
-        repo_skills_root = (self._repo_root / ".agents" / "skills").resolve()
-        global_skills_root = (Path.home() / ".agents" / "skills").resolve()
+        project_agents_skills = (self._repo_root / ".agents" / "skills").resolve()
+        user_agents_skills = (Path.home() / ".agents" / "skills").resolve()
+        project_claude_skills = (self._repo_root / ".claude" / "skills").resolve()
+        user_claude_skills = (Path.home() / ".claude" / "skills").resolve()
 
-        repo_skill_md = repo_skills_root / "find-skills" / "SKILL.md"
-        global_skill_md = global_skills_root / "find-skills" / "SKILL.md"
+        project_agents_skill_md = project_agents_skills / "find-skills" / "SKILL.md"
+        user_agents_skill_md = user_agents_skills / "find-skills" / "SKILL.md"
+        project_claude_skill_md = project_claude_skills / "find-skills" / "SKILL.md"
+        user_claude_skill_md = user_claude_skills / "find-skills" / "SKILL.md"
         repo_lock = (self._repo_root / "skills-lock.json").resolve()
 
         existing_refs = [
             str(path)
-            for path in (repo_skill_md, global_skill_md, repo_lock)
+            for path in (
+                project_agents_skill_md,
+                user_agents_skill_md,
+                project_claude_skill_md,
+                user_claude_skill_md,
+                repo_lock,
+            )
             if path.exists()
         ]
 
         add_dirs: list[str] = []
         seen_dirs: set[str] = set()
-        for path in (self._repo_root, repo_skills_root, global_skills_root):
+        for path in (
+            self._repo_root,
+            project_agents_skills,
+            user_agents_skills,
+            project_claude_skills,
+            user_claude_skills,
+        ):
             if not path.exists() or not path.is_dir():
                 continue
             path_str = str(path)
@@ -222,18 +239,48 @@ class TerminalX:
             prompt = (
                 "Use installed skill guidance when relevant. "
                 f"Read these files when available: {refs_text}. "
-                "If user asks to discover capabilities or install skills, follow find-skills guidance from those files."
+                "use for discover capabilities or install skills, follow find-skills guidance from those files."
             )
             return prompt, add_dirs
 
         fallback_prompt = (
             "Use installed skill guidance when relevant. "
             "Look for find-skills docs in project `.agents/skills/find-skills/SKILL.md` "
-            "or global `~/.agents/skills/find-skills/SKILL.md` when those files exist."
+            "or user `~/.agents/skills/find-skills/SKILL.md` when those files exist. "
+            "If Claude native skills are present, also check `.claude/skills/` locations."
         )
         return fallback_prompt, add_dirs
 
-    def __delegate_tool_description(self) -> str:
+    def __build_worker_setting_sources(self) -> list[str]:
+        """Choose SDK setting_sources safely across local and Docker runtimes."""
+        project_has_claude_config = (
+            (self._repo_root / "CLAUDE.md").exists()
+            or (self._repo_root / ".claude" / "CLAUDE.md").exists()
+            or (self._repo_root / ".claude" / "skills").exists()
+            or (self._repo_root / ".claude" / "output-styles").exists()
+        )
+
+        user_home = Path.home()
+        user_has_claude_config = (
+            (user_home / ".claude" / "CLAUDE.md").exists()
+            or (user_home / ".claude" / "skills").exists()
+            or (user_home / ".claude" / "output-styles").exists()
+        )
+
+        setting_sources: list[str] = []
+        if project_has_claude_config:
+            setting_sources.append("project")
+        if user_has_claude_config:
+            setting_sources.append("user")
+
+        # Keep explicit defaults so SDK can still discover user/project filesystem settings
+        # when files are mounted later in Docker runtime.
+        if not setting_sources:
+            setting_sources = ["project", "user"]
+
+        return setting_sources
+
+    def __run_worker_tool_description(self) -> str:
         repo_root = str(self._repo_root)
         playground_root = str(self._playground_root)
         return (
@@ -241,7 +288,7 @@ class TerminalX:
             "\n\nAI level instruction (routing priority):"
             "\n- Treat this tool as preferred default for non-trivial engineering tasks."
             "\n- This is the advanced worker, and it is an upgrade path from `simple_exec`."
-            "\n- Choose `delegate_to_worker` when the request needs multi-step execution,"
+            "\n- Choose `run_worker` when the request needs multi-step execution,"
             " code generation/editing, repository exploration, debugging loops, or chained tasks."
             "\n- Use this tool when task completion depends on agent decisions, not only a single shell command."
             "\n- The worker runs through `ClaudeAgentOptions` with scoped tools"
@@ -249,7 +296,8 @@ class TerminalX:
             f"\n- Runtime repo root: `{repo_root}`."
             f"\n- Runtime shared playground root: `{playground_root}`."
             f"\n- Relative `work_dir` is resolved under playground (example: `my-task` -> `{playground_root}/my-task`)."
-            "\n- Put the objective, constraints, and expected result in `task` so the worker can plan steps."
+            "\n- Start `task` with the user's original intent (verbatim when possible), then add objective, constraints, and expected result."
+            "\n- Do not substitute user intent with internal testing goals unless user explicitly asks for testing."
             "\n- Workspace policy: if user has not provided workspace location, ask once before execution."
             "\n- If user says AI may decide (e.g., 'bebas', 'terserah', 'tentukan sendiri'),"
             " create/select a project folder under `playground/` and use it as `work_dir`."
@@ -261,9 +309,9 @@ class TerminalX:
             "\n- Default `wait_for_completion` is true so worker output is returned in the same turn."
             "\n- Set `wait_for_completion=false` only for background dispatch mode."
             "\n\nArgs:"
-            "\n- task: Goal-oriented task description for the worker agent."
+            "\n- task: Preserve user intent first, then provide goal-oriented details for worker execution."
             "\n- work_dir: Optional workspace path. If omitted, ask location first;"
-            " if user delegates decision, create/use project folder inside `playground/` only."
+            " if user lets AI decide the workspace, create/use project folder inside `playground/` only."
             "\n- wait_for_completion: Optional. true waits for worker completion in this turn; false dispatches background worker."
             "\n\nReturns:"
             "\n- str: Worker completion output (blocking mode) or dispatch status (background mode)."
@@ -393,6 +441,7 @@ class TerminalX:
         
         safe_work_dir = self.__safe_worker_dir(task=prompt, work_dir=work_dir)
         skill_system_prompt, skill_add_dirs = self.__build_worker_skill_context()
+        worker_setting_sources = self.__build_worker_setting_sources()
 
         async def _auto_approve_tool(tool_name, tool_input, context):
             """Auto-approve all tool permission requests."""
@@ -410,16 +459,43 @@ class TerminalX:
 
         options = ClaudeAgentOptions(
             model=worker_model,
-            allowed_tools=["Bash", "Read", "Write", "Edit", "Glob", "LS", "TodoWrite", "TodoRead"],
-            permission_mode="default",
+            allowed_tools=[
+                "Read",
+                "Write",
+                "Edit",
+                "Glob",
+                "Grep",
+                "Bash",
+                "Monitor",
+                "WebSearch",
+                "WebFetch",
+                "Agent",
+                "LS",
+                "TodoWrite",
+                "TodoRead",
+                "Skill"
+            ],
+            setting_sources=worker_setting_sources,
+            permission_mode="auto",
             can_use_tool=_auto_approve_tool,
             cwd=safe_work_dir,
             add_dirs=skill_add_dirs,
             stderr=lambda line: logger.warning("[Worker:%s][SDK stderr] %s", sender, line),
-            system_prompt=skill_system_prompt,
+            system_prompt= {
+                "type": "preset",
+                "preset": "claude_code",
+                "append": skill_system_prompt,
+            }
         )
 
-        logger.info("[Worker:%s] Starting SDK query (model=%s, cwd=%s, permission=default+auto_approve)", sender, worker_model, safe_work_dir)
+        logger.info(
+            "[Worker:%s] Starting SDK query (model=%s, cwd=%s, setting_sources=%s, add_dirs=%d, permission=default+auto_approve)",
+            sender,
+            worker_model,
+            safe_work_dir,
+            worker_setting_sources,
+            len(skill_add_dirs),
+        )
 
         output_parts: list[str] = []
         step = 0
@@ -518,9 +594,9 @@ class TerminalX:
             except Exception:
                 logger.warning("[Worker:%s] Failed to send error notification", sender)
 
-    def delegate_to_worker(self, sender: str):
+    def run_worker(self, sender: str):
         """
-        delegate_to_worker is used for more complex tasks that may require multi-step reasoning,
+        run_worker is used for more complex tasks that may require multi-step reasoning,
         file access, or persistent working-directory context.
 
         By default, this tool waits for worker completion so the assistant can
@@ -582,8 +658,8 @@ class TerminalX:
         return StructuredTool.from_function(
             func=_worker_sync,
             coroutine=_worker_async,
-            name="delegate_to_worker",
-            description=self.__delegate_tool_description(),
+            name="run_worker",
+            description=self.__run_worker_tool_description(),
             args_schema=WorkerTaskInput
         )
 
@@ -693,13 +769,13 @@ class TerminalX:
         that doesn't require multi-step reasoning or file access.
         """
         def _exec(command: str) -> str:
-            should_delegate, reasons = self.__should_delegate_from_simple_exec(command)
-            if should_delegate:
+            should_run_worker, reasons = self.__should_run_worker_from_simple_exec(command)
+            if should_run_worker:
                 reason_text = ", ".join(reasons)
                 return (
                     "[ROUTE_TO_WORKER] Command rejected by simple_exec policy. "
                     f"Detected: {reason_text}. "
-                    "Use `delegate_to_worker` with a goal-oriented `task` and optional `work_dir`."
+                    "Use `run_worker` with a goal-oriented `task` and optional `work_dir`."
                 )
 
             self.wa_bot.request_send_message(
@@ -719,9 +795,9 @@ class TerminalX:
                 "\n- Do not use it for coding tasks, multi-step setup, complex troubleshooting,"
                 " or workflows requiring file reasoning/editing loops."
                 "\n- If the user asks for create code, refactor, analyze files, or solve a chained task,"
-                " route to `delegate_to_worker` instead."
+                " route to `run_worker` instead."
                 "\n- Hard deny in `simple_exec` for multiline/chained/redirection-heavy commands;"
-                " these must be routed to `delegate_to_worker`."
+                " these must be routed to `run_worker`."
                 "\n- Keep command focused on a single action."
                 "\n- Output may be truncated to protect chat context stability."
                 "\n\nArgs:"

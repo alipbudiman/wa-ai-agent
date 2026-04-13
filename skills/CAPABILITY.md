@@ -35,7 +35,7 @@ Operational slash commands are defined in COMMAND_LISTS.md.
 	- Returns real stdout/stderr output (with safe truncation for very large output).
 	- Rejects complex command patterns and routes them to worker flow.
 
-- delegate_to_worker:
+- run_worker:
 	- Handles multi-step engineering tasks, code/file workflows, and iterative troubleshooting.
 	- Uses Claude agent runtime with scoped tools: Bash, Read, Write, Edit, Glob, LS, TodoWrite, TodoRead.
 	- Supports persistent working directory context.

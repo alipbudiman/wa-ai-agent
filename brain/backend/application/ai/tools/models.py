@@ -70,7 +70,14 @@ class CommandInput(BaseModel):
     command: str = Field(description="Command to execute in the terminal. Required.")
 
 class WorkerTaskInput(BaseModel):
-    task: str = Field(description="Task description for the agent to execute. Required.")
+    task: str = Field(
+        description=(
+            "Canonical worker brief from the latest user request. Required. "
+            "Start with the user's actual intent (same language, key entities, and constraints), "
+            "then add steps/success criteria if needed. Do not replace user intent with internal "
+            "diagnostic or test goals unless the user explicitly asks for testing."
+        )
+    )
     work_dir: str = Field(
         default="playground/",
         description=(

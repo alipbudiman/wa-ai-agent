@@ -36,12 +36,25 @@ class State(MessagesState):
     sender: str
 
 class ChatAgentUseCase:
-    ASSISTANT_CONTEXT_MAX_TOKENS = 8000
-    DIRECT_CHAT_CONTEXT_MAX_TOKENS = 2048
-    SUMMARIZE_TRIGGER_TOKENS = 12000
-    SUMMARIZE_MIN_MESSAGES = 12
-    SUMMARIZE_KEEP_RECENT_MESSAGES = 12
-    SUMMARIZE_SOURCE_MAX_TOKENS = 12000
+    TUNNING_PARAM = 3
+    
+    ASSISTANT_CONTEXT_MAX_TOKENS = 8000 * TUNNING_PARAM
+    DIRECT_CHAT_CONTEXT_MAX_TOKENS = 2048 * TUNNING_PARAM
+    SUMMARIZE_TRIGGER_TOKENS = 12000 * TUNNING_PARAM
+    SUMMARIZE_MIN_MESSAGES = 12 * TUNNING_PARAM
+    SUMMARIZE_KEEP_RECENT_MESSAGES = 12 * TUNNING_PARAM
+    SUMMARIZE_SOURCE_MAX_TOKENS = 12000 * TUNNING_PARAM
+    
+    logger.info(
+        "ChatAgentUseCase initialized with tunning_param=%s, assistant_context_max_tokens=%s, direct_chat_context_max_tokens=%s, summarize_trigger_tokens=%s, summarize_min_messages=%s, summarize_keep_recent_messages=%s, summarize_source_max_tokens=%s",
+        TUNNING_PARAM,
+        ASSISTANT_CONTEXT_MAX_TOKENS,
+        DIRECT_CHAT_CONTEXT_MAX_TOKENS,
+        SUMMARIZE_TRIGGER_TOKENS,
+        SUMMARIZE_MIN_MESSAGES,
+        SUMMARIZE_KEEP_RECENT_MESSAGES,
+        SUMMARIZE_SOURCE_MAX_TOKENS,
+    )
 
     def __init__(self):
         self.llm = AI()
@@ -160,7 +173,7 @@ class ChatAgentUseCase:
 
         # Add prompt to our history
         messages = summary_source + [HumanMessage(content=summary_message)]
-        response = self.__llm(reasoning=False).invoke(messages)
+        response = self.__llm(reasoning=True).invoke(messages)
         
         # Keep a short recent window and rely on summary for older history.
         keep_recent = self.SUMMARIZE_KEEP_RECENT_MESSAGES
@@ -994,7 +1007,7 @@ class ChatAgentUseCase:
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
             self.wa_integration_tool.send_file(sender=sender),
-            self.terminalx_tool.delegate_to_worker(sender=sender),
+            self.terminalx_tool.run_worker(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
         ]
     
@@ -1242,10 +1255,10 @@ class ChatAgentUseCase:
 
         current_turn_messages = messages[latest_human_index + 1:] if latest_human_index >= 0 else messages
 
-        # delegate_to_worker may run in blocking or background mode.
+        # run_worker may run in blocking or background mode.
         # If background dispatch text is present, return it directly to avoid
         # post-tool LLM paraphrases that can overclaim completion.
-        delegate_tool_fallback = ""
+        run_worker_tool_fallback = ""
         send_tool_fallback = ""
         send_tool_outcome = "unknown"
         for tool_message in reversed(current_turn_messages):
@@ -1261,20 +1274,20 @@ class ChatAgentUseCase:
                 send_tool_fallback = self.__format_send_tool_feedback(tool_name, tool_text)
                 send_tool_outcome = self.__send_tool_outcome_kind(tool_text)
 
-            if tool_name != "delegate_to_worker":
+            if tool_name != "run_worker":
                 continue
 
             if "dispatched in the background" in tool_text.lower():
                 return tool_text
 
             # Keep as fallback only when assistant has no final message.
-            delegate_tool_fallback = tool_text
+            run_worker_tool_fallback = tool_text
             break
 
         ai_messages = [message for message in current_turn_messages if isinstance(message, AIMessage)]
         if not ai_messages:
-            if delegate_tool_fallback:
-                return delegate_tool_fallback
+            if run_worker_tool_fallback:
+                return run_worker_tool_fallback
             if send_tool_fallback:
                 return send_tool_fallback
             return ''
@@ -1324,8 +1337,8 @@ class ChatAgentUseCase:
             if text and text != '[]':
                 return text
 
-        if delegate_tool_fallback:
-            return delegate_tool_fallback
+        if run_worker_tool_fallback:
+            return run_worker_tool_fallback
 
         if send_tool_fallback:
             return send_tool_fallback

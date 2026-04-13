@@ -169,6 +169,22 @@
 			word-break: break-all;
 		}
 
+		.playground-feedback {
+			font-family: var(--font-mono);
+			font-size: 0.72rem;
+			padding: 0.42rem 0.62rem;
+			border: 1px solid rgba(0, 229, 255, 0.48);
+			border-radius: 0.55rem;
+			color: #92f4ff;
+			background: rgba(0, 229, 255, 0.08);
+		}
+
+		.playground-feedback.is-error {
+			border-color: rgba(255, 77, 95, 0.5);
+			color: #ffb8bf;
+			background: rgba(255, 77, 95, 0.1);
+		}
+
 		.playground-status,
 		.playground-viewer-empty {
 			font-family: var(--font-mono);
@@ -380,6 +396,7 @@
 				<input id="playgroundUploadInput" class="d-none" type="file" />
 
 				<div id="playgroundBreadcrumb" class="playground-breadcrumb mb-3">playground/</div>
+				<div id="playgroundFeedback" class="playground-feedback mb-3 d-none" role="status" aria-live="polite"></div>
 
 				<div class="playground-layout">
 					<div class="playground-panel">
@@ -417,11 +434,13 @@
 		const playgroundRefreshButton = document.getElementById("playgroundRefreshButton");
 		const playgroundUploadInput = document.getElementById("playgroundUploadInput");
 		const playgroundBreadcrumb = document.getElementById("playgroundBreadcrumb");
+		const playgroundFeedback = document.getElementById("playgroundFeedback");
 		const playgroundListStatus = document.getElementById("playgroundListStatus");
 		const playgroundList = document.getElementById("playgroundList");
 		const playgroundViewer = document.getElementById("playgroundViewer");
 		let hasLoadedDiagram = false;
 		let latestMermaidSource = "";
+		let playgroundFeedbackTimer = null;
 		const playgroundState = {
 			currentPath: "",
 			parentPath: "",
@@ -652,6 +671,72 @@
 			return buildPlaygroundEndpoint(playgroundOpenEndpoint, relativePath);
 		}
 
+		function formatPlaygroundPath(relativePath) {
+			const normalized = String(relativePath || "").trim();
+			return normalized ? `playground/${normalized}` : "playground/";
+		}
+
+		function showPlaygroundFeedback(message, isError = false) {
+			if (!playgroundFeedback) {
+				return;
+			}
+
+			if (playgroundFeedbackTimer) {
+				window.clearTimeout(playgroundFeedbackTimer);
+				playgroundFeedbackTimer = null;
+			}
+
+			playgroundFeedback.textContent = String(message || "");
+			playgroundFeedback.classList.remove("d-none", "is-error");
+			if (isError) {
+				playgroundFeedback.classList.add("is-error");
+			}
+
+			playgroundFeedbackTimer = window.setTimeout(() => {
+				playgroundFeedback.classList.add("d-none");
+			}, 2600);
+		}
+
+		async function writeClipboardText(value) {
+			const text = String(value || "");
+			if (!text) {
+				throw new Error("Path is empty");
+			}
+
+			if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+				await navigator.clipboard.writeText(text);
+				return;
+			}
+
+			const clipboardInput = document.createElement("textarea");
+			clipboardInput.value = text;
+			clipboardInput.setAttribute("readonly", "");
+			clipboardInput.style.position = "fixed";
+			clipboardInput.style.opacity = "0";
+			document.body.appendChild(clipboardInput);
+			clipboardInput.focus();
+			clipboardInput.select();
+
+			const copied = document.execCommand("copy");
+			document.body.removeChild(clipboardInput);
+
+			if (!copied) {
+				throw new Error("Clipboard API is not available");
+			}
+		}
+
+		async function copyPlaygroundPath(relativePath, kindLabel) {
+			const fullPath = formatPlaygroundPath(relativePath);
+
+			try {
+				await writeClipboardText(fullPath);
+				showPlaygroundFeedback(`${kindLabel} path copied: ${fullPath}`);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to copy path";
+				showPlaygroundFeedback(message, true);
+			}
+		}
+
 		function pushPlaygroundHistory(path) {
 			const normalizedPath = String(path || "").trim();
 			const currentHistoryPath = playgroundState.historyPaths[playgroundState.historyIndex] || "";
@@ -811,6 +896,17 @@
 
 				const actions = document.createElement("div");
 				actions.className = "playground-entry-actions";
+
+				const copyButton = document.createElement("button");
+				copyButton.type = "button";
+				copyButton.className = "btn btn-outline-light btn-tech btn-sm";
+				copyButton.textContent = "Copy Path";
+				copyButton.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					copyPlaygroundPath(entry.relative_path, entry.is_dir ? "Folder" : "File");
+				});
+				actions.appendChild(copyButton);
 
 				if (!entry.is_dir) {
 					const openButton = document.createElement("a");

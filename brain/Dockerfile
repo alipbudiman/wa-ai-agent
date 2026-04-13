@@ -32,6 +32,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+COPY .claude /app/.claude
 COPY brain /app/brain
 
 EXPOSE 8000

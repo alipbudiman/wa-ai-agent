@@ -37,6 +37,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./.claude:/app/.claude:ro
       - playground_data:/app/playground
 
   wa-agent:
@@ -62,6 +63,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
+      - ./.claude:/app/.claude:ro
       - wa_session_data:/app/data
       - playground_data:/app/playground
 
