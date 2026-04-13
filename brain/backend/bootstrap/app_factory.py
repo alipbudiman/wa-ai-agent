@@ -3,7 +3,8 @@ from fastapi import FastAPI
 from backend.application.health import CheckHealthUseCase
 from backend.application.ai.agents import ChatAgentUseCase
 from backend.application.report import ReportUseCase
-from backend.interface.api.router import create_health_router
+from backend.application.aidata import CheckAIData
+from backend.interface.api.router import create_ai_data_router, create_health_router
 from backend.interface.api.router import create_langsmith_getlist_router
 from backend.interface.api.router import create_langsmith_select_run_router
 from backend.interface.api.router import create_chat_agent_router
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(create_health_router(CheckHealthUseCase()), prefix="/api/v1")
+    app.include_router(create_ai_data_router(CheckAIData()), prefix="/api/v1")
     app.include_router(create_chat_agent_router(ChatAgentUseCase()), prefix="/api/v1")
     app.include_router(create_langsmith_getlist_router(ReportUseCase()), prefix="/api/v1")
     app.include_router(create_langsmith_select_run_router(ReportUseCase()), prefix="/api/v1")

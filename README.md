@@ -1,140 +1,147 @@
-# WaNexus V2
+# WaNexus AI Agent
 
-Special Thanks to Amazing Technologies that made this project possible.
-- LangChain: https://www.langchain.com/
-- Tavily: https://tavily.com/
-- WhatsMeow: https://whatsmeow.dev/
+> **An intelligent, containerized WhatsApp AI agent bridging a Go-based WhatsApp runtime with a powerful Python-based reasoning engine.**
 
+WaNexus is a state-of-the-art AI-powered WhatsApp bot system. It leverages a modern microservice architecture, separating the high-concurrency WhatsApp connection handling (written in Go) from the heavy, stateful LLM orchestration (written in Python using FastAPI and LangGraph/LangChain).
 
-WhatsApp Bot server docs: http://localhost:8001/swagger/index.html
-Brain API docs: http://localhost:8000/docs
-Manager UI: http://localhost:8001/access
+## 🚀 Key Features
 
-**System Highlights:**
+* **Advanced AI Reasoning:** Integrated Large Language Models (LLMs) capabilities using LangChain and LangGraph for routing, tool usage, and memory-aware conversation flows.
+* **Autonomous Agent Capabilities:** The agent is equipped with a versatile toolset allowing it to:
+  * **Execute Actions Natively:** Run terminal commands, deploy background workers, and perform complex iterative scripting directly on the host system.
+  * **Manage Files:** Read, manipulate, and compress files into archives seamlessly.
+  * **Search the Web:** Perform real-time internet searches for factual lookups.
+  * **Interact with Databases:** Safely execute localized queries.
+  * **WhatsApp Automation:** Send rich texts, files, broadcast messages, and manage contacts autonomously via WhatsApp.
+* **Dual-Core Architecture:** A robust Go-based WhatsApp client (using WhatsMeow) securely handles message streams and interfaces with a Python (FastAPI) Brain backend for cognitive tasks.
+* **Automated Task Pipelines:** Consistent and repeatable workflows capable of handling complex multi-step chains (e.g., lookup → enrich → summarize → send).
+* **Cron-Ready Scheduler:** Built-in support for reminders, periodic checks, and automated notifications.
+* **Container-Native Integration:** Built seamlessly on `ubuntu:22.04` docker images for maximum system flexibility, isolation, and robustness.
+* **Observability & Tracing:** Out-of-the-box support for deep debugging, tracing, and performance optimization.
+* **Extensive API Support:** Multiple API handlers for WhatsApp operations including message sending, contact lookups, dynamic help menus, and targeted broadcasts.
 
-* Integrated large language model (LLM) for reasoning and response generation.
-* LangChain/LangGraph agent flow for routing, tool usage, and memory-aware execution.
-* Multi-API handlers for WhatsApp operations (message sending, contact lookup, help menu, broadcast).
-* Interconnected architecture between Go WhatsApp runtime and Python Brain API.
-* Automated task handler pipelines for consistent and repeatable workflows.
-* Cron-ready scheduler for reminders, periodic checks, and notifications.
-* Multi-step workflow chaining (lookup → enrich → summarize → send).
-* Containerized environment built natively on `ubuntu:22.04` for extended system flexibility.
-* Observability and tracing for debugging and performance optimization.
-## Docker (Go + Brain + MongoDB + Ollama)
+## 🔗 Quick Links
 
-Prerequisites:
+Once the system is running, you can access the following services locally:
+- **Manager UI:** [http://localhost:8001](http://localhost:8001/access)
+- **WhatsApp Bot Server Docs (Go):** [http://localhost:8001/swagger/index.html](http://localhost:8001/swagger/index.html)
+- **Brain API Docs (Python):** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Ollama API:** [http://localhost:11434](http://localhost:11434)
 
-- Docker Desktop is running.
-- You run all commands from repository root (same folder as `docker-compose.yml`).
+---
 
-Check available services first:
+## 🛠️ Docker Quick Start (Go + Brain + MongoDB + Ollama)
 
+### Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+- Execute all commands from the repository root (where `docker-compose.yml` resides).
+
+Verify available services:
 ```bash
 docker compose config --services
 ```
+*Expected output: `mongo`, `ollama`, `brain`, `wa-agent`*
 
-Expected services:
+### 1. Initial Setup Sequence
+Before starting the full stack, you must prepare your LLM backend (Ollama, Anthropic, or OpenRouter). The recommended path is to begin with Ollama.
 
-- `mongo`
-- `ollama`
-- `brain`
-- `wa-agent`
+**Environment Configurations:**
+Ensure your `.env` variables align with your deployment. Example configuration:
+```env
+MONGODB_URI=mongodb://mongo:27017
+MONGODB_DB_ALIAS=wa_ai_agent
+MONGODB_DB_NAME=wa_ai_agent
 
-### First-time setup (recommended sequence)
-
-1. Setup environment variables by copying the example template:
-
-```bash
-cp .env.example .env
+GIN_SERVER_PORT=8001
+GIN_SERVER_HOST=localhost
+APP_MODE=release
 ```
-*(Open `.env` and fill in your missing API Keys like Tavily & LangSmith)*
 
-2. Start Ollama service first:
-
+### 2. Start the Ollama Service
 ```bash
 docker compose up -d ollama
 ```
 
-2. Verify Ollama is up:
-
+Verify that Ollama is up and running:
 ```bash
 docker compose ps ollama
 docker compose logs --tail=50 ollama
 ```
 
-3. Sign in to Ollama Cloud (required for `*:cloud` models):
-
+### 3. Ollama Authentication (Required for Cloud Models)
+Sign in to Ollama Cloud to access powerful external models. Open the linked provided in the terminal to complete your login:
 ```bash
 docker compose exec ollama ollama signin
 ```
+> **Why Ollama Cloud?** It integrates automatically with our AI agent SDKs without requiring independent Anthropic or OpenAI API keys out of the box, offering highly capable models for intensive coding and debugging tasks.
 
-Then open the `ollama.com/connect?...` URL shown in terminal and complete login in your browser.
-
-4. Pull Ollama model inside container (for first-time setup, default model `minimax-m2.7:cloud`):
-
+### 4. Provision Primary AI Models
+Pull your desired model into the container. For first-time setups, we recommend the `minimax-m2.7:cloud` model:
 ```bash
 docker compose exec ollama ollama pull minimax-m2.7:cloud
 ```
+*Note: You can configure other providers like OpenRouter, Anthropic, or Nvidia API via the Manager UI, or by utilizing the `/select-providers` command within WhatsApp once the bot is active.*
 
-5. Verify model exists:
-
+Verify model installation:
 ```bash
 docker compose exec ollama ollama list
 ```
 
-6. Start full application stack:
-
+### 5. Launch the Full Stack
+Start the remaining application stack:
 ```bash
 docker compose up -d --build
 ```
-
-7. Check all services:
-
+Ensure all services are running smoothly:
 ```bash
 docker compose ps
 ```
 
-### Ollama credential notes
-
-- If you see `401 unauthorized` from Brain logs, run `ollama signin` again in the `ollama` container.
-- Authentication data is persisted in `ollama_data` volume (`/root/.ollama` in container).
-- `docker compose down` keeps credentials.
-- `docker compose down -v` removes credentials and requires sign in again.
-
-### If you get: "service \"ollama\" is not running"
-
-Run this recovery sequence:
-
-```bash
-docker compose up -d ollama
-docker compose ps ollama
-docker compose logs --tail=100 ollama
-docker compose exec ollama ollama pull minimax-m2.7:cloud
-```
-
-If `docker compose ps ollama` still does not show `Up`, inspect full logs:
-
-```bash
-docker compose logs ollama
-```
-
-Note:
-
-- First pull can be slow because Ollama image and model are large.
-- Models are persisted in Docker volume `ollama_data`.
-- Playground files are persisted in Docker volume `playground_data` and shared between `brain` and `wa-agent` at `/app/playground`.
-- `docker compose down` stops containers but keeps volumes.
-- Use `docker compose down -v` only if you intentionally want to remove all persisted data (Mongo, WA session, Ollama models).
-
-Useful endpoints after startup:
-
-- Brain API: http://localhost:8000/docs
-- Manager UI: http://localhost:8001/access
-- Ollama API: http://localhost:11434
-
-Stop stack:
-
+To stop the entire stack cleanly:
 ```bash
 docker compose down
 ```
+
+---
+
+## 🛟 Troubleshooting & Notes
+
+- **"401 Unauthorized" from Brain Logs:** Re-run the `ollama signin` sequence inside the `ollama` container.
+- **Service "ollama" is not running:** Run the following recovery sequence:
+  ```bash
+  docker compose up -d ollama
+  docker compose ps ollama
+  docker compose exec ollama ollama pull minimax-m2.7:cloud
+  ```
+- **Data Persistence:**
+  - Authentication data is persisted within the `ollama_data` Docker volume.
+  - MongoDB data and WA Sessions are similarly volume-backed.
+  - Shared playground files are kept in `playground_data` (mapped to `/app/playground`).
+- **Resetting the Environment:**
+  Running `docker compose down` will stop containers but retain data. If you intend to completely wipe the system state (requiring a re-login and model re-download), use `docker compose down -v`.
+
+---
+
+## 🎖️ Acknowledgments
+
+Special thanks to the amazing technologies powering this project:
+- **[LangChain](https://www.langchain.com/)** - Orchestrating LLMs and creating agentic workflows.
+- **[Tavily](https://tavily.com/)** - AI research and search tooling.
+- **[WhatsMeow](https://whatsmeow.dev/)** - High-performance Go library for the WhatsApp API.
+- **[Ollama](https://ollama.com/)** - Seamless local and cloud LLM hosting with powerful models.
+- **[MongoDB](https://www.mongodb.com/)** - Flexible NoSQL database for configuration and state management.
+- **[FastAPI](https://fastapi.tiangolo.com/)** - High-performance Python web framework for the Brain API.
+- **[Docker](https://www.docker.com/)** - Containerization platform enabling seamless deployment and isolation.
+- **[Ubuntu](https://ubuntu.com/) 22.04** - Stable and versatile base image for all services.
+- **[Go](https://golang.org/)** - Efficient and concurrent runtime for the WhatsApp client.
+- **[Python](https://www.python.org/)** - Powerful language for AI orchestration and reasoning.
+- **[Pydantic](https://pydantic.dev/)** - Data validation and settings management for Python models.
+- **[OpenRouter](https://openrouter.ai/)** - Flexible API gateway for accessing multiple LLM providers.
+- **[Anthropic](https://www.anthropic.com/)** - Cutting-edge AI research lab providing powerful models.
+- **[NVIDIA AI](https://www.nvidia.com/en-us/ai/)** - Industry-leading AI models and infrastructure.
+- **[GitHub Copilot](https://copilot.github.com/)** - AI pair programming assistant that inspired many of the agent's capabilities.
+- **[Visual Studio Code](https://code.visualstudio.com/)** - The editor where most of the development magic happens.
+- **The Open Source Community** - For all the libraries, tools, and resources that made this project possible.
+- LangChain Academy and the broader AI development community for their invaluable resources and support.
+- for my parent, Lecturer, family and friends who have been supportive of my learning and growth in AI and software development.
+- who invented ai and programming languages in the first place, enabling all of us to build amazing things on their shoulders.

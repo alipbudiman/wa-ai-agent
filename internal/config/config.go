@@ -1,25 +1,20 @@
 package config
 
 import (
-	"log"
-	"os"
-
 	cfg_struct "github.com/alipbudiman/wa-ai-agent.git/internal/config/struct"
 	"github.com/alipbudiman/wa-ai-agent.git/pkg"
 )
 
 type Config struct {
-	// WhatsApp configuration for WhatsApp client and AI Agent
-	WhatsApp     cfg_struct.WhatsAppConfig
-	AIAgent      cfg_struct.AIAgentConfig
-	ModelRouting cfg_struct.ModelRouting
-	LangSmith    cfg_struct.LangSmithConfig
-
 	// GinServer configuration for Gin HTTP server
 	GinServer cfg_struct.GinServerConfig
 
 	// database configuration
 	Databases cfg_struct.DatabaseConfig
+
+	// WhatsApp configuration for WhatsApp client and AI Agent
+	WhatsApp  cfg_struct.WhatsAppConfig
+	LangSmith cfg_struct.LangSmithConfig
 
 	// application configuration
 	App cfg_struct.AppConfig
@@ -28,59 +23,48 @@ type Config struct {
 func Load() Config {
 	return Config{
 		// WhatsApp Bot & AI Agent configuration
-		WhatsApp: cfg_struct.WhatsAppConfig{
-			Dialect:        env("WA_SQL_DIALECT", "sqlite"),
-			SessionDSN:     env("WA_SESSION_DSN", "file:wa_session.db?_pragma=foreign_keys(1)"),
-			DBLogLevel:     env("WA_DB_LOG_LEVEL", "INFO"),
-			ClientLogLevel: env("WA_CLIENT_LOG_LEVEL", "INFO"),
-			RequireFullSync: boolEnv("WA_REQUIRE_FULL_SYNC", false),
-		},
-		AIAgent: cfg_struct.AIAgentConfig{
-			OpenRouter: cfg_struct.OpenRouterConfig{
-				APIKey: env("OPENROUTER_API_KEY", ""),
-				Model:  env("OPENROUTER_MODEL", "qwen/qwen3.6-plus-preview:free"),
-				URL:    env("OPENROUTER_URL", "https://openrouter.ai/api/v1"),
-			},
-		},
-		ModelRouting: cfg_struct.ModelRouting{
-			ToolsSelection: cfg_struct.AIAgentConfig{
-				OpenRouter: cfg_struct.OpenRouterConfig{
-					APIKey: env("OPENROUTER_API_KEY", ""),
-					Model:  env("OPENROUTER_MODEL", "qwen/qwen3.6-plus-preview:free"),
-					URL:    env("OPENROUTER_URL", "https://openrouter.ai/api/v1"),
-				},
-			},
-		},
-		LangSmith: cfg_struct.LangSmithConfig{
-			APIKey:      env("LANGSMITH_API_KEY", ""),
-			ProjectName: env("LANGSMITH_PROJECT_NAME", "wa_bot_ai_trace"),
-		},
-
 		// Gin Server configuration
 		GinServer: cfg_struct.GinServerConfig{
-			Port:   env("GIN_SERVER_PORT", "8001"),
-			Host:   env("GIN_SERVER_HOST", "localhost"),
-			AppMod: ginModEnv("APP_MODE", cfg_struct.DebugMode), // options: debug, release, test
+			Port:   cfg_struct.Env("GIN_SERVER_PORT", "8001"),
+			Host:   cfg_struct.Env("GIN_SERVER_HOST", "localhost"),
+			AppMod: cfg_struct.GinModEnv("APP_MODE", cfg_struct.DebugMode), // options: debug, release, test
 		},
 
 		// database configuration
 		Databases: cfg_struct.DatabaseConfig{
 			MongoDB: cfg_struct.MongoDBConfig{
-				URI:     env("MONGODB_URI", "mongodb://localhost:27017"),
-				DBAlias: env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				DBName:  env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+				URI:     cfg_struct.Env("MONGODB_URI", "mongodb://localhost:27017"),
+				DBAlias: cfg_struct.Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+				DBName:  cfg_struct.Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+			},
+		},
+
+		WhatsApp: cfg_struct.WhatsAppConfig{
+			Dialect:         cfg_struct.Env("WA_SQL_DIALECT", "sqlite"),
+			SessionDSN:      cfg_struct.Env("WA_SESSION_DSN", "file:wa_session.db?_pragma=foreign_keys(1)"),
+			DBLogLevel:      cfg_struct.Env("WA_DB_LOG_LEVEL", "INFO"),
+			ClientLogLevel:  cfg_struct.Env("WA_CLIENT_LOG_LEVEL", "INFO"),
+			RequireFullSync: cfg_struct.WhatsAppConfig{}.GetRequireFullSyncConfig,
+		},
+
+		LangSmith: cfg_struct.LangSmithConfig{
+			APIKey: func() string {
+				return cfg_struct.LangSmithConfig{}.GetLangSmithConfig().APIKey()
+			},
+			ProjectName: func() string {
+				return cfg_struct.LangSmithConfig{}.GetLangSmithConfig().ProjectName()
 			},
 		},
 
 		// application configuration
 		App: cfg_struct.AppConfig{
 			Manager: cfg_struct.ManagerConfig{
-				AccessCollectionName:       "manager_access",
-				BotConfigCollectionName:    "manager_bot_config",
-				TemplateMsgCollectionName:  "tmp_messages",
-				LogSystemCollectionName:    "log_system",
-				InboxCollectionName:        "inbox",
-				InputHistoryCollectionName: "input_history",
+				BotConfigCollectionName:    cfg_struct.BOT_CONFIG_COLLECTION_NAME,
+				AccessCollectionName:       cfg_struct.ACCESS_COLLECTION_NAME,
+				TemplateMsgCollectionName:  cfg_struct.TEMPLATE_MSG_COLLECTION_NAME,
+				LogSystemCollectionName:    cfg_struct.LOG_SYSTEM_COLLECTION_NAME,
+				InboxCollectionName:        cfg_struct.INBOX_COLLECTION_NAME,
+				InputHistoryCollectionName: cfg_struct.INPUT_HISTORY_COLLECTION_NAME,
 			},
 			Dynamic: cfg_struct.DynamicManagerConfig{
 				RandID: func() string {
@@ -89,29 +73,4 @@ func Load() Config {
 			},
 		},
 	}
-}
-
-func boolEnv(key string, defaultVal bool) bool {
-	valStr := env(key, "")
-	if valStr == "" {
-		return defaultVal
-	}
-	return valStr == "true" || valStr == "1"
-}
-
-func env(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-
-	return fallback
-}
-
-func ginModEnv(key string, fallback cfg_struct.GinMod) cfg_struct.GinMod {
-	if value := os.Getenv(key); value != "" {
-		return cfg_struct.GinMod(value)
-	}
-
-	log.Printf("Environment variable %s not set, using default: %s", key, fallback)
-	return fallback
 }

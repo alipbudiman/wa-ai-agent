@@ -13,6 +13,7 @@ var (
 	ErrInboxSetupNotFound        = fmt.Errorf("inbox setup not found")
 	ErrFailedToStoreInboxMessage = fmt.Errorf("failed to store inbox message")
 	ErrInboxMessageNotFound      = fmt.Errorf("inbox message not found")
+	ErrFailedToAddProviders      = fmt.Errorf("failed to add providers")
 	EmptyJID                     = types.JID{}
 )
 
@@ -27,4 +28,9 @@ type AccessInfo struct {
 type InboxSetupInfo struct {
 	JID       types.JID `bson:"jid"`
 	Parameter string    `bson:"parameter"`
+}
+
+type ProviderInfo struct {
+	ConfigName string `bson:"config_name"`
+	Providers  string `bson:"providers"`
 }

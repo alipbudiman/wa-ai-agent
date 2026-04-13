@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from pydantic import BaseModel
+
+from backend.infrastructure.database.database import MongoDB
+from config.ai_models import AIModelConfigManager
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_FILE = BASE_DIR / '.env'
@@ -11,28 +15,106 @@ if ENV_FILE.exists():
 else:
     load_dotenv()
 
-class Config:
-    # OpenRouter API Key
-    OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+class ProviderConfig(BaseModel):
+    config_name: str = "providers"  # MongoDB document identifier
+    providers: str  # Comma-separated string of enabled providers, e.g. "ollama,openrouter"    
+
+class TavilyConfig(BaseModel):
+    config_name: str = "tavily"  # MongoDB document identifier
+    api_key: str
+
+class LangSmithConfig(BaseModel):
+    config_name: str = "langsmith"  # MongoDB document identifier
+    api_key: str
+    project_name: str
+
+class GinServerConfig(BaseModel):
+    config_name: str = "gin_server"  # MongoDB document identifier
+    port: str = '8001'
+    host: str = 'localhost'
+
+class Config(AIModelConfigManager):
+    def __init__(self):
+        super().__init__()
+        self.list_providers = ["ollama", "openrouter", "nvidia" ,"anthropic"]  # Supported AI model providers
+        self.__init_all()
+        
+    def __init_all(self):
+        """Eagerly initialize all configurations to ensure they exist in the database with default values if not already set. This simplifies access patterns for the rest of the application, as it can assume these configurations are always present."""
+        self.get_provider_config()
+        self.get_tavily_config()
+        self.get_langsmith_config()
+        self.get_gin_server_config()
+        self.get_openrouter_config()
+        self.get_ollama_config()
+        self.get_nvidia_config()
+        self.get_anthropic_config()
     
-    # Tavily API Key
-    TAVILY_API_KEY = os.getenv('TAVILY_API_KEY', '')
+    def get_provider_config(self):
+        """Fetch provider configuration from MongoDB, with fallback to default if not present. The providers field is a comma-separated string of enabled providers."""
+        config = self.collection.find_one({"config_name": "providers"})
+        if config is None:
+            config = ProviderConfig(
+                config_name="providers",
+                providers="ollama,openrouter"  # default enabled providers
+            ).model_dump()
+            self.collection.insert_one(config)
+        return ProviderConfig(
+            config_name=config.get("config_name", "providers"),
+            providers=config.get("providers", "ollama,openrouter")  # default to ollama and openrouter if not set
+        )
+
+    def get_tavily_config(self) -> TavilyConfig:
+        """Fetch Tavily configuration from MongoDB, with fallback to default if not present."""
+        config = self.collection.find_one({"config_name": "tavily"})
+        if config is None:
+            config = TavilyConfig(
+                config_name="tavily",
+                api_key=''
+            ).model_dump()
+            self.collection.insert_one(config)
+        return TavilyConfig(
+            config_name=config.get("config_name", "tavily"),
+            api_key=config.get("api_key", "")
+        )
     
-    # Model configuration
-    OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'minimax-m2.7:cloud')
-    OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openrouter/free')
+    def get_langsmith_config(self) -> LangSmithConfig:
+        """Fetch LangSmith configuration from MongoDB, with fallback to default if not present."""
+        config = self.collection.find_one({"config_name": "langsmith"})
+        if config is None:
+            config = LangSmithConfig(
+                config_name="langsmith",
+                api_key='',
+                project_name='wa_bot_ai_trace'
+            ).model_dump()
+            self.collection.insert_one(config)
+        return LangSmithConfig(
+            config_name=config.get("config_name", "langsmith"),
+            api_key=config.get("api_key", ""),
+            project_name=config.get("project_name", "wa_bot_ai_trace")
+        )
     
-    # LangSmith configuration
-    LANGSMITH_API_KEY= os.getenv('LANGSMITH_API_KEY', '')
-    LANGSMITH_PROJECT_NAME = os.getenv('LANGSMITH_PROJECT_NAME', 'wa_bot_ai_trace')
-    
-    GIN_SERVER_PORT = os.getenv('GIN_SERVER_PORT', '8001')
-    GIN_SERVER_HOST = os.getenv('GIN_SERVER_HOST', 'localhost')
-    
-    # Anthropic API configuration
-    ANTHROPIC_BASE_URL = os.getenv('ANTHROPIC_BASE_URL', 'http://localhost:11434')
-    ANTHROPIC_AUTH_TOKEN = os.getenv('ANTHROPIC_AUTH_TOKEN', 'ollama')
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+    def get_gin_server_config(self):
+        """Fetch Gin server configuration from MongoDB, with fallback to default if not present."""
+        env_host = (os.getenv("GIN_SERVER_HOST") or "").strip()
+        env_port = (os.getenv("GIN_SERVER_PORT") or "").strip()
+        default_host = env_host or "localhost"
+        default_port = env_port or "8001"
+
+        config = self.collection.find_one({"config_name": "gin_server"})
+        if config is None:
+            config = GinServerConfig(
+                config_name="gin_server",
+                port=default_port,
+                host=default_host
+            ).model_dump()
+            self.collection.insert_one(config)
+
+        return GinServerConfig(
+            config_name=config.get("config_name", "gin_server"),
+            port=(str(config.get("port", "")).strip() or default_port),
+            host=(str(config.get("host", "")).strip() or default_host)
+        )
     
 
     # Other configurations can be added here as needed

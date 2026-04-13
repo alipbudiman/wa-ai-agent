@@ -52,4 +52,5 @@ type ChatCompleter interface {
 	ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, user_id string, is_system bool, log_level LogLevel) (string, error)
 	GetLangSmithRuns(ctx context.Context) ([]LangSmithRunReport, error)
 	GetLangSmithSelectRun(ctx context.Context, runID string) (*LangSmithLogReport, error)
+	GetAIDataStatus(ctx context.Context) (*AIDataStatus, error)
 }

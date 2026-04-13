@@ -39,4 +39,6 @@ type Manager interface {
 	StoreInboxMessage(message InboxMessage) error
 	GetUnreadInboxMessages(jid types.JID) ([]string, error)
 	MarkInboxMessageAsRead(msg_id string) error
+	SetSelectedAIProvider(providerName string) error
+	GetSelectedAIProvider() (string, error)
 }

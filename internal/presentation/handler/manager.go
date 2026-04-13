@@ -27,9 +27,15 @@ func GetLangSmithSelectRun(ctx context.Context, chatCompleter ports.ChatComplete
 	return chatCompleter.GetLangSmithSelectRun(ctx, runID)
 }
 
+// TODO: will implemented for GUI
+func GetAIDataStatus(ctx context.Context, chatCompleter ports.ChatCompleter) (*ports.AIDataStatus, error) {
+	return chatCompleter.GetAIDataStatus(ctx)
+}
+
 func GetInboxAddress(manager ports.Manager) (types.JID, error) {
 	return manager.GetInboxAddress()
 }
+
 
 func SetInboxAddress(manager ports.Manager, number string) error {
 	return manager.SetInboxAddress(number)
@@ -61,4 +67,14 @@ func GetUnreadInboxMessages(manager ports.Manager, jid types.JID) ([]string, err
 
 func MarkInboxMessageAsRead(manager ports.Manager, msg_id string) error {
 	return manager.MarkInboxMessageAsRead(msg_id)
+}
+
+// TODO: GUI - add this function into get provider via GUI
+func GetSelectedAIProvider(manager ports.Manager) (string, error) {
+	return manager.GetSelectedAIProvider()
+}
+
+// TODO: GUI - add this function into set provider via GUI
+func SetSelectedAIProvider(manager ports.Manager, providerName string) error {
+	return manager.SetSelectedAIProvider(providerName)
 }

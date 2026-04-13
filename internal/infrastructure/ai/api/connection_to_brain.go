@@ -53,8 +53,9 @@ type chatAgentResponse struct {
 
 type LangSmithRunReport = ports.LangSmithRunReport
 type LangSmithLogReport = ports.LangSmithLogReport
+type AIDataStatus = ports.AIDataStatus
 
-func NewAIAgent(_ string, baseURL string) (*BrainAPI, error) {
+func NewAIAgent(baseURL string) (*BrainAPI, error) {
 	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if normalizedBaseURL == "" {
 		normalizedBaseURL = defaultBrainBaseURL
@@ -253,4 +254,15 @@ func (o *BrainAPI) GetLangSmithSelectRun(ctx context.Context, runID string) (*La
 	}
 
 	return &runDetail, nil
+}
+
+func (o *BrainAPI) GetAIDataStatus(ctx context.Context) (*AIDataStatus, error) {
+	endpoint := o.resolveAPIv1Endpoint("/ai-data/providers")
+
+	var status AIDataStatus
+	if err := o.doGETJSON(ctx, endpoint, &status); err != nil {
+		return nil, fmt.Errorf("get ai data status: %w", err)
+	}
+
+	return &status, nil
 }

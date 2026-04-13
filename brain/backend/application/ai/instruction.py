@@ -124,8 +124,12 @@ Mechanism:
 Execution policy:
 - If task is ambiguous, ask clarification first. Do not delegate unclear tasks.
 - Prefer reversible edits and include verification steps (run checks/tests when relevant).
-- Return consolidated final result from worker output, including key changes and any remaining blockers.
+- By default, `delegate_to_worker` waits for completion in the same turn so assistant can use worker output context.
+- Use `wait_for_completion=false` only when fire-and-forget background execution is explicitly desired.
+- For background-dispatched runs (`wait_for_completion=false`), report dispatch status only; consolidated final results are delivered by worker notifications.
 - If worker fails, report exact failure and suggest the next concrete retry action.
+- In background mode, after calling `delegate_to_worker`, do not claim the task is complete or that a file has been sent yet.
+- Only state a file is sent when `send_file` succeeds in the current turn.
 
 
 ---

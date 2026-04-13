@@ -24,7 +24,7 @@ from config.config import Config
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph import MessagesState
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, RemoveMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, RemoveMessage, ToolMessage
 
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langchain_core.messages import trim_messages
@@ -38,14 +38,16 @@ class State(MessagesState):
     sender: str
 
 class ChatAgentUseCase:
-    ASSISTANT_CONTEXT_MAX_TOKENS = 32000
-    SUMMARIZE_TRIGGER_TOKENS = 40000
-    SUMMARIZE_MIN_MESSAGES = 20
-    SUMMARIZE_KEEP_RECENT_MESSAGES = 20
-    SUMMARIZE_SOURCE_MAX_TOKENS = 40000
+    ASSISTANT_CONTEXT_MAX_TOKENS = 8000
+    DIRECT_CHAT_CONTEXT_MAX_TOKENS = 2048
+    SUMMARIZE_TRIGGER_TOKENS = 12000
+    SUMMARIZE_MIN_MESSAGES = 12
+    SUMMARIZE_KEEP_RECENT_MESSAGES = 12
+    SUMMARIZE_SOURCE_MAX_TOKENS = 12000
 
     def __init__(self):
         self.llm = AI()
+        self.config = Config()
         self.websearch_tool = WebSearchTool()
         self.time_tool = TimeTool()
         self.parse_tool = ParseTool()
@@ -76,7 +78,6 @@ class ChatAgentUseCase:
         # static tools that do not require state access can be initialized once and reused across turns/users; dynamic tools that require state access (e.g. sender) must be generated per turn in __get_tools
         self.__static_tools = [
             self.instruction.capability_description,
-            self.websearch_tool.websearch_tool(),
             self.time_tool.current_time,
             self.parse_tool.parse_phone_number_tool(),
             self.wa_integration_tool.get_user_information,
@@ -84,6 +85,7 @@ class ChatAgentUseCase:
             self.filex_tool.compress,
             self.filex_tool.delete_file_dir,
         ]
+        
         self._llm_cache: dict[str, any] = {}
         self._tool_node_cache: dict[str, ToolNode] = {}
         self._human_interrup_chche: dict[str, str] = {} # user number -> interruption message
@@ -470,6 +472,88 @@ class ChatAgentUseCase:
         }
         return normalized
 
+    @staticmethod
+    def __looks_like_textual_tool_call(text: str) -> bool:
+        normalized = (text or "").strip().upper()
+        return "[TOOL_CALL]" in normalized and "[/TOOL_CALL]" in normalized
+
+    def __extract_textual_tool_calls(self, text: str) -> list[dict]:
+        """
+        Parse textual tool-call markup emitted by non-native tool-call models.
+
+        Example format:
+        [TOOL_CALL]
+        {tool => "simple_exec", args => {"command": "ls"}}
+        [/TOOL_CALL]
+        """
+        source = (text or "").strip()
+        if not self.__looks_like_textual_tool_call(source):
+            return []
+
+        blocks = re.findall(r"\[TOOL_CALL\](.*?)\[/TOOL_CALL\]", source, flags=re.IGNORECASE | re.DOTALL)
+        parsed_calls: list[dict] = []
+
+        for block in blocks:
+            tool_match = re.search(r"tool\s*=>\s*[\"']?([a-zA-Z0-9_.:-]+)", block, flags=re.IGNORECASE)
+            if not tool_match:
+                continue
+
+            tool_name = tool_match.group(1).strip()
+            args: dict[str, str] = {}
+
+            # Extract common quoted key/value pairs first.
+            for key in ("command", "file_path", "format", "base_name", "task", "work_dir"):
+                value_match = re.search(
+                    rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"',
+                    block,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+                if value_match:
+                    args[key] = value_match.group(1)
+
+            # Fallback attempt: convert pseudo-map syntax into JSON-like dict.
+            if not args:
+                args_match = re.search(r"args\s*=>\s*\{(.*)\}", block, flags=re.IGNORECASE | re.DOTALL)
+                if args_match:
+                    raw_args = args_match.group(1)
+                    raw_args = re.sub(r"--[a-zA-Z0-9_-]+--", "", raw_args)
+                    json_like = "{" + raw_args + "}"
+                    json_like = json_like.replace("=>", ":")
+                    try:
+                        maybe_args = json.loads(json_like)
+                        if isinstance(maybe_args, dict):
+                            args = maybe_args
+                    except json.JSONDecodeError:
+                        args = {}
+
+            parsed_calls.append(
+                {
+                    "name": tool_name,
+                    "args": args,
+                    "id": f"toolcall-{uuid.uuid4().hex[:12]}",
+                    "type": "tool_call",
+                }
+            )
+
+        return parsed_calls
+
+    def __coerce_textual_tool_response(self, response: any):
+        """Convert textual [TOOL_CALL] responses into structured tool calls."""
+        if not isinstance(response, AIMessage):
+            return response
+
+        native_calls = getattr(response, "tool_calls", None) or []
+        if native_calls:
+            return response
+
+        text_content = self.__content_to_text(response.content)
+        parsed_calls = self.__extract_textual_tool_calls(text_content)
+        if not parsed_calls:
+            return response
+
+        logger.warning("Assistant returned textual tool-call markup; coercing to structured tool call.")
+        return AIMessage(content="", tool_calls=parsed_calls)
+
     def __latest_ai_tool_calls(self, state: State) -> list[dict]:
         """Get normalized tool calls from the most recent AI message."""
         for message in reversed(state.get("messages", [])):
@@ -506,7 +590,7 @@ class ChatAgentUseCase:
             return False, ""
 
         if tool_name in self._sensitive_tools:
-            return True, "Sensitive action requires explicit confirmation."
+            return True, "sensitive_action"
 
         decision_rule = self._need_decide.get(tool_name)
         if not decision_rule:
@@ -515,7 +599,7 @@ class ChatAgentUseCase:
         args_text = json.dumps(self.__coerce_tool_args(tool_call.get("args")), ensure_ascii=False).lower()
         markers = [str(marker).lower() for marker in decision_rule.get("sensitive", [])]
         if any(marker and marker in args_text for marker in markers):
-            return True, "Potentially risky command pattern detected."
+            return True, "risky_command"
 
         return False, ""
 
@@ -545,6 +629,9 @@ class ChatAgentUseCase:
             "ga jadi",
             "gak jadi",
             "nggak jadi",
+            "tolak",
+            "reject",
+            "deny",
         )
         if any(marker in normalized for marker in reject_markers):
             return "reject"
@@ -559,11 +646,22 @@ class ChatAgentUseCase:
             "confirm",
             "konfirmasi",
             "proceed",
+            "continue",
+            "lanjutkan",
         )
         if any(marker in normalized for marker in approve_markers):
             return "approve"
 
         return "unknown"
+
+    def __human_feedback_reason_label(self, reason: str) -> str:
+        if reason == "sensitive_action":
+            return "This action is sensitive and requires explicit approval."
+
+        if reason == "risky_command":
+            return "Potentially risky/destructive command pattern detected."
+
+        return reason or "Confirmation is required."
 
     def __human_feedback_action_label(self, tool_call: dict) -> str:
         """Build user-friendly action text for confirmation prompts."""
@@ -582,16 +680,16 @@ class ChatAgentUseCase:
 
     def __build_human_feedback_message(self, flagged_calls: list[tuple[dict, str]]) -> str:
         """Create a deterministic confirmation message for sensitive actions."""
-        lines = [
-            "Saya butuh konfirmasi sebelum menjalankan aksi sensitif ini:",
-        ]
+        lines = ["Before I run this, please confirm the following action:"]
 
         for index, (tool_call, reason) in enumerate(flagged_calls, start=1):
             lines.append(f"{index}. {self.__human_feedback_action_label(tool_call)}")
             if reason:
-                lines.append(f"   Reason: {reason}")
+                reason_label = self.__human_feedback_reason_label(reason)
+                lines.append(f"   Why confirmation is required: {reason_label}")
 
-        lines.append("Balas 'lanjut' untuk menyetujui, atau 'batal' untuk membatalkan.")
+        lines.append("Should I continue?")
+        lines.append("Reply with: continue (approve) or cancel (reject).")
         return "\n".join(lines)
 
     @staticmethod
@@ -619,13 +717,44 @@ class ChatAgentUseCase:
         )
         return any(marker in normalized for marker in status_markers)
 
-    def __assistant_context(self, state: State) -> list:
+    @staticmethod
+    def __is_simple_acknowledgement(text: str) -> bool:
+        """Fast-path common short acknowledgements to direct chat."""
+        normalized = " ".join((text or "").strip().lower().split())
+        if not normalized:
+            return False
+
+        # Keep this strict to avoid hijacking actionable intents.
+        if len(normalized) > 24:
+            return False
+
+        acknowledge_texts = {
+            "ok",
+            "oke",
+            "okay",
+            "good",
+            "nice",
+            "siap",
+            "sip",
+            "mantap",
+            "noted",
+            "thanks",
+            "thank you",
+            "makasih",
+            "terima kasih",
+        }
+        return normalized in acknowledge_texts
+
+    def __assistant_context(self, state: State, max_tokens: int | None = None) -> list:
         """
         Return a trimmed message window for the tool-capable assistant node.
 
         Limiting context size reduces token usage while keeping recent dialogue
         available for tool reasoning.
         """
+        if max_tokens is None:
+            max_tokens = self.ASSISTANT_CONTEXT_MAX_TOKENS
+
         messages = []
         for message in state.get("messages", []):
             if not isinstance(message, AIMessage):
@@ -640,7 +769,7 @@ class ChatAgentUseCase:
 
         trimmed_messages = trim_messages(
             messages,
-            max_tokens=self.ASSISTANT_CONTEXT_MAX_TOKENS,
+            max_tokens=max_tokens,
             strategy="last",
             token_counter=self.__token_counter,
             allow_partial=False,
@@ -680,7 +809,8 @@ class ChatAgentUseCase:
         Some Ollama backends can fail when invoked with only system messages,
         which can happen after aggressive context trimming.
         """
-        assistant_messages = self.__assistant_context(state)
+        max_tokens = self.ASSISTANT_CONTEXT_MAX_TOKENS if use_tools else self.DIRECT_CHAT_CONTEXT_MAX_TOKENS
+        assistant_messages = self.__assistant_context(state, max_tokens=max_tokens)
 
         if not self.__has_non_system_message(assistant_messages):
             fallback_message = self.__latest_non_system_message(state)
@@ -727,7 +857,7 @@ class ChatAgentUseCase:
         return fallback.strip()
     
     # Graph state routing (early filtering)
-    def __route_query(self, state: State, max_latest_user_messages: int = 5) -> str:
+    def __route_query(self, state: State, max_latest_user_messages: int = 1) -> str:
         """
         Classify the next node at graph start.
 
@@ -740,6 +870,7 @@ class ChatAgentUseCase:
             confirm_sensitive_tools, or cancel_sensitive_tools.
         """
         sender = state.get("sender", "")
+        latest_user_message = self.__latest_user_text(state, max_messages=1).strip()
         recent_user_messages = self.__latest_user_text(state, max_messages=max_latest_user_messages).strip()
 
         if self._pending_sensitive_tool_calls.get(sender):
@@ -752,6 +883,9 @@ class ChatAgentUseCase:
             return "human_feedback"
 
         if not recent_user_messages:
+            return "direct_chat"
+
+        if self.__is_simple_acknowledgement(latest_user_message):
             return "direct_chat"
 
         if self.__requires_context_route(recent_user_messages):
@@ -798,16 +932,18 @@ class ChatAgentUseCase:
         Keeping this setup isolated avoids side effects in other methods and
         makes startup behavior predictable across local and production runs.
         """
-        if Config.LANGSMITH_API_KEY:
-            os.environ['LANGSMITH_API_KEY'] = Config.LANGSMITH_API_KEY
+        langsmith_key = self.config.get_langsmith_config().api_key
+        if langsmith_key:
+            os.environ['LANGSMITH_API_KEY'] = langsmith_key
             os.environ['LANGSMITH_TRACING'] = 'true'
-            os.environ["LANGSMITH_PROJECT"] = Config.LANGSMITH_PROJECT_NAME
-    
+            os.environ["LANGSMITH_PROJECT"] = self.config.get_langsmith_config().project_name or "default"
+
     def __get_tools(self, state: State = "") -> list:
         sender = state.get("sender", "")
         
         return self.__static_tools + [
             # dynamic tool that needs access to state (sender) must be generated here
+            self.websearch_tool.websearch_tool(sender=sender),
             self.db_access_tool.get_current_pending_message(sender=sender),
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
@@ -844,10 +980,11 @@ class ChatAgentUseCase:
 
         if not self.__has_non_system_message(payload):
             logger.warning("Assistant payload is system-only for %s; returning safe fallback response.", sender)
-            return {"messages": [AIMessage(content="Maaf, konteks percakapan kosong. Tolong kirim ulang pesan Anda.")]}
+            return {"messages": [AIMessage(content="Sorry, conversation context is empty. Please resend your message.")]}
 
         try:
             response = llm_with_tools.invoke(payload)
+            response = self.__coerce_textual_tool_response(response)
         except Exception as err:
             if err.__class__.__name__ != "ResponseError":
                 raise
@@ -859,6 +996,7 @@ class ChatAgentUseCase:
             )
             retry_llm = self.__llm(reasoning=True).bind_tools(self.__get_tools(state))
             response = retry_llm.invoke(payload)
+            response = self.__coerce_textual_tool_response(response)
 
         return {"messages": [response]}
 
@@ -877,13 +1015,11 @@ class ChatAgentUseCase:
         else:
             build_msg += "\n- Tools are NOT available for this turn. Solve using reasoning and context only."
 
-        capability_description = self.instruction.capability_description()
-        if capability_description:
-            build_msg += "\n\nCAPABILITY REFERENCE:\n" + capability_description
-
-        command_reference = (self.instruction.chatbot_commands or "").strip()
-        if command_reference:
-            build_msg += "\n\nCHATBOT COMMAND REFERENCE:\n" + command_reference
+        if use_tools:
+            capability_description = self.instruction.capability_description()
+            if capability_description:
+                build_msg += "\n\nCAPABILITY REFERENCE:\n" + capability_description
+            build_msg += "\n\nCOMMANDS: Use /help for command list."
 
         sys_msg = SystemMessage(content=build_msg)
         return sys_msg
@@ -910,7 +1046,9 @@ class ChatAgentUseCase:
             self._human_interrup_chche.pop(sender, None)
             return {
                 "messages": [
-                    AIMessage(content="Tidak ada aksi sensitif yang menunggu konfirmasi.")
+                    AIMessage(
+                        content="There is no sensitive action waiting for confirmation."
+                    )
                 ]
             }
 
@@ -927,7 +1065,9 @@ class ChatAgentUseCase:
         if not pending_calls:
             return {
                 "messages": [
-                    AIMessage(content="Tidak ada aksi sensitif yang menunggu konfirmasi.")
+                    AIMessage(
+                        content="There is no sensitive action waiting for confirmation."
+                    )
                 ]
             }
 
@@ -939,7 +1079,9 @@ class ChatAgentUseCase:
         if not normalized_calls:
             return {
                 "messages": [
-                    AIMessage(content="Konfirmasi diterima, tetapi aksi sensitif tidak valid.")
+                    AIMessage(
+                        content="Confirmation received, but the sensitive action is invalid."
+                    )
                 ]
             }
 
@@ -952,7 +1094,7 @@ class ChatAgentUseCase:
         self._human_interrup_chche.pop(sender, None)
         return {
             "messages": [
-                AIMessage(content="Baik, aksi sensitif dibatalkan.")
+                AIMessage(content="Okay, sensitive action canceled.")
             ]
         }
 
@@ -1057,8 +1199,34 @@ class ChatAgentUseCase:
                 break
 
         current_turn_messages = messages[latest_human_index + 1:] if latest_human_index >= 0 else messages
+
+        # delegate_to_worker may run in blocking or background mode.
+        # If background dispatch text is present, return it directly to avoid
+        # post-tool LLM paraphrases that can overclaim completion.
+        delegate_tool_fallback = ""
+        for tool_message in reversed(current_turn_messages):
+            if not isinstance(tool_message, ToolMessage):
+                continue
+
+            tool_name = str(getattr(tool_message, "name", "") or "").strip().lower()
+            if tool_name != "delegate_to_worker":
+                continue
+
+            tool_text = self.__content_to_text(getattr(tool_message, "content", ""))
+            if not tool_text:
+                continue
+
+            if "dispatched in the background" in tool_text.lower():
+                return tool_text
+
+            # Keep as fallback only when assistant has no final message.
+            delegate_tool_fallback = tool_text
+            break
+
         ai_messages = [message for message in current_turn_messages if isinstance(message, AIMessage)]
         if not ai_messages:
+            if delegate_tool_fallback:
+                return delegate_tool_fallback
             return ''
 
         for ai_message in reversed(ai_messages):
@@ -1066,6 +1234,8 @@ class ChatAgentUseCase:
             if isinstance(content, str):
                 text = content.strip()
                 if self.__is_internal_system_log_text(text):
+                    continue
+                if self.__looks_like_textual_tool_call(text):
                     continue
                 if text:
                     return text
@@ -1086,6 +1256,8 @@ class ChatAgentUseCase:
                 text = '\n'.join(text_parts).strip()
                 if self.__is_internal_system_log_text(text):
                     continue
+                if self.__looks_like_textual_tool_call(text):
+                    continue
                 if text:
                     return text
                 continue
@@ -1093,8 +1265,13 @@ class ChatAgentUseCase:
             text = str(content).strip()
             if self.__is_internal_system_log_text(text):
                 continue
+            if self.__looks_like_textual_tool_call(text):
+                continue
             if text and text != '[]':
                 return text
+
+        if delegate_tool_fallback:
+            return delegate_tool_fallback
 
         return ''
     
@@ -1178,7 +1355,7 @@ class ChatAgentUseCase:
                 results = self.__content_to_text(getattr(fallback_response, "content", ""))
 
                 if not results:
-                    results = "Maaf, saya belum bisa menghasilkan jawaban. Coba kirim ulang pertanyaannya."
+                    results = "Sorry, I couldn't generate a response yet. Please resend your question."
                     self.db_access_tool.db_set_log_system(LogSystemEntry(
                         timestamp=self.time_tool.current_time(),
                         level=LevelSystem.ERROR.value,
@@ -1209,6 +1386,6 @@ class ChatAgentUseCase:
                 )
             self.wa_integration_tool.request_send_message(
                 number,
-                "😭 Maaf, terjadi gangguan internal saat memproses pesan. Silakan coba lagi.",
+                f"😭 Sorry, an internal error occurred while processing your message. Please try again\nDetail: {str(e)}",
                 number,
             )

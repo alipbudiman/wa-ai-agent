@@ -320,3 +320,22 @@ func (m *Manager) MarkInboxMessageAsRead(msg_id string) error {
 
 	return nil
 }
+
+func (m *Manager) GetSelectedAIProvider() (string, error) {
+	filter := bson.M{"config_name": "providers"}
+	var providerInfo ProviderInfo
+	err := databases.MongoManager.FindOne(
+		m.config.Databases.MongoDB.DBAlias,
+		m.config.Databases.MongoDB.DBName,
+		m.config.App.Manager.BotConfigCollectionName,
+		filter,
+		&providerInfo,
+	)
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			return "", nil
+		}
+		return "", err
+	}
+	return providerInfo.Providers, nil
+}

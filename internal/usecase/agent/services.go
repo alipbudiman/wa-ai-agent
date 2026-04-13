@@ -28,23 +28,25 @@ var (
 )
 
 type Agents struct {
-	waclient  ports.WhatsAppClient
-	responder ports.AgentResponder
-	manager   ports.Manager
-	config    config.Config
-	chatLocks sync.Map
+	waclient      ports.WhatsAppClient
+	responder     ports.AgentResponder
+	manager       ports.Manager
+	config        config.Config
+	chatCompleter ports.ChatCompleter
+	chatLocks     sync.Map
 }
 
-func NewAgents(waclient ports.WhatsAppClient, responder ports.AgentResponder, manager ports.Manager, config config.Config) (*Agents, error) {
+func NewAgents(waclient ports.WhatsAppClient, responder ports.AgentResponder, manager ports.Manager, chatCompleter ports.ChatCompleter, config config.Config) (*Agents, error) {
 	if responder == nil {
 		return nil, errors.New("agent responder is required")
 	}
 
 	return &Agents{
-		waclient:  waclient,
-		responder: responder,
-		manager:   manager,
-		config:    config,
+		waclient:      waclient,
+		responder:     responder,
+		manager:       manager,
+		chatCompleter: chatCompleter,
+		config:        config,
 	}, nil
 }
 
@@ -91,7 +93,7 @@ func (r *Agents) handleMessage(v *events.Message) (string, error) {
 func (n *Agents) langSmithMessage() string {
 	strips := "_"
 	base_message := "See Process on https://smith.langchain.com/ ."
-	base_message += fmt.Sprintf(" (LangSmith > Tracing > %s)", n.config.LangSmith.ProjectName)
+	base_message += fmt.Sprintf(" (LangSmith > Tracing > %s)", n.config.LangSmith.ProjectName())
 	return strips + base_message + strips
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -90,6 +91,12 @@ func registeredCommands() CommandCollection {
 			Command:     "/file-unsend",
 			Function:    (*Agents).UnsendPendingFileFromAgent,
 		},
+		SelectProvider: CommandInfo{
+			Name:        "Select AI Provider",
+			Description: "Selects the AI provider to use for responses.",
+			Command:     "/select-providers",
+			Function:    (*Agents).SelectAIProvider,
+		},
 	}
 }
 
@@ -102,6 +109,7 @@ func (c CommandCollection) All() []CommandInfo {
 		c.UnsendPendingMessage,
 		c.SendPendingFile,
 		c.UnsendPendingFile,
+		c.SelectProvider,
 	}
 }
 
@@ -250,7 +258,7 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 	if contact_info.FullName != "" {
 		name = contact_info.FullName
 	}
-	
+
 	err = h.manager.StoreInboxMessage(ports.InboxMessage{
 		JID:        new_jid,
 		MsgID:      pkg.GenerateUID(),
@@ -625,5 +633,77 @@ func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
 			log.Printf("failed to send reply message: %v", err)
 			return
 		}
+	}
+}
+
+func (h *Agents) SelectAIProvider(args CommandArgs) {
+	cmd := registeredCommands().SelectProvider
+	selected := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+	list_providers, err := h.chatCompleter.GetAIDataStatus(context.Background())
+	if err != nil {
+		list_providers = &ports.AIDataStatus{
+			ListAIProviders: []string{"ollama", "openrouter", "nvidia", "anthropic"},
+		}
+		log.Printf("failed to get AI providers: %v", err)
+	}
+
+	provider_selected, err := h.manager.GetSelectedAIProvider()
+	if err != nil {
+		provider_selected = "not set"
+	}
+
+	if selected == "" {
+		var builder strings.Builder
+		if provider_selected != "not set" {
+			fmt.Fprintf(&builder, "Current selected AI provider: '%s'.\nSelect a new provider from the list below:\n", provider_selected)
+		} else {
+			builder.WriteString("Please select an AI provider from the following list:\n")
+		}
+		for _, provider := range list_providers.ListAIProviders {
+			builder.WriteString("- " + provider + "\n")
+		}
+		builder.WriteString("\nUsage: " + cmd.Command + " [provider_name]")
+		builder.WriteString("\nExample: " + cmd.Command + " " + list_providers.ListAIProviders[0])
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(builder.String()),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if !slices.Contains(list_providers.ListAIProviders, selected) {
+		var builder strings.Builder
+		builder.WriteString(fmt.Sprintf("Invalid provider '%s'. Please select from the following list:\n", selected))
+		for _, provider := range list_providers.ListAIProviders {
+			builder.WriteString("- " + provider + "\n")
+		}
+		builder.WriteString("\nUsage: " + cmd.Command + " [provider_name]")
+		builder.WriteString("\nExample: " + cmd.Command + " " + list_providers.ListAIProviders[0])
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(builder.String()),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	pkg.Marker(pkg.IoColorYellow, selected)
+	err = h.manager.SetSelectedAIProvider(selected)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to set selected AI provider: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(fmt.Sprintf("Selected AI provider has been set to '%s'.", selected)),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+		return
 	}
 }

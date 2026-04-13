@@ -78,17 +78,17 @@ class WorkerTaskInput(BaseModel):
             "The agent should check existence before creating, and never create outside 'playground/' unless explicitly requested."
         ),
     )
+    wait_for_completion: bool = Field(
+        default=True,
+        description=(
+            "When true (default), wait for worker completion and return worker output in the same turn so "
+            "the assistant can continue reasoning with that context. Set false for fire-and-forget background mode."
+        ),
+    )
 
 class WebSearchInput(BaseModel):
     query: str = Field(
         description="Web search question or keyword from the current chat context. Required."
-    )
-    number: str = Field(
-        description=(
-            "Identifier of the current human/user actively chatting with the agent. "
-            "Required. This is the active chat user ID/JID used for progress notifications, "
-            "not a target contact lookup field."
-        )
     )
     topic: str = Field(
         default="general",

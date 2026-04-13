@@ -6,6 +6,7 @@ from config.config import Config
 class ReportUseCase:
     def __init__(self):
         self.langsmith_client = Client()  # Initialize LangSmith client for tracing
+        self.config = Config()
 
     def _collect_tool_names(self, run) -> set[str]:
         """Collect tool run names recursively from a LangSmith run tree."""
@@ -25,8 +26,9 @@ class ReportUseCase:
         return collected
     
     def get_list(self) -> list[LangSmithRunReport]:
+        langsmith_project_name = self.config.get_langsmith_config().project_name or "default"
         runs = self.langsmith_client.list_runs(
-            project_name=Config.LANGSMITH_PROJECT_NAME,
+            project_name=langsmith_project_name,
             execution_order=1,
             limit=10
         )

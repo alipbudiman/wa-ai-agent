@@ -80,7 +80,7 @@ class DBAcess:
             ) 
         )
         
-    # TODO: implement in GUI for see historical log system
+    # TODO: GUI - implement in GUI for see historical log system
     def db_set_log_system(self, log_entry: LogSystemEntry) -> bool:
         """Insert a log entry into the log system collection. This is currently used for recording pending messages and their status changes."""
         collection = self.db.get_collection(self.log_system_collection)

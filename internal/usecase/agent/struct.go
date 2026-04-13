@@ -36,6 +36,7 @@ type CommandCollection struct {
 	UnsendPendingMessage CommandInfo
 	SendPendingFile      CommandInfo
 	UnsendPendingFile    CommandInfo
+	SelectProvider       CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

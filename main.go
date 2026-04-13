@@ -56,10 +56,7 @@ func botRunner(cfg *config.Config) (*eventsrunner.Runner, error) {
 		brainBaseURL = "http://127.0.0.1:8000"
 	}
 
-	ai_agents, err := cloud_api_providers.NewAIAgent(
-		cfg.AIAgent.OpenRouter.APIKey,
-		brainBaseURL,
-	)
+	ai_agents, err := cloud_api_providers.NewAIAgent(brainBaseURL)
 	if err != nil {
 		log.Printf("OpenRouter disabled: %v", err)
 		return nil, err

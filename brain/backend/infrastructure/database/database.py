@@ -7,6 +7,7 @@ class MongoDB:
     # database configuration
     MONGO_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
     MONGO_DB_NAME = os.getenv('MONGODB_DB_NAME', 'wa_ai_agent_db')
+    MONGO_MANAGER_BOT_CONFIG_COLLECTION = 'manager_bot_config'
     MONGO_TEMPLATE_MSG_COLLECTION = 'tmp_messages'
     MONGO_LOG_SYSTEM_COLLECTION = 'log_system'
     MONGO_USER_INPUT_HISTORY_COLLECTION = 'input_history'

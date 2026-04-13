@@ -1,5 +1,6 @@
 from backend.application.ai.tools.models import SendFileInput
 import logging
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -23,11 +24,19 @@ logger = logging.getLogger("uvicorn.error")
 
 class WhatsAppIntegration:
     def __init__(self):
+        self.config = Config()
         self.ver = "v1"
-        self.url = f"http://{Config.GIN_SERVER_HOST}:{Config.GIN_SERVER_PORT}/{self.ver}/"
         self.parse_tool = ParseTool()
         self.db = MongoDB()
         self.tmp_msg_collection = self.db.MONGO_TEMPLATE_MSG_COLLECTION
+        
+    def __get_self_url(self) -> str:
+        """Get the base URL for the Gin server, which serves as the integration point for WhatsApp interactions."""
+        gin_config = self.config.get_gin_server_config()
+        # Runtime env should override persisted DB config, especially in Docker.
+        host = (os.getenv("GIN_SERVER_HOST") or "").strip() or gin_config.host
+        port = (os.getenv("GIN_SERVER_PORT") or "").strip() or gin_config.port
+        return f"http://{host}:{port}/{self.ver}/"
 
     # Send Message Tools
     def _safe_normalize_identifier(self, identifier: str) -> str:
@@ -121,7 +130,7 @@ class WhatsAppIntegration:
                 )
             
             response = requests.post(
-                f"{self.url}message/send",
+                f"{self.__get_self_url()}message/send",
                 json={"number": number, "message": message},
                 timeout=120,
             )
@@ -262,7 +271,7 @@ class WhatsAppIntegration:
                 )
             
             response = requests.post(
-                f"{self.url}message/send-file",
+                f"{self.__get_self_url()}message/send-file",
                 json={"number": number, "file_path": file_path, "caption": caption},
                 timeout=120,
             )
@@ -325,7 +334,7 @@ class WhatsAppIntegration:
         
         try:
             response = requests.post(
-                f"{self.url}message/broadcast",
+                f"{self.__get_self_url()}message/broadcast",
                 json={"message": message},
                 timeout=120,
             )
@@ -388,7 +397,7 @@ class WhatsAppIntegration:
             )
 
         try:
-            response = requests.get(f"{self.url}contact/info/{quote(number, safe='')}", timeout=120)
+            response = requests.get(f"{self.__get_self_url()}contact/info/{quote(number, safe='')}", timeout=120)
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict):

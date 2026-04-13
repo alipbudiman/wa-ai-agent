@@ -51,9 +51,9 @@ class TerminalX:
 
     def __init__(self):
         self.wa_bot = WhatsAppIntegration()
+        self.config = Config()
         self._repo_root = Path(BASE_DIR).resolve()
         self._playground_root = (self._repo_root / "playground").resolve()
-        self._ossync()
 
     def __normalize_workspace_hint(self, value: str | None) -> str:
         if not value:
@@ -216,25 +216,52 @@ class TerminalX:
             "\n- For file-creation tasks, verify saved files with `LS` and `Read` before finishing."
             "\n- Do NOT route trivial one-shot shell commands here; use `simple_exec` for those."
             "\n- Default `work_dir` to `playground/` if not specified."
+            "\n- Default `wait_for_completion` is true so worker output is returned in the same turn."
+            "\n- Set `wait_for_completion=false` only for background dispatch mode."
             "\n\nArgs:"
             "\n- task: Goal-oriented task description for the worker agent."
             "\n- work_dir: Optional workspace path. If omitted, ask location first;"
             " if user delegates decision, create/use project folder inside `playground/` only."
+            "\n- wait_for_completion: Optional. true waits for worker completion in this turn; false dispatches background worker."
             "\n\nReturns:"
-            "\n- str: Consolidated worker output after agent execution completes."
+            "\n- str: Worker completion output (blocking mode) or dispatch status (background mode)."
         )
 
     def _ossync(self):
         """Sync important env vars from Config to os.environ for subprocesses and agent SDK."""
-        if Config.ANTHROPIC_BASE_URL:
-            os.environ['ANTHROPIC_BASE_URL'] = Config.ANTHROPIC_BASE_URL
 
-        if Config.ANTHROPIC_AUTH_TOKEN:
-            os.environ['ANTHROPIC_AUTH_TOKEN'] = Config.ANTHROPIC_AUTH_TOKEN
+        anthropic_config = self.config.get_anthropic_config()
+        ollama_config = self.config.get_ollama_config()
+        ollama_base_url = (ollama_config.base_url or '').strip()
 
-        if Config.ANTHROPIC_API_KEY:
-            os.environ['ANTHROPIC_API_KEY'] = Config.ANTHROPIC_API_KEY
-    
+        # Always clear first so stale env values cannot force Anthropic unexpectedly.
+        anthropic_env = {
+            'ANTHROPIC_BASE_URL': (anthropic_config.base_url or '').strip(),
+            'ANTHROPIC_AUTH_TOKEN': (anthropic_config.auth_token or '').strip(),
+            'ANTHROPIC_API_KEY': (anthropic_config.api_key or '').strip(),
+            'ANTHROPIC_MODEL': (anthropic_config.model or '').strip(),
+        }
+        for key in anthropic_env:
+            os.environ.pop(key, None)
+
+        for key, value in anthropic_env.items():
+            if value:
+                os.environ[key] = value
+
+        # Claude Agent SDK still expects Anthropic-compatible env vars even when
+        # the model/backend is served by Ollama.
+        anthropic_model = anthropic_env.get('ANTHROPIC_MODEL', '')
+        if not anthropic_model and ollama_base_url:
+            os.environ['ANTHROPIC_BASE_URL'] = ollama_base_url
+            compat_token = os.getenv('ANTHROPIC_AUTH_TOKEN') or os.getenv('ANTHROPIC_API_KEY') or 'ollama'
+            os.environ['ANTHROPIC_AUTH_TOKEN'] = compat_token
+            os.environ['ANTHROPIC_API_KEY'] = compat_token
+
+        if ollama_base_url:
+            os.environ['OLLAMA_BASE_URL'] = ollama_base_url
+        else:
+            os.environ.pop('OLLAMA_BASE_URL', None)
+
     WORKER_TIMEOUT_SECONDS = 600  # 10-minute hard cap for worker execution
     PROGRESS_SEND_TIMEOUT = 10   # 10-second cap for each progress notification
 
@@ -291,8 +318,37 @@ class TerminalX:
             raise ValueError("[ERROR] No task provided for worker execution.")
         if not work_dir.strip():
             raise ValueError("[ERROR] No workspace provided for worker execution.")
-        if Config.OLLAMA_MODEL is None or Config.OLLAMA_MODEL.strip() == "":
-            raise ValueError("[ERROR] Ollama model not configured. Please set OLLAMA_MODEL in environment variables.")
+
+        anthropic_config = self.config.get_anthropic_config()
+        anthropic_model = (anthropic_config.model or '').strip()
+        anthropic_api_key = (anthropic_config.api_key or '').strip()
+        anthropic_auth_token = (anthropic_config.auth_token or '').strip()
+
+        if anthropic_model:
+            if not anthropic_api_key and not anthropic_auth_token:
+                raise ValueError(
+                    "Anthropic model is configured but no credential is set. "
+                    "Set API key/auth token with `/anthropic-config` or clear the Anthropic model to use Ollama."
+                )
+            worker_model = anthropic_model
+            logger.info("Using Anthropic model for worker: %s", worker_model)
+        else:
+            ollama_config = self.config.get_ollama_config()
+            if ollama_config.model is None or ollama_config.model.strip() == "":
+                raise ValueError("[ERROR] Ollama model not configured. Please set the Ollama model in the configuration. if you in bot, type `/ollama-config` FOR for using claude-agent-sdk using ollama or `/anthropic-config` for using Anthropic's API.")
+
+            ollama_base_url = (ollama_config.base_url or '').strip()
+            if not ollama_base_url:
+                raise ValueError(
+                    "[ERROR] Ollama base URL is not configured. "
+                    "Please set it with `/ollama-config` before using Ollama fallback."
+                )
+            os.environ['OLLAMA_BASE_URL'] = ollama_base_url
+            
+            worker_model = ollama_config.model
+            
+            logger.info("Using Ollama model for worker: %s", ollama_config.model)
+        
         safe_work_dir = self.__safe_worker_dir(task=prompt, work_dir=work_dir)
 
         async def _auto_approve_tool(tool_name, tool_input, context):
@@ -310,14 +366,15 @@ class TerminalX:
             }
 
         options = ClaudeAgentOptions(
-            model=Config.OLLAMA_MODEL,
+            model=worker_model,
             allowed_tools=["Bash", "Read", "Write", "Edit", "Glob", "LS", "TodoWrite", "TodoRead"],
             permission_mode="default",
             can_use_tool=_auto_approve_tool,
             cwd=safe_work_dir,
+            stderr=lambda line: logger.warning("[Worker:%s][SDK stderr] %s", sender, line),
         )
 
-        logger.info("[Worker:%s] Starting SDK query (model=%s, cwd=%s, permission=default+auto_approve)", sender, Config.OLLAMA_MODEL, safe_work_dir)
+        logger.info("[Worker:%s] Starting SDK query (model=%s, cwd=%s, permission=default+auto_approve)", sender, worker_model, safe_work_dir)
 
         output_parts: list[str] = []
         step = 0
@@ -420,11 +477,14 @@ class TerminalX:
         """
         delegate_to_worker is used for more complex tasks that may require multi-step reasoning,
         file access, or persistent working-directory context.
-        
-        The worker runs as a background task and reports results directly via WhatsApp.
-        The main agent continues immediately without waiting.
+
+        By default, this tool waits for worker completion so the assistant can
+        continue reasoning with worker results in the same turn.
+
+        Background mode is still available via wait_for_completion=False.
         """
-        async def _worker_async(task: str, work_dir: str = "playground/") -> str:
+        self._ossync()  # Ensure env vars are set for subprocesses and agent SDK
+        async def _worker_async(task: str, work_dir: str = "playground/", wait_for_completion: bool = True) -> str:
             safe_work_dir = self.__safe_worker_dir(task=task, work_dir=work_dir)
             worker_prompt = self.__build_worker_prompt(task=task, work_dir=safe_work_dir)
 
@@ -442,22 +502,35 @@ class TerminalX:
             except (asyncio.TimeoutError, Exception) as exc:
                 logger.warning("Worker start notification failed for %s: %s", sender, exc)
 
-            # Launch worker as background task — do NOT await it
-            asyncio.create_task(
-                self._worker_background(sender, task, safe_work_dir, worker_prompt),
-                name=f"worker-{sender}-{task[:30]}",
-            )
+            if not wait_for_completion:
+                # Launch worker as background task — do NOT await it
+                asyncio.create_task(
+                    self._worker_background(sender, task, safe_work_dir, worker_prompt),
+                    name=f"worker-{sender}-{task[:30]}",
+                )
 
-            # Return immediately so main agent can continue
+                # Return immediately so main agent can continue
+                return (
+                    f"Worker task has been dispatched in the background.\n"
+                    f"Task: {task}\n"
+                    f"Workspace: {safe_work_dir}\n"
+                    f"The worker will send progress updates and final results directly via WhatsApp. "
+                    f"You may continue with other tasks."
+                )
+
+            result = await self._async_agent(sender, worker_prompt, work_dir=safe_work_dir)
+            normalized_result = (result or "").strip()
+            if not normalized_result:
+                normalized_result = "(No output produced)"
+
             return (
-                f"Worker task has been dispatched in the background.\n"
+                f"Worker task completed in this turn.\n"
                 f"Task: {task}\n"
                 f"Workspace: {safe_work_dir}\n"
-                f"The worker will send progress updates and final results directly via WhatsApp. "
-                f"You may continue with other tasks."
+                f"Result:\n{normalized_result}"
             )
 
-        def _worker_sync(task: str, work_dir: str = "playground/") -> str:
+        def _worker_sync(task: str, work_dir: str = "playground/", wait_for_completion: bool = True) -> str:
             """Sync fallback — should not be called when coroutine is available."""
             return "[ERROR] Worker must be called asynchronously. Check tool node configuration."
 

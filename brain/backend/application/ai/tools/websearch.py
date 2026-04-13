@@ -19,6 +19,7 @@ class WebSearchTool:
     def __init__(self):
         """Initialize the web search tool with an LLM client and WhatsApp integration helper."""
         self.wa_bot = WhatsAppIntegration()
+        self.config = Config()
     
     def _extract_tavily_results(self, raw_results) -> list:
         """Normalize Tavily output into a list of result dictionaries."""
@@ -49,14 +50,13 @@ class WebSearchTool:
 
         return normalized
     
-    def websearch(self, query: str, number: str, topic: str = 'general', max_results: int = 5) -> str:
+    def websearch(self, sender: str, query: str, topic: str = 'general', max_results: int = 5) -> str:
         """
         Search the web via Tavily and return an LLM-generated summary.
 
-        This tool is designed for the active conversation flow. The `number`
-        argument must be the identifier of the current human/user who is
-        chatting with the agent (the same active chat session), because the
-        method sends a progress notification to that user before running search.
+        This tool is designed for the active conversation flow. The `sender`
+        argument is INTERNAL and injected by the system runtime (graph state),
+        so the model/user should not provide it manually.
 
         Workflow:
         1. Validate Tavily API key availability.
@@ -67,7 +67,7 @@ class WebSearchTool:
 
         Args:
             query: The search question/keywords from user intent.
-            number: Active chat user ID/JID currently talking to the agent,
+            sender: Internal active chat user ID/JID injected by runtime,
                 used for progress notification.
             topic: Tavily topic selection (`general` by default; `news` for
                 recent events).
@@ -79,16 +79,16 @@ class WebSearchTool:
         Raises:
             ValueError: If `TAVILY_API_KEY` is not configured.
         """
-
-        if Config.TAVILY_API_KEY:
-            os.environ['TAVILY_API_KEY'] = Config.TAVILY_API_KEY
+        tavily_apikey = self.config.get_tavily_config().api_key
+        if tavily_apikey:
+            os.environ['TAVILY_API_KEY'] = tavily_apikey
 
         if not os.getenv('TAVILY_API_KEY'):
             raise ValueError('TAVILY_API_KEY is not set. Add it to your environment file.')
         
         time_humanize_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        self.wa_bot.request_send_message(number, f"🌐Performing web search for query: '{query}' with topic: '{topic}'", number)
+        self.wa_bot.request_send_message(sender, f"🌐Performing web search for query: '{query}' with topic: '{topic}'", sender)
         
         tavily_search_tool = TavilySearch(
             max_results=max_results,
@@ -116,20 +116,23 @@ class WebSearchTool:
         res = f"Here are the search results for the query: '{query}':\n\n" + "\n".join(summerized_results)
         
         source_str = " , ".join(source_urls)
-        self.wa_bot.request_send_message(number, f"👌 Web search completed. Sources: {source_str}", number)
+        self.wa_bot.request_send_message(sender, f"👌 Web search completed. Sources: {source_str}", sender)
         
         return res
 
-    def websearch_tool(self):
+    def websearch_tool(self, sender: str):
         """
         Return the StructuredTool wrapper for LLM tool-calling.
 
-        The wrapper adds explicit tool description and argument schema so the
-        model understands that `number` is the current human/user chat
-        identifier (active conversation context), not an arbitrary target.
+        The wrapper injects `sender` from system state and only exposes
+        user-facing args (`query`, `topic`) to tool-calling.
         """
+        
+        def _web(query: str, topic: str = 'general') -> str:
+            return self.websearch(sender=sender, query=query, topic=topic)
+        
         return StructuredTool.from_function(
-            func=self.websearch,
+            func=_web,
             name="websearch",
             description=(
                 "Use this tool when the available information is insufficient or outdated. If the current"
@@ -138,9 +141,8 @@ class WebSearchTool:
                 "comprehensive response."
                 "Search the web and summarize findings for the current chat request. "
                 "Use this when the user needs external/up-to-date information. "
-                "`number` must be the identifier of the current human/user who is "
-                "actively chatting with the agent, so progress updates are sent to "
-                "the same session."
+                "`sender` is injected by system runtime from active chat context; "
+                "do not ask user for sender and do not include sender in tool args."
             ),
             args_schema=WebSearchInput,
         )

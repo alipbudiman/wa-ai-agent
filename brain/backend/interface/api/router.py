@@ -9,6 +9,8 @@ from backend.application.health import CheckHealthUseCase
 from backend.application.report import ReportUseCase
 from backend.domain.report import LangSmithLogReport, LangSmithRunReport
 from backend.application.ai.tools.models import LevelSystem
+from backend.application.aidata import CheckAIData
+from backend.domain.aidata import AIDataStatus
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -44,6 +46,18 @@ def create_health_router(usecase: CheckHealthUseCase) -> APIRouter:
             status=result.status,
             service=result.service,
             timestamp=result.timestamp,
+        )
+
+    return router
+
+def create_ai_data_router(usecase: CheckAIData) -> APIRouter:
+    router = APIRouter(prefix="/aidata", tags=["aidata"])
+
+    @router.get("/providers", response_model=AIDataStatus)
+    def check_ai_data() -> AIDataStatus:
+        result = usecase.execute()
+        return AIDataStatus(
+            list_ai_providers=result.list_ai_providers,
         )
 
     return router
