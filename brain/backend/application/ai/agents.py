@@ -1278,7 +1278,19 @@ class ChatAgentUseCase:
 
         return ''
     
-    async def ChatAgent(self, messages: str, number: str, is_system=False, level: LevelSystem=LevelSystem.INFO, image: str=None):
+    async def ChatAgent(
+        self, 
+            messages: str,
+            number: str,
+            is_system=False,
+            level: LevelSystem=LevelSystem.INFO, 
+            group_id: str=None,
+            image: str=None, 
+        ) -> None:
+        
+        send_to = number
+        if group_id:
+            send_to = group_id
         try:
             """
             Execute one chat turn through the compiled graph for one user thread.
@@ -1306,7 +1318,7 @@ class ChatAgentUseCase:
                 level = LevelSystem.INFO
 
             input_messages = []
-            config = {"configurable": {"thread_id": number}}
+            config = {"configurable": {"thread_id": group_id if group_id else number}}
             contact_info = self.wa_integration_tool.get_user_information(number)
             
             
@@ -1341,7 +1353,7 @@ class ChatAgentUseCase:
 
             result = await self.react_graph.ainvoke({
                 "messages": input_messages,
-                "sender": number
+                "sender": group_id if group_id else number,
             }, config=config)
             
             results_message = self.__extract_ai_content(result.get('messages', []))
@@ -1376,11 +1388,11 @@ class ChatAgentUseCase:
                     ))
                 
                 self.db_access_tool.delete_agent_input_log(task_id)
-                self.wa_integration_tool.request_send_message(number, results, number)
+                self.wa_integration_tool.request_send_message(number, results, send_to)
                 return
             
             self.db_access_tool.delete_agent_input_log(task_id)
-            self.wa_integration_tool.request_send_message(number, results_message, number)
+            self.wa_integration_tool.request_send_message(number, results_message, send_to)
         except Exception as e:
             logger.exception("ChatAgent failed for %s", number)
             self.db_access_tool.delete_agent_input_log(task_id)
@@ -1400,5 +1412,5 @@ class ChatAgentUseCase:
             self.wa_integration_tool.request_send_message(
                 number,
                 f"😭 Sorry, an internal error occurred while processing your message. Please try again\nDetail: {str(e)}",
-                number,
+                send_to,
             )

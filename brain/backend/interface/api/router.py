@@ -25,7 +25,7 @@ class ChatAgentRequest(BaseModel):
     message: str
     is_system: bool
     level: str = "INFO"
-
+    group_id: str | None = None
 class ChatAgentResponse(BaseModel):
     status: str
     response: str
@@ -108,6 +108,8 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
             number=request.number,
             is_system=request.is_system,
             level=level,
+            group_id=request.group_id if request.group_id else None,
+            # image=request.image if request.image else None,
         )
         return ChatAgentResponse(
             status="success",

@@ -33,11 +33,14 @@ type CommandCollection struct {
 	Help                 CommandInfo
 	PingPong             CommandInfo
 	About                CommandInfo
+	GetPendingMessage    CommandInfo
 	SendPendingMessage   CommandInfo
 	UnsendPendingMessage CommandInfo
+	GetPendingFile       CommandInfo
 	SendPendingFile      CommandInfo
 	UnsendPendingFile    CommandInfo
 	SelectProvider       CommandInfo
+	GetContactInfo       CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

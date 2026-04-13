@@ -36,7 +36,7 @@ class ParseTool:
     def _normalize_numeric_user(self, value: str, original: str, apply_local_prefix: bool = True) -> str:
         user_part = value.strip()
         if not user_part:
-            raise ValueError(f"Unable to parse phone number: {original}")
+            raise ValueError(f"Unable to parse phone number [user_part]: {original}")
 
         if ":" in user_part:
             user_part = user_part.split(":", 1)[0]
@@ -52,7 +52,7 @@ class ParseTool:
 
         digits = re.sub(r"\D", "", user_part)
         if not digits:
-            raise ValueError(f"Unable to parse phone number: {original}")
+            raise ValueError(f"Unable to parse phone number [digits]: {original}")
 
         if apply_local_prefix:
             if digits.startswith("0"):
@@ -61,7 +61,7 @@ class ParseTool:
                 digits = f"62{digits}"
 
         if len(digits) < 8 or len(digits) > 20:
-            raise ValueError(f"Unable to parse phone number: {original}")
+            raise ValueError(f"Unable to parse phone number [length]: {original}")
 
         return digits
 
@@ -106,7 +106,7 @@ class ParseTool:
             user_part, server = raw.split("@", 1)
             server = server.strip().lower()
             if not server:
-                raise ValueError(f"Unable to parse phone number: {number}")
+                raise ValueError(f"Unable to parse phone number [server]: {number}")
             if server not in KNOWN_WHATSAPP_SERVERS:
                 raise ValueError(f"Unsupported WhatsApp server in identifier: {server}")
 
@@ -120,7 +120,7 @@ class ParseTool:
             else:
                 normalized_user = re.sub(r"\s+", "", user_part)
                 if not normalized_user:
-                    raise ValueError(f"Unable to parse phone number: {number}")
+                    raise ValueError(f"Unable to parse phone number [user_part]: {number}")
 
             return f"{normalized_user}@{server}"
 

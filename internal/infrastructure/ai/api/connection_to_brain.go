@@ -44,6 +44,7 @@ type chatAgentRequest struct {
 	Message  string         `json:"message"`
 	IsSystem bool           `json:"is_system"`
 	LogLevel ports.LogLevel `json:"log_level"`
+	GroupID  string         `json:"group_id,omitempty"`
 }
 
 type chatAgentResponse struct {
@@ -72,6 +73,21 @@ func NewAIAgent(baseURL string) (*BrainAPI, error) {
 func isTimeoutError(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func extractGroupID(messages []openai.ChatCompletionMessage) string {
+	for _, message := range messages {
+		candidate := strings.TrimSpace(message.Role)
+		if candidate == "" {
+			continue
+		}
+
+		if strings.HasSuffix(strings.ToLower(candidate), "@g.us") {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 func (o *BrainAPI) resolveAPIv1Endpoint(path string) string {
@@ -165,6 +181,7 @@ func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCom
 		Number:   number,
 		IsSystem: is_system,
 		LogLevel: log_level,
+		GroupID:  extractGroupID(messages),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)

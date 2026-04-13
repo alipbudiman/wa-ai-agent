@@ -55,6 +55,9 @@ class WhatsAppIntegration:
             return normalized.split("@", 1)[0]
         return normalized
 
+    def _is_group_jid(self, identifier: str) -> bool:
+        return (identifier or "").strip().lower().endswith("@g.us")
+
     def request_send_message(self, number: str, message: str, sender: str | None = None) -> SendMessageResponse:
         """send message to a whatsapp user"""
         
@@ -79,27 +82,41 @@ class WhatsAppIntegration:
                 status="failed",
                 on_hold=False,
             )
-
-        try:
-            number = self.parse_tool.parse_phone_number(number)
-        except ValueError as e:
-            return SendMessageResponse(
-                success=False,
-                message=str(e),
-                data=None,
-                status="failed",
-                on_hold=False,
-            )
-            
-        sender_identifier = self._safe_normalize_identifier(sender) if sender else number
-        sender_key = self._identity_key(sender_identifier)
-        target_key = self._identity_key(number)
         
-        # Determine if confirmation is needed.
-        # If the target is the same as the requester (sender), skip on-hold.
+        is_from_group = self._is_group_jid(sender)
+        target_number = sender if is_from_group else number
         is_different_recipient = False
-        if sender_key and target_key:
-            is_different_recipient = (target_key != sender_key)
+
+        logger.debug(
+            "request_send_message sender=%s number=%s target=%s is_from_group=%s",
+            sender,
+            number,
+            target_number,
+            is_from_group,
+        )
+        
+        if not is_from_group:
+            try:
+                number = self.parse_tool.parse_phone_number(number)
+            except ValueError as e:
+                return SendMessageResponse(
+                    success=False,
+                    message=str(e),
+                    data=None,
+                    status="failed",
+                    on_hold=False,
+                )
+            target_number = number
+                
+            sender_identifier = self._safe_normalize_identifier(sender) if sender else number
+            sender_key = self._identity_key(sender_identifier)
+            target_key = self._identity_key(number)
+            
+            # Determine if confirmation is needed.
+            # If the target is the same as the requester (sender), skip on-hold.
+            is_different_recipient = False
+            if sender_key and target_key:
+                is_different_recipient = (target_key != sender_key)
         
         try:
             if is_different_recipient:
@@ -112,9 +129,13 @@ class WhatsAppIntegration:
 
                 # Notify the original sender that one outbound message is pending confirmation.
                 if sender:
+                    build_msg = "💬 [1] one message on-hold, waiting for confirmation"
+                    build_msg += f"\nsend to {number}"
+                    build_msg += "\ntype `/send` to confirm sending or `/unsend` to cancel"
+                    build_msg += "\n*Message Preview:*```\n" + message + "\n```"
                     notification_result = self.request_send_message(
                         sender,
-                        "💬 [1] one message on-hold, waiting for confirmation",
+                        build_msg,
                         sender,
                     )
                     if not notification_result.success:
@@ -136,7 +157,7 @@ class WhatsAppIntegration:
             
             response = requests.post(
                 f"{self.__get_self_url()}message/send",
-                json={"number": number, "message": message},
+                json={"number": target_number, "message": message},
                 timeout=120,
             )
             response.raise_for_status()
@@ -150,6 +171,15 @@ class WhatsAppIntegration:
             return SendMessageResponse(**payload)
         except (requests.exceptions.RequestException, ValueError) as e:
             logger.error("Error sending message to '%s': %s", number, e)
+            return SendMessageResponse(
+                success=False,
+                message=f"failed to send message: {e}",
+                data=None,
+                status="failed",
+                on_hold=False,
+            )
+        except Exception as e:
+            logger.exception("Unexpected error sending message to '%s'", target_number)
             return SendMessageResponse(
                 success=False,
                 message=f"failed to send message: {e}",
@@ -258,9 +288,13 @@ class WhatsAppIntegration:
 
                 # Notify the original sender that one outbound message is pending confirmation.
                 if sender:
+                    build_msg = "💬 [1] one file on-hold, waiting for confirmation"
+                    build_msg += f"\nsend to {number}"
+                    build_msg += "\ntype `/file-send` to confirm sending or `/file-unsend` to cancel"
+                    build_msg += "\n*File Path:*```\n" + file_path + "\n```"
                     notification_result = self.request_send_message(
                         sender,
-                        "💬 [1] one file on-hold, waiting for confirmation",
+                        build_msg,
                         sender,
                     )
                     if not notification_result.success:
@@ -321,7 +355,8 @@ class WhatsAppIntegration:
                 "Only call this tool when recipient, file_path, and optional caption are available. "
                 "If the recipient is missing, ask for it first. Do not pass name-only aliases as recipient. "
                 "If recipient is not numeric/JID and no confirmed number exists in context, ask for phone number/JID first. "
-                "Interpret tool response status: status='on_hold' means file has NOT been sent "
+                "Interpret tool response status: status='on_hold' means file on hold status and waiting for user confirmation to send."
+                "On-hold status only applies when the recipient is different from the sender,"
                 "and needs explicit user confirmation via /file-send or /file-unsend."
             ),
             args_schema=SendFileInput

@@ -34,6 +34,7 @@ func GetContactInfo(waClient ports.WhatsAppClient, number string) (types.Contact
 }
 
 func SendMessage(waClient ports.WhatsAppClient, manager ports.Manager, number string, message string, store bool) error {
+	pkg.Marker(pkg.IoColorCyan, "send request:", number)
 	err := waClient.SendText(context.Background(), number, &waE2E.Message{
 		Conversation: proto.String(message),
 	})

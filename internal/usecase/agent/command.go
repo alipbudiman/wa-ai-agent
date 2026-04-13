@@ -13,6 +13,7 @@ import (
 	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/databases"
 	"github.com/alipbudiman/wa-ai-agent.git/pkg"
 	"github.com/alipbudiman/wa-ai-agent.git/skilldev"
+	"github.com/sashabaranov/go-openai"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"google.golang.org/protobuf/proto"
@@ -67,6 +68,12 @@ func registeredCommands() CommandCollection {
 			Command:     "/about",
 			Function:    (*Agents).About,
 		},
+		GetPendingMessage: CommandInfo{
+			Name:        "Get Pending Message",
+			Description: "Retrieves the current pending on-hold message for review.",
+			Command:     "/message-pending",
+			Function:    (*Agents).GetPendingMessage,
+		},
 		SendPendingMessage: CommandInfo{
 			Name:        "Send Pending Message",
 			Description: "Sends a pending message on hold to the specified number.",
@@ -78,6 +85,12 @@ func registeredCommands() CommandCollection {
 			Description: "Cancels and removes the current pending on-hold message.",
 			Command:     "/unsend",
 			Function:    (*Agents).UnsendPendingMessageFromAgent,
+		},
+		GetPendingFile: CommandInfo{
+			Name:        "Get Pending File",
+			Description: "Retrieves the current pending on-hold file for review.",
+			Command:     "/file-pending",
+			Function:    (*Agents).GetPendingFile,
 		},
 		SendPendingFile: CommandInfo{
 			Name:        "Send Pending File",
@@ -97,6 +110,12 @@ func registeredCommands() CommandCollection {
 			Command:     "/select-providers",
 			Function:    (*Agents).SelectAIProvider,
 		},
+		GetContactInfo: CommandInfo{
+			Name:        "Get Contact Info",
+			Description: "Retrieves information about a specific contact.",
+			Command:     "/contact-info",
+			Function:    (*Agents).GetContactInfo,
+		},
 	}
 }
 
@@ -105,11 +124,14 @@ func (c CommandCollection) All() []CommandInfo {
 		c.Help,
 		c.PingPong,
 		c.About,
+		c.GetPendingMessage,
 		c.SendPendingMessage,
 		c.UnsendPendingMessage,
+		c.GetPendingFile,
 		c.SendPendingFile,
 		c.UnsendPendingFile,
 		c.SelectProvider,
+		c.GetContactInfo,
 	}
 }
 
@@ -168,6 +190,39 @@ func (h *Agents) About(args CommandArgs) {
 
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String(aboutText.String()),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) GetPendingMessage(args CommandArgs) {
+	var pending_msg AgentOnHoldMessage
+	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_message"}
+	err := databases.MongoManager.FindOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		"tmp_messages",
+		filter,
+		&pending_msg,
+	)
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("No pending messages found."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving pending message: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(fmt.Sprintf("Pending message to send to %s:\n\n```\n%s```", pending_msg.PendingNumber, pending_msg.Message)),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
@@ -297,8 +352,12 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
-		fmt.Sprintf("Send Message to %s has been sent.",
-			name),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: fmt.Sprintf("Send Message to %s has been sent.", name),
+			},
+		},
 		true,
 		ports.HISTORY,
 		args.Evt.Info.Sender,
@@ -397,7 +456,12 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
-		fmt.Sprintf("Send message to %s has been canceled.", name),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: fmt.Sprintf("Send message to %s has been canceled.", name),
+			},
+		},
 		true,
 		ports.HISTORY,
 		args.Evt.Info.Sender,
@@ -419,6 +483,39 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 			log.Printf("failed to send reply message: %v", err)
 			return
 		}
+	}
+}
+
+func (h *Agents) GetPendingFile(args CommandArgs) {
+	var pending_file AgentOnHoldFile
+	filter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
+	err := databases.MongoManager.FindOne(
+		h.config.Databases.MongoDB.DBAlias,
+		h.config.Databases.MongoDB.DBName,
+		"tmp_messages",
+		filter,
+		&pending_file,
+	)
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("No pending files found."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving pending file: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(fmt.Sprintf("Pending file to send to %s:\n\nFile: %s\nCaption: %s", pending_file.PendingNumber, pending_file.PendingFile, pending_file.PendingCaption)),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
 	}
 }
 
@@ -477,7 +574,12 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 		return
 	}
 
-	err = h.waclient.SendFile(context.Background(), new_jid.String(), pending_file.PendingFile, pending_file.PendingCaption)
+	caption := pending_file.PendingCaption
+	if caption == "" {
+		caption = "File attached"
+	}
+
+	err = h.waclient.SendFile(context.Background(), new_jid.String(), pending_file.PendingFile, caption)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String(fmt.Sprintf("Failed to send pending file: %v", err)),
@@ -546,8 +648,12 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
-		fmt.Sprintf("Send File to %s has been sent.",
-			name),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: fmt.Sprintf("Send File to %s has been sent.", name),
+			},
+		},
 		true,
 		ports.HISTORY,
 		args.Evt.Info.Sender,
@@ -645,7 +751,12 @@ func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
 
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
-		fmt.Sprintf("Send file to %s has been canceled.", name),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: fmt.Sprintf("Send file to %s has been canceled.", name),
+			},
+		},
 		true,
 		ports.HISTORY,
 		args.Evt.Info.Sender,
@@ -739,5 +850,37 @@ func (h *Agents) SelectAIProvider(args CommandArgs) {
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 		return
+	}
+}
+
+func (h *Agents) GetContactInfo(args CommandArgs) {
+	cmd := registeredCommands().GetContactInfo
+	number := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+	if number == "" {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Please provide a phone number to look up. Usage: " + cmd.Command + " [phone_number]"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+	contact_info, err := h.waclient.GetContact(context.Background(), number)
+	if err != nil {
+		log.Printf("error getting contact info: %v", err)
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Error retrieving contact info: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	infoText := fmt.Sprintf("Contact Info:\nName: %s\nPush Name: %s",
+		contact_info.FullName, contact_info.PushName)
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(infoText),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
 	}
 }

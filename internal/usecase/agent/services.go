@@ -13,6 +13,7 @@ import (
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	ai_providers_api "github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/ai/api"
 	"github.com/alipbudiman/wa-ai-agent.git/pkg"
+	"github.com/sashabaranov/go-openai"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -125,7 +126,12 @@ func (h *Agents) CommandHandler(v *events.Message, text string) bool {
 func (h *Agents) ChatHandler(v *events.Message, text string) {
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
-		text,
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(v),
+				Content: text,
+			},
+		},
 		false,
 		ports.NONE,
 		v.Info.Sender,

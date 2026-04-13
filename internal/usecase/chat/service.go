@@ -28,12 +28,14 @@ func NewService(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter
 	}
 }
 
-func (s *Service) Reply(ctx context.Context, prompt string, is_system bool, log_level ports.LogLevel, jid types.JID) (string, error) {
+func (s *Service) Reply(ctx context.Context, prompt []openai.ChatCompletionMessage, is_system bool, log_level ports.LogLevel, jid types.JID) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
+	for i := range prompt {
+		prompt[i].Content = strings.TrimSpace(prompt[i].Content)
+	}
+	if len(prompt) == 0 || prompt[0].Content == "" {
 		return "", errEmptyPrompt
 	}
 
@@ -41,12 +43,7 @@ func (s *Service) Reply(ctx context.Context, prompt string, is_system bool, log_
 		return "", errEmptyChatCompleter
 	}
 
-	reply, err := s.chatCompleter.ChatCompletion(ctx, []openai.ChatCompletionMessage{
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: prompt,
-		},
-	}, jid.ToNonAD().String(), is_system, log_level)
+	reply, err := s.chatCompleter.ChatCompletion(ctx, prompt, jid.ToNonAD().String(), is_system, log_level)
 	if err != nil {
 		return "", fmt.Errorf("generate ai reply: %w", err)
 	}

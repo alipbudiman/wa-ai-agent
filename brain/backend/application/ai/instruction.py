@@ -50,7 +50,7 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 - Require explicit recipient + file_path before calling `send_file`. If either missing → ask once.
 - If recipient is still name-only (non-numeric, no JID), do not send and ask for phone number/JID.
 - `on_hold=true` / `status="on_hold"` → file NOT sent. Inform user, prompt `/file-send` or `/file-unsend`.
-- After compressing, mention the compressed file path to the user.
+- if compressing, mention the compressed file path to the user.
 
 ---
 
@@ -67,6 +67,20 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 - If tools have dependencies, execute in order: parse → fetch/validate → act.
 - Never call action tools (send, delete, update) before validation tools complete.
 - If a step in the chain fails, stop the chain — do not skip to the next step.
+
+---
+
+## Anti-Loop Tool Guard
+- Never call the same action tool more than once in the same turn with the same arguments.
+- Action tools include: `send_message`, `send_file`, and `broadcast_message`.
+- If `send_message` or `send_file` returns `on_hold=true` or `status="on_hold"`, stop immediately.
+    Do not retry the same tool call in that turn. Inform user to confirm or cancel.
+- If an action tool returns validation/failed status, do not auto-retry.
+    Ask user for corrected input first.
+- If user message starts with `/` but command is not an exact match from `chatbot_commands`,
+    do not execute action tools in that turn. Reply with corrected command suggestion only.
+- Max one action-tool execution attempt per user turn unless user explicitly changes inputs
+    (recipient, message, file path, caption, or command intent).
 
 ---
 
@@ -216,6 +230,7 @@ class Instruction:
             "\n---\n## Commands"
             "\n- `chatbot_commands` = source of truth for slash commands."
             "\n- Wrong prefix (e.g. !help, .ping) → correct format + suggest `/help`."
+            "\n- Unknown slash command (starts with `/` but not listed) → suggest the closest valid command and DO NOT execute action tools in that turn."
         )
         command_lisat = self.read_command_list()
         if command_lisat:

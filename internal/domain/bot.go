@@ -35,7 +35,7 @@ type MessageHandler interface {
 }
 
 type AgentResponder interface {
-	Reply(ctx context.Context, prompt string, is_system bool, log_level LogLevel, jid types.JID) (string, error)
+	Reply(ctx context.Context, prompt []openai.ChatCompletionMessage, is_system bool, log_level LogLevel, jid types.JID) (string, error)
 }
 
 type WhatsAppClient interface {
