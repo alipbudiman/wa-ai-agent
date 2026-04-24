@@ -1,6 +1,8 @@
 import os
-
+import redis
 from pymongo import MongoClient
+from datetime import datetime
+
 
 class MongoDB:
     _instance: MongoClient = None
@@ -31,3 +33,15 @@ class MongoDB:
     @classmethod
     def get_collection(cls, collection_name: str):
         return cls.get_db(cls.MONGO_DB_NAME)[collection_name]
+
+class RedisDB:
+    _instance: redis.Redis = None
+    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+    REDIS_TTL = int(os.getenv('REDIS_TTL', (3600 * 24) * 30))  # Default 30 hari
+    
+    @classmethod
+    def get_client(cls) -> redis.Redis:
+        if cls._instance is None:
+            cls._instance = redis.Redis(host=cls.REDIS_HOST, port=cls.REDIS_PORT, db=0)
+        return cls._instance

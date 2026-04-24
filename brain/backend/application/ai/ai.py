@@ -1,16 +1,24 @@
-from typing import Optional
+from typing import Optional, Any
 
+from langchain.messages import AIMessage
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_openrouter import ChatOpenRouter
 from langchain_ollama import ChatOllama
 from langchain_anthropic import ChatAnthropic
+from langgraph.graph import END, START, StateGraph, MessagesState
 
+from backend.infrastructure.database.database import MongoDB
 from config.config import Config
+
+from langgraph.checkpoint.mongodb import MongoDBSaver
+
 
 class AI:
     def __init__(self, model: Optional[str] = None):
         self.config = Config()
         self.model = model
+        self.mongo_client = MongoDB.get_client()
+        self.checkpointer = None  # Lazily initialized
 
     def LLM(self, temperature: Optional[float] = None, reasoning: bool = True):
         providers = self.config.get_provider_config().providers
@@ -70,3 +78,28 @@ class AI:
                 return llm
             case _:
                 raise ValueError(f"Unsupported provider configuration: {providers}. Please check the 'providers' field in the database. if you in bot, type `/select-providers` to set it.")
+    
+    def InjectAIConversation(self, number: str, messages: str) -> bool:
+        try:
+            # Lazy initialize checkpointer only when needed
+            if self.checkpointer is None:
+                self.checkpointer = MongoDBSaver(self.mongo_client, db_name="agent_memory_db", collection_name="agent_memory_collection")
+            
+            config = {"configurable": {"thread_id": number}}
+
+            
+            builder = StateGraph(MessagesState)
+            builder.add_edge(START, END)
+            graph = builder.compile(checkpointer=self.checkpointer)
+            graph.update_state(                    
+                config,
+                {
+                    "messages": [
+                        AIMessage(content=messages)
+                    ]
+                }
+            )
+            return True
+        except Exception as e:
+            print(f"Error injecting AI conversation: {e}")
+            return False

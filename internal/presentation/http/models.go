@@ -31,6 +31,11 @@ type BroadcastMessageRequest struct {
 	Message string `json:"message" binding:"required"`
 }
 
+type StoreAIMessageRequest struct {
+	Message string `json:"message" binding:"required"`
+	Number  string `json:"number" binding:"required"`
+}
+
 func SuccessHTTPResp(c *gin.Context, statusCode int, message string, data any) {
 	c.JSON(statusCode, SuccessResponse{
 		Success: true,

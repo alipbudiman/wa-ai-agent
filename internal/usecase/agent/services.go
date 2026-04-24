@@ -104,7 +104,7 @@ func (h *Agents) isCommand(text string) bool {
 
 func (h *Agents) CommandHandler(v *events.Message, text string) bool {
 	text = strings.TrimSpace(text)
-	commands := registeredCommands()
+	commands := RegisteredCommands()
 	args := CommandArgs{
 		Text: text,
 		Evt:  v,
@@ -128,8 +128,9 @@ func (h *Agents) ChatHandler(v *events.Message, text string) {
 		context.Background(),
 		[]openai.ChatCompletionMessage{
 			{
-				Role:    h.isFromGroup(v),
-				Content: text,
+				ReasoningContent: h.getReplyMessage(v),
+				Role:             h.isFromGroup(v),
+				Content:          text,
 			},
 		},
 		false,
@@ -163,7 +164,12 @@ func (h *Agents) ChatHandler(v *events.Message, text string) {
 	log.Printf("success process message to ai from %s", v.Info.Chat.String())
 }
 
-func (h *Agents) storeMessageToInbox(v *events.Message, content InboxContent) bool {
+func (h *Agents) wrapNoAccessHandler(v *events.Message, content InboxContent) bool {
+	type Result struct {
+		Value string
+		Err   error
+	}
+
 	resolvedSender := v.Info.Sender.ToNonAD()
 	if !v.Info.SenderAlt.IsEmpty() && v.Info.SenderAlt.Server == types.DefaultUserServer {
 		resolvedSender = v.Info.SenderAlt.ToNonAD()
@@ -183,87 +189,167 @@ func (h *Agents) storeMessageToInbox(v *events.Message, content InboxContent) bo
 	}
 
 	if !isAllowed {
-		if v.Info.Chat.Server == types.BroadcastServer {
-			return false
-		}
-		contact_info, err := h.waclient.GetContact(context.Background(), resolvedSender.String())
-		if err != nil {
-			log.Printf("error getting contact info for sender %s: %v", resolvedSender.String(), err)
-			return false
-		}
+		isStroeIboxSuccess := make(chan Result)
 
-		if !contact_info.Found {
-			return false
-		}
-
-		address, err := h.manager.GetInboxAddress()
-		if err != nil {
-			log.Printf("error getting inbox address: %v", err)
-			return false
-		}
-
-		if address != EmptyJID {
-			contentMsg := "*Message Received Notification*"
-			name := contact_info.PushName
-			if name == "" {
-				name = contact_info.FullName
+		go func() {
+			err := h.storeMessageToInbox(v, content, resolvedSender, senderNumber)
+			if err != nil {
+				log.Printf("error storing message to inbox for user %s: %v", senderNumber, err)
+				isStroeIboxSuccess <- Result{Value: "", Err: err}
+				return
 			}
-			if name != "" {
-				contentMsg += fmt.Sprintf("\nFrom: %s", name)
-			}
-			contentMsg += fmt.Sprintf("\nNumber: %s (%s)", senderNumber, contact_info.FullName)
-			contentMsg += fmt.Sprintf("\nMessage:\n%s", content.String())
+			isStroeIboxSuccess <- Result{Value: "message stored to inbox successfully", Err: nil}
+		}()
 
-			if err := h.waclient.SendText(context.Background(), address.String(), &waE2E.Message{
-				Conversation: proto.String(contentMsg),
-			}); err != nil {
-				log.Printf("error sending text message to inbox address: %v", err)
-			}
+		if h.config.App.AIReply.Enable() {
 
-			if content.IsContact() {
-				time.Sleep(2 * time.Second)
+			isReplyAISuccess := make(chan Result)
 
-				n := content.ContactInfo.N
-				if n == "" {
-					n = content.ContactInfo.FN
+			go func() {
+				err := h.autoReplyAIHandler(v, resolvedSender, content.String())
+				if err != nil {
+					log.Printf("error in auto-reply handler for user %s: %v", senderNumber, err)
+					isReplyAISuccess <- Result{Value: "", Err: err}
+					return
 				}
-				if err := h.waclient.SendContact(context.Background(), address.String(), ports.ContactCard{
-					FullName: n,
-					Number:   content.ContactInfo.WAID,
-				}, &waE2E.ContextInfo{
-					IsForwarded:     proto.Bool(true),
-					ForwardingScore: proto.Uint32(1),
-				},
-				); err != nil {
-					log.Printf("error sending contact message to inbox address: %v", err)
-				}
+				isReplyAISuccess <- Result{Value: "auto-reply process completed", Err: nil}
+			}()
+
+			replyResult := <-isReplyAISuccess
+
+			if replyResult.Err != nil {
+				h.waclient.SendText(context.Background(), v.Info.Chat.String(), &waE2E.Message{
+					Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while processing your request._\nError Details: %s", replyResult.Err.Error())),
+				})
+				log.Printf("failed to process auto-reply for user %s: %v", senderNumber, replyResult.Err)
+			} else {
+				log.Printf("successfully processed auto-reply for user %s", senderNumber)
 			}
 		}
 
-		gen_msg_id := pkg.GenerateUID()
-		err = h.manager.StoreInboxMessage(ports.InboxMessage{
-			JID:        resolvedSender,
-			MsgID:      gen_msg_id,
-			FullName:   contact_info.FullName,
-			PushName:   contact_info.PushName,
-			Number:     senderNumber,
-			Message:    content.String(),
-			FromMe:     v.Info.IsFromMe,
-			ReceivedAt: time.Now().Unix(),
-			Read:       false,
-		})
-		if err != nil {
-			time.Sleep(2 * time.Second)
-			if err := h.waclient.SendText(context.Background(), address.String(), &waE2E.Message{
-				Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while storing your message to inbox._\nError Details: %s", err.Error())),
-			}); err != nil {
-				log.Printf("error sending text message to user: %v", err)
-			}
+		storeResult := <-isStroeIboxSuccess
+
+		if storeResult.Err != nil {
+			log.Printf("failed to store message to inbox for user %s: %v", senderNumber, storeResult.Err)
+		} else {
+			log.Printf("successfully stored message to inbox for user %s", senderNumber)
 		}
+
 		return true
 	}
 
 	return false
+}
+
+func (h *Agents) autoReplyAIHandler(v *events.Message, resolvedSender types.JID, text string) error {
+	if v.Info.Chat.Server == types.GroupServer && !h.config.App.AIGroupInterraction.Enable() {
+		return nil
+	}
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		[]openai.ChatCompletionMessage{
+			{
+				ReasoningContent: h.getReplyMessage(v),
+				Role:             h.isFromGroup(v),
+				Content:          text,
+			},
+		},
+		false,
+		ports.NONE,
+		resolvedSender,
+		RESEARCH_AGENT_ROUTE,
+	)
+	if err != nil {
+		log.Printf("error in auto-reply handler: %v", err)
+		return err
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		log.Printf("success process message to ai from %s", v.Info.Chat.String())
+	}
+	return nil
+}
+
+func (h *Agents) storeMessageToInbox(v *events.Message, content InboxContent, resolvedSender types.JID, senderNumber string) error {
+	if v.Info.Chat.Server == types.GroupServer {
+		return nil
+	}
+
+	contact_info, err := h.waclient.GetContact(context.Background(), resolvedSender.String())
+	if err != nil {
+		log.Printf("error getting contact info for sender %s: %v", resolvedSender.String(), err)
+		return err
+	}
+
+	if !contact_info.Found {
+		return fmt.Errorf("contact info not found for sender %s", resolvedSender.String())
+	}
+
+	address, err := h.manager.GetInboxAddress()
+	if err != nil {
+		log.Printf("error getting inbox address: %v", err)
+		return err
+	}
+
+	if address != EmptyJID {
+		contentMsg := "*Message Received Notification*"
+		name := contact_info.PushName
+		if name == "" {
+			name = contact_info.FullName
+		}
+		if name != "" {
+			contentMsg += fmt.Sprintf("\nFrom: %s", name)
+		}
+		contentMsg += fmt.Sprintf("\nNumber: %s (%s)", senderNumber, contact_info.FullName)
+		contentMsg += fmt.Sprintf("\nMessage:\n%s", content.String())
+
+		if err := h.waclient.SendText(context.Background(), address.String(), &waE2E.Message{
+			Conversation: proto.String(contentMsg),
+		}); err != nil {
+			log.Printf("error sending text message to inbox address: %v", err)
+		}
+
+		if content.IsContact() {
+			time.Sleep(2 * time.Second)
+
+			n := content.ContactInfo.N
+			if n == "" {
+				n = content.ContactInfo.FN
+			}
+			if err := h.waclient.SendContact(context.Background(), address.String(), ports.ContactCard{
+				FullName: n,
+				Number:   content.ContactInfo.WAID,
+			}, &waE2E.ContextInfo{
+				IsForwarded:     proto.Bool(true),
+				ForwardingScore: proto.Uint32(1),
+			},
+			); err != nil {
+				log.Printf("error sending contact message to inbox address: %v", err)
+			}
+		}
+	}
+
+	gen_msg_id := pkg.GenerateUID()
+	err = h.manager.StoreInboxMessage(ports.InboxMessage{
+		JID:        resolvedSender,
+		MsgID:      gen_msg_id,
+		FullName:   contact_info.FullName,
+		PushName:   contact_info.PushName,
+		Number:     senderNumber,
+		Message:    content.String(),
+		FromMe:     v.Info.IsFromMe,
+		ReceivedAt: time.Now().Unix(),
+		Read:       false,
+	})
+	if err != nil {
+		time.Sleep(2 * time.Second)
+		if err := h.waclient.SendText(context.Background(), address.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while storing your message to inbox._\nError Details: %s", err.Error())),
+		}); err != nil {
+			log.Printf("error sending text message to user: %v", err)
+		}
+	}
+	return err
 }
 
 func (h *Agents) HandleMessageEvent(v *events.Message) {
@@ -279,7 +365,7 @@ func (h *Agents) HandleMessageEvent(v *events.Message) {
 			return
 		}
 		if contact_info := h.procContactMessage(v); contact_info != nil {
-			if !h.storeMessageToInbox(v, InboxContent{
+			if !h.wrapNoAccessHandler(v, InboxContent{
 				ContactInfo: *contact_info,
 			}) {
 				h.ChatHandler(v, contactCardStringFormat(contact_info))
@@ -289,8 +375,10 @@ func (h *Agents) HandleMessageEvent(v *events.Message) {
 		}
 
 		if text, err := h.handleMessage(v); err == nil {
-			log.Printf("error handling message event: %v", err)
-			if !h.storeMessageToInbox(v, InboxContent{
+			if err != nil {
+				log.Printf("error handling message event: %v", err)
+			}
+			if !h.wrapNoAccessHandler(v, InboxContent{
 				Message: text,
 			}) {
 				h.procTextMessage(v, text)

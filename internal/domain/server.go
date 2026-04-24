@@ -41,4 +41,5 @@ type Manager interface {
 	MarkInboxMessageAsRead(msg_id string) error
 	SetSelectedAIProvider(providerName string) error
 	GetSelectedAIProvider() (string, error)
+	StoreAIMessageToInbox(message, number string) error
 }

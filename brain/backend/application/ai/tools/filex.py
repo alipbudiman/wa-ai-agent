@@ -4,25 +4,29 @@ import shutil
 import os
 from pathlib import Path
 
-class Filex: 
+class FileX: 
     def __init__(self):
-        self._playground_root = self.__resolve_playground_root()
+        self._playground_root = self.__resolve_folder_root("playground")
+        self._run_subagent_root = self.__resolve_folder_root("playground/runSubagent")
+        self._agent_skills_root = self.__resolve_folder_root(".agents")
+        self._claude_instructions_root = self.__resolve_folder_root(".claude")
 
-    def __resolve_playground_root(self) -> Path:
+    def __resolve_folder_root(self, folder_name: str = "playground") -> Path:
         """Resolve repository playground root for file guard checks."""
         current_file = Path(__file__).resolve()
 
         # Prefer existing playground discovered from cwd first for runtime flexibility.
-        cwd_candidate = (Path.cwd().resolve() / "playground").resolve()
+        cwd_candidate = (Path.cwd().resolve() / folder_name).resolve()
         if cwd_candidate.exists():
             return cwd_candidate
 
         for parent in current_file.parents:
-            candidate = (parent / "playground").resolve()
+            candidate = (parent / folder_name).resolve()
             if candidate.exists():
                 return candidate
 
         # Fallback path when playground is not created yet.
+        print(f"Warning: '{folder_name}' folder not found in any parent directories. Using fallback path: {cwd_candidate}")
         return cwd_candidate
 
     def __normalize_delete_target(self, file_path: str) -> Path:

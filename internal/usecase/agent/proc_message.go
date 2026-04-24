@@ -36,7 +36,7 @@ func normalizeCommandIntentToken(token string) string {
 }
 
 func commandSuggestionByName() map[string]string {
-	commands := registeredCommands()
+	commands := RegisteredCommands()
 	out := make(map[string]string, len(commands.All()))
 	for _, cmd := range commands.All() {
 		commandName := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(cmd.Command)), "/")
@@ -86,7 +86,7 @@ func (h *Agents) procTextMessage(v *events.Message, text string) {
 	log.Printf("Received message from %s: %s", v.Info.Chat.String(), text)
 
 	if h.isCommand(text) {
-		commands := registeredCommands()
+		commands := RegisteredCommands()
 		if h.CommandHandler(v, text) {
 			return
 		}

@@ -32,6 +32,7 @@ class GinServerConfig(BaseModel):
     config_name: str = "gin_server"  # MongoDB document identifier
     port: str = '8001'
     host: str = 'localhost'
+    app_mod: str = 'debug'
 
 class Config(AIModelConfigManager):
     def __init__(self):

@@ -53,4 +53,4 @@ If you wish to run the Brain API independently of the Docker ecosystem (e.g., fo
    uvicorn app:app --reload --host 0.0.0.0 --port 8000
    ```
 
-*Note: The Brain API requires a connection to a MongoDB instance as defined in your `.env` to operate fully.*
+*Note: The Brain API requires connections to MongoDB and Redis instances as defined in your `.env` to operate fully.*

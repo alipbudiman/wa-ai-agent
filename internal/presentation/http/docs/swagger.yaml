@@ -50,7 +50,7 @@ definitions:
         example: true
         type: boolean
     type: object
-host: localhost:8001
+host: localhost:8080
 info:
   contact: {}
   description: Gin HTTP API for WhatsApp bot utilities and integrations.

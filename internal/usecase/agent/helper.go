@@ -67,3 +67,48 @@ func (h *Agents) isFromGroup(v *events.Message) string {
 	}
 	return ""
 }
+
+func (h *Agents) getReplyMessage(v *events.Message) string {
+	if v == nil || v.RawMessage == nil {
+		return ""
+	}
+
+	extended := v.RawMessage.GetExtendedTextMessage()
+	if extended == nil {
+		return ""
+	}
+
+	contextInfo := extended.GetContextInfo()
+	if contextInfo == nil {
+		return ""
+	}
+
+	quoted := contextInfo.GetQuotedMessage()
+	if quoted == nil {
+		return ""
+	}
+
+	if conversation := strings.TrimSpace(quoted.GetConversation()); conversation != "" {
+		return conversation
+	}
+
+	if quotedExtended := quoted.GetExtendedTextMessage(); quotedExtended != nil {
+		if text := strings.TrimSpace(quotedExtended.GetText()); text != "" {
+			return text
+		}
+	}
+
+	if quotedImage := quoted.GetImageMessage(); quotedImage != nil {
+		if caption := strings.TrimSpace(quotedImage.GetCaption()); caption != "" {
+			return caption
+		}
+	}
+
+	if quotedVideo := quoted.GetVideoMessage(); quotedVideo != nil {
+		if caption := strings.TrimSpace(quotedVideo.GetCaption()); caption != "" {
+			return caption
+		}
+	}
+
+	return ""
+}

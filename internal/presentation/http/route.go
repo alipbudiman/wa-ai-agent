@@ -163,6 +163,34 @@ func broadcastMessageHandler(waClient ports.WhatsAppClient) gin.HandlerFunc {
 	}
 }
 
+func getAllCommandsHandler(manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		commands, err := handler.GetAllCommands(manager)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to get commands")
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "commands retrieved successfully", commands)
+	}
+}
+
+func storeAIMessageHandler(manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req StoreAIMessageRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		err := handler.StoreAIMessageToInbox(manager, req.Message, req.Number)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to store AI message")
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "AI message stored successfully", nil)
+	}
+}
+
 func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, cfg *config.Config, router *gin.Engine) *gin.Engine {
 	v1 := router.Group(BOT_ROUTE_BASE)
 	{
@@ -171,6 +199,8 @@ func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, cfg *config.
 		v1.POST("/message/send", sendMessageHandler(waClient, manager))
 		v1.POST("/message/broadcast", broadcastMessageHandler(waClient))
 		v1.POST("/message/send-file", sendFileHandler(waClient, manager))
+		v1.GET("/commands", getAllCommandsHandler(manager))
+		v1.POST("/store-ai-message", storeAIMessageHandler(manager))
 	}
 
 	return router

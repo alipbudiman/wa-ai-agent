@@ -21,6 +21,9 @@ const (
 	- Multi-API Interconnection: Bridge Go WhatsApp runtime and Python Brain API for modular orchestration.
 	- Observability and Tracing: Track agent thinking and tool execution flow for debugging and performance tuning.
 	`
+
+	CHAT_AGENT_ROUTE     = "chat-agent-code"
+	RESEARCH_AGENT_ROUTE = "agent-research"
 )
 
 var (
@@ -30,17 +33,25 @@ var (
 )
 
 type CommandCollection struct {
-	Help                 CommandInfo
-	PingPong             CommandInfo
-	About                CommandInfo
-	GetPendingMessage    CommandInfo
-	SendPendingMessage   CommandInfo
-	UnsendPendingMessage CommandInfo
-	GetPendingFile       CommandInfo
-	SendPendingFile      CommandInfo
-	UnsendPendingFile    CommandInfo
-	SelectProvider       CommandInfo
-	GetContactInfo       CommandInfo
+	Help                     CommandInfo
+	PingPong                 CommandInfo
+	About                    CommandInfo
+	GetPendingMessage        CommandInfo
+	SendPendingMessage       CommandInfo
+	UnsendPendingMessage     CommandInfo
+	GetPendingFile           CommandInfo
+	SendPendingFile          CommandInfo
+	UnsendPendingFile        CommandInfo
+	SelectProvider           CommandInfo
+	GetContactInfo           CommandInfo
+	AgentResearch            CommandInfo
+	AgentCode                CommandInfo
+	AutoReplyAIConfig        CommandInfo
+	AIGroupInteractionConfig CommandInfo
+	OllamaConfig             CommandInfo
+	OpenRouterConfig         CommandInfo
+	NvidiaConfig             CommandInfo
+	AnthropicConfig          CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

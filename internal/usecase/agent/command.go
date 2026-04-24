@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
+	cfg_struct "github.com/alipbudiman/wa-ai-agent.git/internal/config/struct"
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	ai_providers_api "github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/ai/api"
 	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/databases"
@@ -25,7 +27,7 @@ func init() {
 
 	md := skilldev.NewMarkdownWriter()
 	md.H1("WhatsApp AI Agent Command Menu").Text("Here are the available commands you can use to interact with the WhatsApp AI Agent:").BulletList(func() []string {
-		commands := registeredCommands()
+		commands := RegisteredCommands()
 		var items []string
 		for _, cmd := range commands.All() {
 			items = append(items, fmt.Sprintf("%s - %s", cmd.Command, cmd.Description))
@@ -48,7 +50,7 @@ func readCapabilityDescription() string {
 	return read_skills
 }
 
-func registeredCommands() CommandCollection {
+func RegisteredCommands() CommandCollection {
 	return CommandCollection{
 		Help: CommandInfo{
 			Name:        "Help",
@@ -116,6 +118,54 @@ func registeredCommands() CommandCollection {
 			Command:     "/contact-info",
 			Function:    (*Agents).GetContactInfo,
 		},
+		AgentResearch: CommandInfo{
+			Name:        "Agent Research",
+			Description: "Initiate a research query using the AI agent.",
+			Command:     "/research",
+			Function:    (*Agents).ResearchAgent,
+		},
+		AgentCode: CommandInfo{
+			Name:        "Agent Code",
+			Description: "Delegate task direct to Agent Code",
+			Command:     "/code",
+			Function:    (*Agents).AgentCode,
+		},
+		AutoReplyAIConfig: CommandInfo{
+			Name:        "Auto-Reply AI Config",
+			Description: "Configure auto-reply AI settings.",
+			Command:     "/auto-reply-config",
+			Function:    (*Agents).AutoReplyAIUpdateConfig,
+		},
+		AIGroupInteractionConfig: CommandInfo{
+			Name:        "AI Group Interaction Config",
+			Description: "Configure AI group interaction settings.",
+			Command:     "/ai-group-interaction-config",
+			Function:    (*Agents).AIGroupInteractionUpdateConfig,
+		},
+		OllamaConfig: CommandInfo{
+			Name:        "Ollama Config",
+			Description: "Configure Ollama LLM provider settings.",
+			Command:     "/ollama-config",
+			Function:    (*Agents).OllamaConfig,
+		},
+		OpenRouterConfig: CommandInfo{
+			Name:        "OpenRouter Config",
+			Description: "Configure OpenRouter LLM provider settings.",
+			Command:     "/openrouter-config",
+			Function:    (*Agents).OpenRouterConfig,
+		},
+		NvidiaConfig: CommandInfo{
+			Name:        "Nvidia Config",
+			Description: "Configure Nvidia LLM provider settings.",
+			Command:     "/nvidia-config",
+			Function:    (*Agents).NvidiaConfig,
+		},
+		AnthropicConfig: CommandInfo{
+			Name:        "Anthropic Config",
+			Description: "Configure Anthropic LLM provider settings.",
+			Command:     "/anthropic-config",
+			Function:    (*Agents).AnthropicConfig,
+		},
 	}
 }
 
@@ -132,11 +182,19 @@ func (c CommandCollection) All() []CommandInfo {
 		c.UnsendPendingFile,
 		c.SelectProvider,
 		c.GetContactInfo,
+		c.AgentCode,
+		c.AgentResearch,
+		c.AutoReplyAIConfig,
+		c.AIGroupInteractionConfig,
+		c.OllamaConfig,
+		c.OpenRouterConfig,
+		c.NvidiaConfig,
+		c.AnthropicConfig,
 	}
 }
 
 func CommandString() string {
-	commands := registeredCommands()
+	commands := RegisteredCommands()
 	var menuText strings.Builder
 	menuText.WriteString("Available Commands:\n")
 	for _, cmd := range commands.All() {
@@ -229,7 +287,7 @@ func (h *Agents) GetPendingMessage(args CommandArgs) {
 }
 
 func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
-	proc, err := h.throwToAgent(args, registeredCommands().SendPendingMessage.Command)
+	proc, err := h.throwToAgent(args, RegisteredCommands().SendPendingMessage.Command)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String(fmt.Sprintf("Failed to process command: %v", err)),
@@ -520,7 +578,7 @@ func (h *Agents) GetPendingFile(args CommandArgs) {
 }
 
 func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
-	proc, err := h.throwToAgent(args, registeredCommands().SendPendingFile.Command)
+	proc, err := h.throwToAgent(args, RegisteredCommands().SendPendingFile.Command)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String(fmt.Sprintf("Failed to process command: %v", err)),
@@ -587,6 +645,10 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 			log.Printf("failed to send reply message: %v", err)
 		}
 		return
+	}
+
+	if err := os.Remove(pending_file.PendingFile); err != nil {
+		log.Printf("failed to delete file: %v", err)
 	}
 
 	// Clear the pending file after sending
@@ -713,6 +775,10 @@ func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
 		return
 	}
 
+	if err := os.Remove(pending_file.PendingFile); err != nil {
+		log.Printf("failed to delete file: %v", err)
+	}
+
 	deleteFilter := bson.M{"user": args.Evt.Info.Chat.String(), "parameter": "send_file"}
 	results, err := databases.MongoManager.DeleteOne(
 		h.config.Databases.MongoDB.DBAlias,
@@ -782,7 +848,7 @@ func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
 }
 
 func (h *Agents) SelectAIProvider(args CommandArgs) {
-	cmd := registeredCommands().SelectProvider
+	cmd := RegisteredCommands().SelectProvider
 	selected := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
 	list_providers, err := h.chatCompleter.GetAIDataStatus(context.Background())
 	if err != nil {
@@ -833,7 +899,6 @@ func (h *Agents) SelectAIProvider(args CommandArgs) {
 		return
 	}
 
-	pkg.Marker(pkg.IoColorYellow, selected)
 	err = h.manager.SetSelectedAIProvider(selected)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -854,7 +919,7 @@ func (h *Agents) SelectAIProvider(args CommandArgs) {
 }
 
 func (h *Agents) GetContactInfo(args CommandArgs) {
-	cmd := registeredCommands().GetContactInfo
+	cmd := RegisteredCommands().GetContactInfo
 	number := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
 	if number == "" {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -883,4 +948,598 @@ func (h *Agents) GetContactInfo(args CommandArgs) {
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
+}
+
+func (h *Agents) ResearchAgent(args CommandArgs) {
+	cmd := RegisteredCommands().AgentResearch
+	prompt := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if prompt == "" {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Please provide a prompt to perform research. Usage: " + cmd.Command + " [prompt]"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: prompt,
+			},
+		},
+		true,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+		RESEARCH_AGENT_ROUTE,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to perform research: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("🔎 Research Agent is processing your request... Please wait."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	}
+
+}
+
+func (h *Agents) AgentCode(args CommandArgs) {
+	cmd := RegisteredCommands().AgentCode
+	prompt := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if prompt == "" {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Please provide a prompt to generate code. Usage: " + cmd.Command + " [prompt]"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: prompt,
+			},
+		},
+		true,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+		CHAT_AGENT_ROUTE,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to generate code: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("⚙️ Agent Process... Please wait while the agent processes your request."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	} else {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Failed to notify agent about code generation."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	}
+
+}
+
+func (h *Agents) OllamaConfig(args CommandArgs) {
+	cmd := RegisteredCommands().OllamaConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		ollama_config_info := cfg_struct.GetOllamaConfig()
+		config_help := "Ollama Config Command Usage:\n" +
+			"To set host: `/ollama-config host [hostname]`\n" +
+			"To set model: `/ollama-config model [model_name]`\n" +
+			"Example: `/ollama-config host http://localhost:11434`\n" +
+			"\n*See Ollama models on*\n https://ollama.com/search" +
+			"\n\n*Current Ollama Config:*\n" +
+			fmt.Sprintf("- Host: %s\n", ollama_config_info.BaseURL) +
+			fmt.Sprintf("- Model: %s\n", ollama_config_info.Model)
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "host "); ok {
+		host := strings.TrimSpace(after)
+		err := cfg_struct.UpdateOllamaConfig(cfg_struct.OllamaConfig{BaseURL: host})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set Ollama host. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Ollama host set to '%s'.", host)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		model := strings.TrimSpace(after)
+		err := cfg_struct.UpdateOllamaConfig(cfg_struct.OllamaConfig{Model: model})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set Ollama model. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Ollama model set to '%s'.", model)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid config command. Usage:\n" +
+			"To set host: `/ollama-config host [hostname]`\n" +
+			"To set model: `/ollama-config model [model_name]`\n" +
+			"Example: `/ollama-config host http://localhost:11434`\n" +
+			"\n*See Ollama models on*\n https://ollama.com/search"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) OpenRouterConfig(args CommandArgs) {
+	cmd := RegisteredCommands().OpenRouterConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		openrouter_config_info := cfg_struct.GetOpenRouterConfig()
+		config_help := "OpenRouter Config Command Usage:\n" +
+			"To set API key: `/openrouter-config api_key [your_api_key]`\n" +
+			"To set model: `/openrouter-config model [model_name]`\n" +
+			"Example: `/openrouter-config api_key sk-xxxxxx`\n" +
+			"\n*See OpenRouter API documentation on*\n https://openrouter.ai/models" +
+			"\n*Current OpenRouter Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(openrouter_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", openrouter_config_info.Model)
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api_key "); ok {
+		apiKey := strings.TrimSpace(after)
+		err := cfg_struct.UpdateOpenRouterConfig(cfg_struct.OpenRouterConfig{APIKey: apiKey})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set OpenRouter API key. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("OpenRouter API key has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		model := strings.TrimSpace(after)
+		err := cfg_struct.UpdateOpenRouterConfig(cfg_struct.OpenRouterConfig{Model: model})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set OpenRouter model. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("OpenRouter model has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid config command. Usage:\n" +
+			"To set OpenRouter API key: `/openrouter-config api_key [your_api_key]`\n" +
+			"Example: `/openrouter-config api_key sk-xxxxxx`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) NvidiaConfig(args CommandArgs) {
+	cmd := RegisteredCommands().NvidiaConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		nvidia_config_info := cfg_struct.GetNvidiaConfig()
+		config_help := "NVIDIA Config Command Usage:\n" +
+			"To set API key: `/nvidia-config api_key [your_api_key]`\n" +
+			"To set model: `/nvidia-config model [model_name]`\n" +
+			"Example: `/nvidia-config api_key sk-xxxxxx`\n" +
+			"\n*See NVIDIA API models on*\n https://build.nvidia.com/models" +
+			"\n*Current NVIDIA Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(nvidia_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", nvidia_config_info.Model)
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api_key "); ok {
+		apiKey := strings.TrimSpace(after)
+		err := cfg_struct.UpdateNvidiaConfig(cfg_struct.NvidiaConfig{APIKey: apiKey})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set NVIDIA API key. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("NVIDIA API key has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		model := strings.TrimSpace(after)
+		err := cfg_struct.UpdateNvidiaConfig(cfg_struct.NvidiaConfig{Model: model})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set NVIDIA model. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("NVIDIA model has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid config command. Usage:\n" +
+			"To set NVIDIA API key: `/nvidia-config api_key [your_api_key]`\n" +
+			"Example: `/nvidia-config api_key sk-xxxxxx`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) AnthropicConfig(args CommandArgs) {
+	cmd := RegisteredCommands().AnthropicConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		anthropic_config_info := cfg_struct.GetAnthropicConfig()
+		config_help := "Anthropic Config Command Usage:\n" +
+			"To set API key: `/anthropic-config api_key [your_api_key]`\n" +
+			"To set model: `/anthropic-config model [model_name]`\n" +
+			"To set Base URL: `/anthropic-config base_url [url]`\n" +
+			"To set AuthToken: `/anthropic-config auth_token [token]`\n" +
+			"Example: `/anthropic-config api_key sk-xxxxxx`\n" +
+			"\n*See Anthropic API documentation on*\n https://platform.claude.com/docs/en/about-claude/models/overview" +
+			"\n*Current Anthropic Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(anthropic_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", anthropic_config_info.Model) +
+			fmt.Sprintf("- Base URL: %s\n", anthropic_config_info.BaseURL) +
+			fmt.Sprintf("- Auth Token: %s\n", pkg.MaskString(anthropic_config_info.AuthToken, 4, 4))
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api_key "); ok {
+		apiKey := strings.TrimSpace(after)
+		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{APIKey: apiKey})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set Anthropic API key. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Anthropic API key has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		model := strings.TrimSpace(after)
+		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{Model: model})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set Anthropic model. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Anthropic model has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "base_url "); ok {
+		baseURL := strings.TrimSpace(after)
+		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{BaseURL: baseURL})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set Anthropic Base URL. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Anthropic Base URL has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "auth_token "); ok {
+		authToken := strings.TrimSpace(after)
+		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{AuthToken: authToken})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to set Anthropic Auth Token. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Anthropic Auth Token has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid config command. Usage:\n" +
+			"To set Anthropic API key: `/anthropic-config api_key [your_api_key]`\n" +
+			"Example: `/anthropic-config api_key sk-xxxxxx`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) AutoReplyAIUpdateConfig(args CommandArgs) {
+	cmd := RegisteredCommands().AutoReplyAIConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		auto_reply_stat := h.config.App.AIReply.Enable()
+		config_help := "Auto-Reply AI Config Command Usage:\n" +
+			"To enable auto-reply AI: `/auto-reply-ai-config enable`\n" +
+			"To disable auto-reply AI: `/auto-reply-ai-config disable`\n" +
+			"Example: `/auto-reply-ai-config enable`\n" +
+			"\n*Current Auto-Reply AI Config:*\n" +
+			fmt.Sprintf("- Enabled: %t\n", auto_reply_stat)
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+
+		return
+	}
+
+	if configText == "enable" {
+		enable := h.config.App.AIReply.Enable()
+		if enable {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Auto-Reply AI is already enabled."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		err := cfg_struct.UpdateAIReplyConfig(true)
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to enable Auto-Reply AI. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Auto-Reply AI has been enabled."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if configText == "disable" {
+		enable := h.config.App.AIReply.Enable()
+		if !enable {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Auto-Reply AI is already disabled."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		err := cfg_struct.UpdateAIReplyConfig(false)
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to disable Auto-Reply AI. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Auto-Reply AI has been disabled."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid command. Usage:\n" +
+			"To enable auto-reply AI: `/auto-reply-ai-config enable`\n" +
+			"To disable auto-reply AI: `/auto-reply-ai-config disable`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) AIGroupInteractionUpdateConfig(args CommandArgs) {
+	cmd := RegisteredCommands().AIGroupInteractionConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		group_interaction_stat := h.config.App.AIGroupInterraction.Enable()
+		config_help := "AI Group Interaction Config Command Usage:\n" +
+			"To enable AI group interaction: `/ai-group-interaction-config enable`\n" +
+			"To disable AI group interaction: `/ai-group-interaction-config disable`\n" +
+			"Example: `/ai-group-interaction-config enable`\n" +
+			"\n*Current AI Group Interaction Config:*\n" +
+			fmt.Sprintf("- Enabled: %t\n", group_interaction_stat)
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if configText == "enable" {
+		enable := h.config.App.AIGroupInterraction.Enable()
+		if enable {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("AI Group Interaction is already enabled."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		err := cfg_struct.UpdateAIGroupInteractionConfig(true)
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to enable AI Group Interaction. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("AI Group Interaction has been enabled."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if configText == "disable" {
+		enable := h.config.App.AIGroupInterraction.Enable()
+		if !enable {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("AI Group Interaction is already disabled."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		err := cfg_struct.UpdateAIGroupInteractionConfig(false)
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to disable AI Group Interaction. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("AI Group Interaction has been disabled."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid command. Usage:\n" +
+			"To enable AI group interaction: `/ai-group-interaction-config enable`\n" +
+			"To disable AI group interaction: `/ai-group-interaction-config disable`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+
 }

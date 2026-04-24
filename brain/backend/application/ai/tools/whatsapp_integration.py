@@ -1,3 +1,5 @@
+from pprint import pprint
+
 from backend.application.ai.tools.models import SendFileInput
 import logging
 import os
@@ -149,7 +151,7 @@ class WhatsAppIntegration:
                     status="on_hold",
                     on_hold=True,
                 )
-            
+                
             response = requests.post(
                 f"{self.__get_self_url()}message/send",
                 json={"number": number, "message": message},
@@ -196,7 +198,7 @@ class WhatsAppIntegration:
                 "numeric user ID (for default server) or a full JID with server suffix such as "
                 "@s.whatsapp.net or @lid. Only call this tool when both recipient and message are "
                 "available. If one field is missing, ask for it first and do not execute this tool. "
-                "Do not pass name-only aliases (example: 'kereyhan') as recipient identifier. "
+                "Do not pass name-only aliases (example: 'ke reyhan' or 'to reyhan' without a phone number) as recipient identifier. "
                 "If recipient is not numeric/JID and no confirmed number exists in context, ask for phone number/JID first. "
                 "For multi-turn chat, you may combine values from previous turns before calling. "
                 "Interpret tool response status carefully: status='on_hold' means message has NOT "
@@ -207,7 +209,6 @@ class WhatsAppIntegration:
         
     def request_send_file(self, number: str, file_path: str, caption: str | None = None, sender: str | None = None) -> SendMessageResponse:
         """send file to a whatsapp user"""
-        
         number = (number or "").strip()
         file_path = (file_path or "").strip()
         caption = (caption or "").strip()
@@ -452,4 +453,41 @@ class WhatsAppIntegration:
                 message=f"failed to get user information: {e}",
                 data=None,
             )
+    
+    def get_all_commands(self):
+        """Get all available commands and their descriptions."""
+        try:
+            response = requests.get(f"{self.__get_self_url()}commands", timeout=120)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response format")
+            return payload.get("data", [])
+        except (requests.exceptions.RequestException, ValueError) as e:
+            logger.error("Error fetching commands: %s", e)
+            return {"success": False, "message": f"failed to get commands: {e}", "data": None}
+    
+    def store_ai_message_to_inbox(self, message: str, number: str):
+        """Store a message from AI to the inbox collection in MongoDB."""
+        try:
+            number = self.parse_tool.parse_phone_number(number)
+        except Exception as e:
+            logger.error("Error parsing phone number: %s", e)
+            return {"success": False, "message": f"invalid phone number: {e}", "data": None}
+
+        sender_identifier = self._safe_normalize_identifier(number)
+        try:
+            response = requests.post(
+                f"{self.__get_self_url()}store-ai-message", 
+                json={"message": message, "number": sender_identifier}, 
+                timeout=120
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response format")
+            return payload.get("data", [])
+        except Exception as e:
+            logger.error(f"Error storing AI message to inbox for number '{sender_identifier}': {e}")
+            return {"success": False, "message": f"failed to store AI message to inbox: {e}", "data": None}
             

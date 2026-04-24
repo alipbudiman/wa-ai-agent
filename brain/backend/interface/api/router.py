@@ -5,12 +5,14 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from backend.application.ai.agents import ChatAgentUseCase
+from backend.application.ai.code import AgentCodeUsecase
+from backend.application.ai.reaserch import ResearchAgentUsecase
 from backend.application.health import CheckHealthUseCase
 from backend.application.report import ReportUseCase
 from backend.domain.report import LangSmithLogReport, LangSmithRunReport
 from backend.application.ai.tools.models import LevelSystem
 from backend.application.aidata import CheckAIData
-from backend.domain.aidata import AIDataStatus
+from backend.domain.aidata import AIDataInjectionResponse, AIDataStatus
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -26,6 +28,8 @@ class ChatAgentRequest(BaseModel):
     is_system: bool
     level: str = "INFO"
     group_id: str | None = None
+    reply_content: str | None = None
+    
 class ChatAgentResponse(BaseModel):
     status: str
     response: str
@@ -59,6 +63,10 @@ def create_ai_data_router(usecase: CheckAIData) -> APIRouter:
         return AIDataStatus(
             list_ai_providers=result.list_ai_providers,
         )
+    
+    @router.post("/inject-conversation", response_model=AIDataInjectionResponse)
+    def inject_conversation(number: str, messages: str):
+        return usecase.injectAIConversation(number=number, messages=messages)
 
     return router
 
@@ -109,6 +117,67 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
             is_system=request.is_system,
             level=level,
             group_id=request.group_id if request.group_id else None,
+            reply_content=request.reply_content if request.reply_content else None,
+            # image=request.image if request.image else None,
+        )
+        return ChatAgentResponse(
+            status="success",
+            response="success to call brain"
+        )
+
+    return router
+
+def create_chat_agent_code_router(usecase: AgentCodeUsecase) -> APIRouter:
+    router = APIRouter(prefix="/chat-agent-code", tags=["chat-agent-code"])
+
+    @router.post("", response_model=ChatAgentResponse)
+    async def chat_agent_code(
+            request: ChatAgentRequest, 
+            background_tasks: BackgroundTasks
+        ) -> ChatAgentResponse:
+        try:
+            level = LevelSystem[request.level.upper()]
+        except KeyError:
+            level = LevelSystem.INFO
+            logger.info(f"Invalid log level '{request.level}' received. Defaulting to INFO.")
+        background_tasks.add_task(
+            usecase.CodeChatAgent,
+            messages=request.message,
+            number=request.number,
+            is_system=request.is_system,
+            level=level,
+            group_id=request.group_id if request.group_id else None,
+            reply_content=request.reply_content if request.reply_content else None,
+            # image=request.image if request.image else None,
+        )
+        return ChatAgentResponse(
+            status="success",
+            response="success to call brain"
+        )
+
+    return router
+
+def create_chat_agent_research_router(usecase: ResearchAgentUsecase) -> APIRouter:
+    router = APIRouter(prefix="/agent-research", tags=["agent-research"])
+
+    @router.post("", response_model=ChatAgentResponse)
+    async def agent_research(
+            request: ChatAgentRequest, 
+            background_tasks: BackgroundTasks
+        ) -> ChatAgentResponse:
+        try:
+            level = LevelSystem[request.level.upper()]
+        except KeyError:
+            level = LevelSystem.INFO
+            logger.info(f"Invalid log level '{request.level}' received. Defaulting to INFO.")
+        background_tasks.add_task(
+            usecase.ResearchAgent,
+            messages=request.message,
+            number=request.number,
+            is_system=request.is_system,
+            level=level,
+            group_id=request.group_id if request.group_id else None,
+            reply_content=request.reply_content if request.reply_content else None,
             # image=request.image if request.image else None,
         )
         return ChatAgentResponse(

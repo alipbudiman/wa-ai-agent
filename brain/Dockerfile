@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     curl \
     gnupg \
+    git \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -20,6 +21,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app/brain
 ENV DISABLE_TELEMETRY=1
+
+# Symlink global skills dir to volume-backed path so skills persist across restarts
+RUN mkdir -p /app/.agents && ln -sf /app/.agents /root/.agents
 
 RUN npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -g -a universal -y \
     && npx --yes skills list -g --json > /dev/null \

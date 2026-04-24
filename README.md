@@ -30,7 +30,7 @@ Once the system is running, you can access the following services locally:
 
 ---
 
-## 🛠️ Docker Quick Start (Go + Brain + MongoDB + Ollama)
+## 🛠️ Docker Quick Start (Go + Brain + MongoDB + Redis + Ollama)
 
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
@@ -40,7 +40,7 @@ Verify available services:
 ```bash
 docker compose config --services
 ```
-*Expected output: `mongo`, `ollama`, `brain`, `wa-agent`*
+*Expected output: `mongo`, `redis`, `ollama`, `brain`, `wa-agent`*
 
 ### 1. Initial Setup Sequence
 Before starting the full stack, you must prepare your LLM backend (Ollama, Anthropic, or OpenRouter). The recommended path is to begin with Ollama.
@@ -51,13 +51,27 @@ Ensure your `.env` variables align with your deployment. Example configuration:
 MONGODB_URI=mongodb://mongo:27017
 MONGODB_DB_ALIAS=wa_ai_agent
 MONGODB_DB_NAME=wa_ai_agent
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_TTL=2592000
 
 GIN_SERVER_PORT=8001
 GIN_SERVER_HOST=localhost
 APP_MODE=release
 ```
 
-### 2. Start the Ollama Service
+### 2. Start Core Data Services (MongoDB + Redis)
+```bash
+docker compose up -d mongo redis
+```
+
+Verify database services are running:
+```bash
+docker compose ps mongo redis
+docker compose logs --tail=50 redis
+```
+
+### 3. Start the Ollama Service
 ```bash
 docker compose up -d ollama
 ```
@@ -68,14 +82,14 @@ docker compose ps ollama
 docker compose logs --tail=50 ollama
 ```
 
-### 3. Ollama Authentication (Required for Cloud Models)
+### 4. Ollama Authentication (Required for Cloud Models)
 Sign in to Ollama Cloud to access powerful external models. Open the linked provided in the terminal to complete your login:
 ```bash
 docker compose exec ollama ollama signin
 ```
 > **Why Ollama Cloud?** It integrates automatically with our AI agent SDKs without requiring independent Anthropic or OpenAI API keys out of the box, offering highly capable models for intensive coding and debugging tasks.
 
-### 4. Provision Primary AI Models
+### 5. Provision Primary AI Models
 Pull your desired model into the container. For first-time setups, we recommend the `minimax-m2.7:cloud` model:
 ```bash
 docker compose exec ollama ollama pull minimax-m2.7:cloud
@@ -87,7 +101,7 @@ Verify model installation:
 docker compose exec ollama ollama list
 ```
 
-### 5. Launch the Full Stack
+### 6. Launch the Full Stack
 Start the remaining application stack:
 ```bash
 docker compose up -d --build
@@ -97,7 +111,7 @@ Ensure all services are running smoothly:
 docker compose ps
 ```
 
-### 6. Verify `npx skills` in Containers
+### 7. Verify `npx skills` in Containers
 Both `wa-agent` and `brain` images now install Node.js, the `skills` CLI, and run this build-time setup:
 ```bash
 npx skills add https://github.com/vercel-labs/skills --skill find-skills -g -a universal -y
@@ -128,7 +142,7 @@ docker compose down
   ```
 - **Data Persistence:**
   - Authentication data is persisted within the `ollama_data` Docker volume.
-  - MongoDB data and WA Sessions are similarly volume-backed.
+  - MongoDB, Redis data, and WA Sessions are similarly volume-backed.
   - Shared playground files are kept in `playground_data` (mapped to `/app/playground`).
 - **Resetting the Environment:**
   Running `docker compose down` will stop containers but retain data. If you intend to completely wipe the system state (requiring a re-login and model re-download), use `docker compose down -v`.

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import uuid
+from pathlib import Path
 
 
 from backend.application.ai.ai import AI
@@ -14,15 +15,17 @@ from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegratio
 from backend.application.ai.instruction import Instruction
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.dbaccess import DBAcess
-from backend.application.ai.tools.models import InputHistory, LevelSystem, LogSystemEntry
+from backend.application.ai.tools.models import LevelSystem, LogSystemEntry
 from backend.application.ai.tools.terimnalx import TerminalX
-from backend.application.ai.tools.filex import Filex
-from config.config import Config
+from backend.application.ai.tools.filex import FileX
+from backend.application.ai.code import AgentCodeUsecase
+from config.config import Config, BASE_DIR
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import StateGraph, START, END # pyright: ignore[reportMissingTypeStubs]
 from langgraph.graph import MessagesState
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, RemoveMessage, ToolMessage
+from langchain_community.agent_toolkits import FileManagementToolkit
 
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langchain_core.messages import trim_messages
@@ -56,6 +59,40 @@ class ChatAgentUseCase:
         SUMMARIZE_SOURCE_MAX_TOKENS,
     )
 
+    @staticmethod
+    def __resolve_langgraph_root_dir() -> str:
+        """
+        Resolve a writable playground root for FileManagementToolkit.
+
+        Priority:
+        1) PLAYGROUND_ROOT env override
+        2) repository root playground (BASE_DIR/playground)
+        3) Docker shared mount default (/app/playground)
+        4) cwd playground fallback
+        """
+        candidates = []
+
+        env_root = (os.getenv("PLAYGROUND_ROOT") or "").strip()
+        if env_root:
+            candidates.append(Path(env_root).expanduser())
+
+        candidates.append(Path(BASE_DIR).resolve() / "playground")
+        candidates.append(Path("/app/playground"))
+        candidates.append(Path.cwd() / "playground")
+
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve(strict=False)
+                resolved.mkdir(parents=True, exist_ok=True)
+                return str(resolved)
+            except OSError:
+                continue
+
+        # Last-resort fallback should still be writable in most environments.
+        fallback = Path.cwd() / "playground"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return str(fallback.resolve(strict=False))
+
     def __init__(self):
         self.llm = AI()
         self.config = Config()
@@ -65,8 +102,13 @@ class ChatAgentUseCase:
         self.wa_integration_tool = WhatsAppIntegration()
         self.db_access_tool = DBAcess()
         self.terminalx_tool = TerminalX()
-        self.filex_tool = Filex()
+        self.filex_tool = FileX()
+        self.agent_code = AgentCodeUsecase()
         self.instruction = Instruction()
+        self.langgraph_file_manager_root = self.__resolve_langgraph_root_dir()
+        self.langgraph_file_manager = FileManagementToolkit(root_dir=self.langgraph_file_manager_root)
+        self.langgraph_file_manager_tools = self.langgraph_file_manager.get_tools()
+        logger.info("FileManagementToolkit root_dir=%s", self.langgraph_file_manager_root)
         self.mongo_cleint = MongoDB.get_client()
         self.checkpointer = MongoDBSaver(self.mongo_cleint, db_name="agent_memory_db", collection_name="agent_memory_collection")
         self.__init_langsmith()
@@ -94,6 +136,8 @@ class ChatAgentUseCase:
             self.wa_integration_tool.broadcast_message,
             self.filex_tool.compress,
             self.filex_tool.delete_file_dir,
+            self.terminalx_tool.port_forward_tunnel,
+            *self.langgraph_file_manager_tools,
         ]
         
         self._llm_cache: dict[str, any] = {}
@@ -292,7 +336,7 @@ class ChatAgentUseCase:
         lowered = normalized.lower()
         return lowered.startswith("system execution log:") or lowered.startswith("[systemevent]")
 
-    def __latest_user_text(self, state: State, max_messages: int = 1) -> str:
+    def __latest_user_text(self, state: State, max_messages: int = 5) -> str:
         """
         Return concatenated latest user text messages from graph state.
 
@@ -763,34 +807,6 @@ class ChatAgentUseCase:
         )
         return any(marker in normalized for marker in status_markers)
 
-    @staticmethod
-    def __is_simple_acknowledgement(text: str) -> bool:
-        """Fast-path common short acknowledgements to direct chat."""
-        normalized = " ".join((text or "").strip().lower().split())
-        if not normalized:
-            return False
-
-        # Keep this strict to avoid hijacking actionable intents.
-        if len(normalized) > 24:
-            return False
-
-        acknowledge_texts = {
-            "ok",
-            "oke",
-            "okay",
-            "good",
-            "nice",
-            "siap",
-            "sip",
-            "mantap",
-            "noted",
-            "thanks",
-            "thank you",
-            "makasih",
-            "terima kasih",
-        }
-        return normalized in acknowledge_texts
-
     def __assistant_context(self, state: State, max_tokens: int | None = None) -> list:
         """
         Return a trimmed message window for the tool-capable assistant node.
@@ -848,6 +864,13 @@ class ChatAgentUseCase:
 
         return None
 
+    def __latest_human_message(self, state: State):
+        """Return the latest human message if available."""
+        for message in reversed(state.get("messages", [])):
+            if isinstance(message, HumanMessage):
+                return message
+        return None
+
     def __message_guard_payload(self, state: State, use_tools: bool) -> list:
         """
         Build model payload with a guaranteed non-system message.
@@ -859,7 +882,11 @@ class ChatAgentUseCase:
         assistant_messages = self.__assistant_context(state, max_tokens=max_tokens)
 
         if not self.__has_non_system_message(assistant_messages):
-            fallback_message = self.__latest_non_system_message(state)
+            # Prefer latest human input to keep fallback context aligned
+            # with the current turn and avoid older assistant echoes.
+            fallback_message = self.__latest_human_message(state)
+            if fallback_message is None:
+                fallback_message = self.__latest_non_system_message(state)
             if fallback_message is not None:
                 logger.warning(
                     "Assistant context trimmed to system-only for %s; injecting fallback message.",
@@ -916,8 +943,9 @@ class ChatAgentUseCase:
             confirm_sensitive_tools, or cancel_sensitive_tools.
         """
         sender = state.get("sender", "")
-        latest_user_message = self.__latest_user_text(state, max_messages=1).strip()
-        recent_user_messages = self.__latest_user_text(state, max_messages=max_latest_user_messages).strip()
+        # Use only the latest user turn for route classification to avoid
+        # stale-intent contamination from previous turns.
+        recent_user_messages = self.__latest_user_text(state, max_messages=1).strip()
 
         if self._pending_sensitive_tool_calls.get(sender):
             decision_text = self.__latest_user_text(state, max_messages=1)
@@ -929,9 +957,6 @@ class ChatAgentUseCase:
             return "human_feedback"
 
         if not recent_user_messages:
-            return "direct_chat"
-
-        if self.__is_simple_acknowledgement(latest_user_message):
             return "direct_chat"
 
         if self.__requires_context_route(recent_user_messages):
@@ -981,8 +1006,95 @@ class ChatAgentUseCase:
                         AIMessage(content="Sorry, the service is temporarily unavailable. Please try again soon.")
                     ]
                 }
+
+        response_text = self.__content_to_text(getattr(response, "content", ""))
+        if self.__looks_like_textual_tool_call(response_text):
+            logger.warning(
+                "direct_chat produced textual tool-call markup for %s; retrying plain-text response.",
+                sender,
+            )
+            plain_text_guard = SystemMessage(
+                content=(
+                    "Tools are unavailable in this turn. "
+                    "Do not emit tool-call syntax. "
+                    "Reply with one concise user-facing plain-text answer only."
+                )
+            )
+
+            try:
+                retry_response = self.__llm(reasoning=False).invoke(payload + [plain_text_guard])
+                retry_text = self.__content_to_text(getattr(retry_response, "content", ""))
+                if not self.__looks_like_textual_tool_call(retry_text):
+                    response = retry_response
+                else:
+                    response = AIMessage(
+                        content="I need the tool-enabled path for this request. Please repeat your request."
+                    )
+            except Exception as retry_err:
+                logger.warning("direct_chat plain-text retry failed for %s: %s", sender, retry_err)
+                response = AIMessage(
+                    content="I could not complete this in no-tool mode. Please repeat your request."
+                )
         
         return {"messages": [response]}
+
+    def __fallback_state_excerpt(
+        self,
+        graph_messages: list,
+        max_messages: int = 10,
+        max_chars: int = 3000,
+    ) -> str:
+        """Build a compact excerpt from the latest turn for fallback responses."""
+        if not graph_messages:
+            return ""
+
+        latest_human_index = -1
+        for index in range(len(graph_messages) - 1, -1, -1):
+            if isinstance(graph_messages[index], HumanMessage):
+                latest_human_index = index
+                break
+
+        latest_turn = graph_messages[latest_human_index:] if latest_human_index >= 0 else graph_messages
+        latest_turn = latest_turn[-max_messages:]
+
+        lines: list[str] = []
+        for message in latest_turn:
+            if isinstance(message, SystemMessage):
+                continue
+
+            role = "message"
+            if isinstance(message, HumanMessage):
+                role = "user"
+            elif isinstance(message, AIMessage):
+                role = "assistant"
+            elif isinstance(message, ToolMessage):
+                tool_name = str(getattr(message, "name", "") or "").strip()
+                role = f"tool:{tool_name or 'unknown'}"
+
+            text = self.__content_to_text(getattr(message, "content", ""))
+            if isinstance(message, AIMessage) and self.__is_internal_system_log_text(text):
+                continue
+
+            if not text:
+                if isinstance(message, AIMessage):
+                    tool_calls = getattr(message, "tool_calls", None) or []
+                    if tool_calls:
+                        tool_names = [str(call.get("name") or "") for call in tool_calls if isinstance(call, dict)]
+                        if tool_names:
+                            lines.append(f"{role}: tool_calls={tool_names}")
+                continue
+
+            compact_text = " ".join(text.split())
+            if len(compact_text) > 280:
+                compact_text = compact_text[:277] + "..."
+
+            lines.append(f"{role}: {compact_text}")
+
+        excerpt = "\n".join(lines).strip()
+        if len(excerpt) <= max_chars:
+            return excerpt
+
+        return excerpt[-max_chars:]
     
     def __init_langsmith(self):
         """
@@ -1007,7 +1119,7 @@ class ChatAgentUseCase:
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
             self.wa_integration_tool.send_file(sender=sender),
-            self.terminalx_tool.run_worker(sender=sender),
+            self.agent_code.run_worker(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
         ]
     
@@ -1236,7 +1348,7 @@ class ChatAgentUseCase:
         
         return react_graph
 
-    def __extract_ai_content(self, messages: list) -> str:
+    def extract_ai_content(self, messages: list) -> str:
         """
         Extract the latest non-empty assistant text from graph message state.
 
@@ -1344,17 +1456,36 @@ class ChatAgentUseCase:
             return send_tool_fallback
 
         return ''
+
+    def __command_guard(self, text: str) -> str:
+        """
+        Heuristic guard to prevent tool-call-looking text from being treated as final output.
+
+        Some models can produce tool calls in text form instead of structured fields,
+        which can cause confusion in the output state. This guard checks for telltale
+        patterns to avoid misinterpreting tool call descriptions as user-facing replies.
+        """
+        if text.startswith("/"): 
+            if text.count(" ") > 0:
+                text = text.split(" ")[0]
+            
+            commands = self.wa_integration_tool.get_all_commands()
+            for command in commands:
+                if text.strip() == command:
+                    return ""
+            return "Unknown command. Type /help to see available commands."
+        return ""
     
     async def ChatAgent(
-        self, 
+            self, 
             messages: str,
             number: str,
             is_system=False,
             level: LevelSystem=LevelSystem.INFO, 
             group_id: str=None,
+            reply_content: str=None,
             image: str=None, 
         ) -> None:
-        
         send_to = number
         if group_id:
             send_to = group_id
@@ -1383,6 +1514,11 @@ class ChatAgentUseCase:
                 level = LevelSystem.__members__.get(level_name, LevelSystem.INFO)
             elif not isinstance(level, LevelSystem):
                 level = LevelSystem.INFO
+            
+            command_response = self.__command_guard(messages)
+            if command_response != "":
+                self.wa_integration_tool.request_send_message(send_to, command_response, send_to)
+                return
 
             input_messages = []
             config = {"configurable": {"thread_id": group_id if group_id else number}}
@@ -1405,17 +1541,10 @@ class ChatAgentUseCase:
                     }
                 )
                 return
-                
-            task_id = str(uuid.uuid4())
-            self.db_access_tool.add_agent_input_log(InputHistory(
-                id=task_id,
-                timestamp=self.time_tool.current_time(),
-                sender=number,
-                message=messages,
-                status="processing",
-            ))
             
-            input_messages.append(SystemMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}\n{self.instruction.formatting_rule()}\n"))
+            input_messages.append(SystemMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}"))
+            if reply_content:
+                input_messages.append(AIMessage(content=f"User Replying Message from AI:\n{reply_content}"))
             input_messages.append(HumanMessage(content=messages))
 
             result = await self.react_graph.ainvoke({
@@ -1423,22 +1552,34 @@ class ChatAgentUseCase:
                 "sender": group_id if group_id else number,
             }, config=config)
             
-            results_message = self.__extract_ai_content(result.get('messages', []))
+            results_message = self.extract_ai_content(result.get('messages', []))
 
             # Some reasoning/tool-enabled model runs can end with empty text.
             # Retry once with a plain no-reasoning completion to avoid blank or stale replies.
             if not results_message:
                 err = "Assistant returned empty content for '%s'; running fallback completion."
                 logger.warning(err, number)
+
+                latest_user_message = (messages or "").strip()
+                state_excerpt = self.__fallback_state_excerpt(
+                    result.get("messages", []),
+                    max_messages=10,
+                    max_chars=3000,
+                )
+
                 message_sys = (
-                    "The previous run produced no final user-visible response. "
-                    "Generate one concise user-facing reply in plain text based on this state excerpt:\n"
-                    f"{str(result)[:3000]}"
+                    "The previous run produced no final user-visible response.\n"
+                    "Focus only on the latest user request and ignore stale earlier turns.\n\n"
+                    f"Latest user request:\n{latest_user_message or '(empty)'}\n\n"
+                    "Latest-turn state excerpt:\n"
+                    f"{state_excerpt or '(empty)'}\n\n"
+                    "Generate one concise user-facing reply in plain text."
                 )
                 results = ""
                 try:
                     fallback_response = self.__llm(reasoning=False).invoke([
-                        HumanMessage(content=message_sys)
+                        SystemMessage(content=message_sys),
+                        HumanMessage(content=latest_user_message or "Please answer the latest user request."),
                     ])
                     results = self.__content_to_text(getattr(fallback_response, "content", ""))
                 except Exception as fallback_err:
@@ -1454,15 +1595,12 @@ class ChatAgentUseCase:
                         message=f"Message processed for {number} failed to generate response"
                     ))
                 
-                self.db_access_tool.delete_agent_input_log(task_id)
                 self.wa_integration_tool.request_send_message(send_to, results, send_to)
                 return
-            
-            self.db_access_tool.delete_agent_input_log(task_id)
+
             self.wa_integration_tool.request_send_message(send_to, results_message, send_to)
         except Exception as e:
             logger.exception("ChatAgent failed for %s", number)
-            self.db_access_tool.delete_agent_input_log(task_id)
             self.db_access_tool.db_set_log_system(LogSystemEntry(
                 timestamp=self.time_tool.current_time(),
                 level=LevelSystem.ERROR.value,

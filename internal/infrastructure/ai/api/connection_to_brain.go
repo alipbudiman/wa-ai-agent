@@ -40,11 +40,12 @@ type BrainAPI struct {
 }
 
 type chatAgentRequest struct {
-	Number   string         `json:"number"`
-	Message  string         `json:"message"`
-	IsSystem bool           `json:"is_system"`
-	LogLevel ports.LogLevel `json:"log_level"`
-	GroupID  string         `json:"group_id,omitempty"`
+	Number       string         `json:"number"`
+	Message      string         `json:"message"`
+	IsSystem     bool           `json:"is_system"`
+	LogLevel     ports.LogLevel `json:"log_level"`
+	GroupID      string         `json:"group_id,omitempty"`
+	ReplyContent string         `json:"reply_content,omitempty"`
 }
 
 type chatAgentResponse struct {
@@ -52,9 +53,15 @@ type chatAgentResponse struct {
 	Response string `json:"response"`
 }
 
+type InjectAIConversationRequest struct {
+	Number   string `json:"number"`
+	Messages string `json:"messages"`
+}
+
 type LangSmithRunReport = ports.LangSmithRunReport
 type LangSmithLogReport = ports.LangSmithLogReport
 type AIDataStatus = ports.AIDataStatus
+type InjectAIConversationResponse = ports.InjectAIConversationResponse
 
 func NewAIAgent(baseURL string) (*BrainAPI, error) {
 	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
@@ -75,19 +82,16 @@ func isTimeoutError(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
+func extractPrompt(messages []openai.ChatCompletionMessage) string {
+	return messages[0].Content
+}
+
 func extractGroupID(messages []openai.ChatCompletionMessage) string {
-	for _, message := range messages {
-		candidate := strings.TrimSpace(message.Role)
-		if candidate == "" {
-			continue
-		}
+	return messages[0].Role
+}
 
-		if strings.HasSuffix(strings.ToLower(candidate), "@g.us") {
-			return candidate
-		}
-	}
-
-	return ""
+func extractReplyMessage(messages []openai.ChatCompletionMessage) string {
+	return messages[0].ReasoningContent
 }
 
 func (o *BrainAPI) resolveAPIv1Endpoint(path string) string {
@@ -147,7 +151,12 @@ func (o *BrainAPI) doGETJSON(ctx context.Context, endpoint string, target any) e
 	return nil
 }
 
-func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string, is_system bool, log_level ports.LogLevel) (string, error) {
+func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string, is_system bool, log_level ports.LogLevel, routing ...string) (string, error) {
+	Routing := "chat-agent"
+	if len(routing) > 0 {
+		Routing = routing[0]
+	}
+
 	if o == nil || o.httpClient == nil {
 		return "", errAIAgentClientRequired
 	}
@@ -156,40 +165,21 @@ func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCom
 		return "", errMessagesRequired
 	}
 
-	prompt := ""
-	for index := len(messages) - 1; index >= 0; index-- {
-		candidate := strings.TrimSpace(messages[index].Content)
-		if candidate == "" {
-			continue
-		}
-
-		if messages[index].Role == openai.ChatMessageRoleUser {
-			prompt = candidate
-			break
-		}
-
-		if prompt == "" {
-			prompt = candidate
-		}
-	}
-	if prompt == "" {
-		return "", errPromptRequired
-	}
-
 	payload, err := json.Marshal(chatAgentRequest{
-		Message:  prompt,
-		Number:   number,
-		IsSystem: is_system,
-		LogLevel: log_level,
-		GroupID:  extractGroupID(messages),
+		Message:      extractPrompt(messages),
+		Number:       number,
+		IsSystem:     is_system,
+		LogLevel:     log_level,
+		GroupID:      extractGroupID(messages),
+		ReplyContent: extractReplyMessage(messages),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)
 	}
 
-	endpoint := o.baseURL + "/api/v1/chat-agent"
+	endpoint := o.baseURL + "/api/v1/" + Routing
 	if strings.HasSuffix(o.baseURL, "/api/v1") {
-		endpoint = o.baseURL + "/chat-agent"
+		endpoint = o.baseURL + "/" + Routing
 	}
 
 	requestCtx := ctx
@@ -274,7 +264,10 @@ func (o *BrainAPI) GetLangSmithSelectRun(ctx context.Context, runID string) (*La
 }
 
 func (o *BrainAPI) GetAIDataStatus(ctx context.Context) (*AIDataStatus, error) {
-	endpoint := o.resolveAPIv1Endpoint("/ai-data/providers")
+	endpoint := o.baseURL + "/api/v1/" + "aidata/providers"
+	if strings.HasSuffix(o.baseURL, "/api/v1") {
+		endpoint = o.baseURL + "/" + "aidata/providers"
+	}
 
 	var status AIDataStatus
 	if err := o.doGETJSON(ctx, endpoint, &status); err != nil {
@@ -282,4 +275,61 @@ func (o *BrainAPI) GetAIDataStatus(ctx context.Context) (*AIDataStatus, error) {
 	}
 
 	return &status, nil
+}
+
+func (o *BrainAPI) InjectAIConversation(ctx context.Context, number string, messages string) (bool, error) {
+	endpoint := o.baseURL + "/api/v1/" + "aidata/inject-conversation"
+	if strings.HasSuffix(o.baseURL, "/api/v1") {
+		endpoint = o.baseURL + "/" + "aidata/inject-conversation"
+	}
+
+	payload := InjectAIConversationRequest{
+		Number:   number,
+		Messages: messages,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("marshal inject conversation request: %w", err)
+	}
+
+	requestCtx := ctx
+	var cancel context.CancelFunc
+	if _, hasDeadline := requestCtx.Deadline(); !hasDeadline {
+		requestCtx, cancel = context.WithTimeout(ctx, defaultBrainAPITimeout)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return false, fmt.Errorf("build inject conversation request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("execute inject conversation request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return false, fmt.Errorf("inject conversation request failed: status=%d, read_body_error=%w", resp.StatusCode, readErr)
+		}
+
+		bodyText := strings.TrimSpace(string(bodyBytes))
+		if bodyText == "" {
+			return false, fmt.Errorf("inject conversation request failed: status=%d", resp.StatusCode)
+		}
+
+		return false, fmt.Errorf("inject conversation request failed: status=%d, body=%s", resp.StatusCode, bodyText)
+	}
+
+	var injectResponse InjectAIConversationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&injectResponse); err != nil {
+		return false, fmt.Errorf("decode inject conversation response: %w", err)
+	}
+
+	return injectResponse.Success, nil
 }

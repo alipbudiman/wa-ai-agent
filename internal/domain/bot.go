@@ -35,7 +35,7 @@ type MessageHandler interface {
 }
 
 type AgentResponder interface {
-	Reply(ctx context.Context, prompt []openai.ChatCompletionMessage, is_system bool, log_level LogLevel, jid types.JID) (string, error)
+	Reply(ctx context.Context, prompt []openai.ChatCompletionMessage, is_system bool, log_level LogLevel, jid types.JID, routing ...string) (string, error)
 }
 
 type WhatsAppClient interface {
@@ -49,8 +49,9 @@ type WhatsAppClient interface {
 }
 
 type ChatCompleter interface {
-	ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, user_id string, is_system bool, log_level LogLevel) (string, error)
+	ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, user_id string, is_system bool, log_level LogLevel, routing ...string	) (string, error)
 	GetLangSmithRuns(ctx context.Context) ([]LangSmithRunReport, error)
 	GetLangSmithSelectRun(ctx context.Context, runID string) (*LangSmithLogReport, error)
 	GetAIDataStatus(ctx context.Context) (*AIDataStatus, error)
+	InjectAIConversation(ctx context.Context, conversation string, senderNumber string) (bool, error)
 }

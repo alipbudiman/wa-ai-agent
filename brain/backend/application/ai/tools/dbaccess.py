@@ -1,11 +1,16 @@
+import logging
+from datetime import datetime
+from typing import Any
 
-
-from backend.infrastructure.database.database import MongoDB
+from backend.infrastructure.database.database import MongoDB, RedisDB
 from langchain_core.tools import StructuredTool
 
 from backend.application.ai.tools.models import InputHistory, LogSystemEntry
 from backend.application.ai.tools.time import TimeTool
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class DBAcess:
@@ -16,6 +21,21 @@ class DBAcess:
         self.input_history_collection = MongoDB.MONGO_USER_INPUT_HISTORY_COLLECTION
         self.time_tool = TimeTool()
         self.wa_bot = WhatsAppIntegration()
+        self.redis_db = RedisDB()
+        self.redis_client = self.redis_db.get_client()
+        self._session_ttl = int(getattr(self.redis_db, "REDIS_SESSION_EXPIRE_SECONDS", self.redis_db.REDIS_TTL))
+
+    @staticmethod
+    def _decode_redis_value(value: Any) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="ignore")
+        return str(value)
+
+    def _decode_redis_hash(self, data: dict[Any, Any]) -> dict[str, str]:
+        return {
+            self._decode_redis_value(key): self._decode_redis_value(value)
+            for key, value in data.items()
+        }
 
         
     def db_get_current_pending_message(self, sender: str) -> str:
@@ -83,39 +103,152 @@ class DBAcess:
         result = collection.insert_one(log_entry.model_dump())
         return bool(result.inserted_id)
     
+    def get_agent_input_log(self, sender: str, func_name: str) -> list[InputHistory]:
+        """
+Session Resume (IMPORTANT):
+- When the user's message implies continuing or resuming previous work (e.g., "lanjutkan", "continue",
+    "fix the code from before", "tambahkan fitur di project tadi", "perbaiki yang tadi", "update the previous project"),
+    you MUST first call `agent_input_log` with `func_name='run_worker'` to check for existing sessions.
+- If `agent_input_log` returns session(s), pick the most relevant `session_id` based on the task context
+    and timestamp, then pass it to `run_code_agent` via the `session_id` parameter.
+- This allows the worker to resume from the previous conversation context (files, tool calls, decisions)
+    instead of starting from scratch, which is significantly more efficient and accurate.
+- If `agent_input_log` returns NO_SESSIONS_FOUND, proceed normally with a new worker session (no session_id).
+- Do NOT ask the user for a session_id; always look it up automatically via `agent_input_log`.
+- When multiple sessions exist, prefer the most recent one unless the user's message clearly references an older task.
+        """
+        key_pattern = f"session:{sender}:{func_name}:*"
+        parsed_results: list[InputHistory] = []
+
+        try:
+            for redis_key in self.redis_client.scan_iter(match=key_pattern):
+                data = self.redis_client.hgetall(redis_key)
+                if not data:
+                    continue
+
+                decoded = self._decode_redis_hash(data)
+                decoded.setdefault("sender", sender)
+                decoded.setdefault("func_name", func_name)
+                decoded.setdefault("message", "")
+                decoded.setdefault("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+                if not decoded.get("session_id"):
+                    key_text = self._decode_redis_value(redis_key)
+                    parts = key_text.rsplit(":", 1)
+                    if len(parts) == 2:
+                        decoded["session_id"] = parts[1]
+
+                try:
+                    parsed_results.append(InputHistory(**decoded))
+                except Exception as exc:
+                    logger.warning(
+                        "Skipping invalid input history record for sender=%s func=%s: %s",
+                        sender,
+                        func_name,
+                        exc,
+                    )
+        except Exception as exc:
+            logger.warning("Failed to read Redis session logs for sender=%s func=%s: %s", sender, func_name, exc)
+            return []
+
+        parsed_results.sort(key=lambda item: item.timestamp, reverse=True)
+        return parsed_results
+
+    def get_latest_agent_input_log(self, sender: str, func_name: str) -> InputHistory | None:
+        sessions = self.get_agent_input_log(sender=sender, func_name=func_name)
+        return sessions[0] if sessions else None
+        
+
+    def find_session_agent_input_log(self,sender: str, func_name: str, session_id: str) -> dict | None:
+        """Get an input log entry based on task_id. This is currently used for retrieving input history after task completion."""
+        # collection = self.db.get_collection(self.input_history_collection)
+        # results = collection.find_one({"session_id": session_id})
+        # if not results:
+        #     return None
+        # try:
+        #     return InputHistory(**results)
+        # except Exception as exc:
+        #     logger.warning("Invalid input history record for session_id=%s: %s", session_id, exc)
+        #     return None
+        key = f"session:{sender}:{func_name}:{session_id}"
+        try:
+            data = self.redis_client.hgetall(key)
+            if not data:
+                return None
+
+            self.redis_client.expire(key, self._session_ttl)  # Refresh expiration on access
+            return self._decode_redis_hash(data)
+        except Exception as exc:
+            logger.warning("Failed to read Redis session key=%s: %s", key, exc)
+            return None
+        
+    
     def add_agent_input_log(self, input_history: InputHistory) -> bool:
         """Insert log for every agent action base on sender and message content. This is currently used for recording pending messages and their status changes."""
-        collection = self.db.get_collection(self.input_history_collection)
-        results = collection.insert_one(input_history.model_dump())
-        return bool(results.inserted_id)
-    
-    def update_agent_status_input_log(self, task_id: str, new_status: str) -> bool:
-        """Update the status of an existing input log entry based on task_id. This is currently used for updating the status of pending messages (e.g., from 'processing' to 'completed')."""
-        collection = self.db.get_collection(self.input_history_collection)
-        results = collection.find_one({"id": task_id})
-        if not results:
+        # collection = self.db.get_collection(self.input_history_collection)
+        # results = collection.insert_one(input_history.model_dump())
+        # return bool(results.inserted_id)
+        key = f"session:{input_history.sender}:{input_history.func_name}:{input_history.session_id}"
+        record_map = input_history.model_dump()
+        if not record_map.get("timestamp"):
+            record_map["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        try:
+            self.redis_client.hset(key, mapping=record_map)
+            self.redis_client.expire(key, self._session_ttl)
+            data = self.redis_client.hgetall(key)
+            if not data:
+                return False
+            return True
+        except Exception as exc:
+            logger.warning("Failed to write Redis input history key=%s: %s", key, exc)
             return False
-        
-        result = collection.update_one(
-            {"id": task_id},
-            {"$set": {"status": new_status}}
-        )
-        return result.modified_count > 0
     
-    def delete_agent_input_log(self, task_id: str) -> bool:
+    def update_agent_status_input_log(self, sender: str, session_id: str, func_name: str, message: str) -> bool:
+        """Update the status of an existing input log entry based on task_id. This is currently used for updating the status of pending messages (e.g., from 'processing' to 'completed')."""
+        # collection = self.db.get_collection(self.input_history_collection)
+        # result = collection.update_one(
+        #     {"session_id": session_id},
+        #     {"$set": {"func_name": func_name, "message": message}}
+        # )
+        
+        if not session_id:
+            return False
+
+        key = f"session:{sender}:{func_name}:{session_id}"
+        try:
+            self.redis_client.hset(
+                key,
+                mapping={
+                    "sender": sender,
+                    "func_name": func_name,
+                    "session_id": session_id,
+                    "message": message,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            )
+            self.redis_client.expire(key, self._session_ttl)
+            return bool(self.redis_client.hgetall(key))
+        except Exception as exc:
+            logger.warning("Failed to update Redis session key=%s: %s", key, exc)
+            return False
+
+    def delete_agent_input_log(self, session_id: str) -> bool:
         """Delete log for every agent action base on sender. This is currently used for cleaning up input history after task completion."""
         collection = self.db.get_collection(self.input_history_collection)
-        result = collection.delete_many({"id": task_id})
+        result = collection.delete_many({"session_id": session_id})
         return result.deleted_count > 0
-
 
     def db_get_historical_pending_messages(self, sender: str) -> list:
         """Reserved for future historical pending-message lookup."""
         collection = self.db.get_collection(self.log_system_collection)
-        results = collection.find(LogSystemEntry(
-                sender=sender,
-                level=LogSystemEntry.Level.PENDING
-            ).model_dump()
+        results = collection.find(
+            {
+                "$or": [
+                    {"sender": sender},
+                    {"metadata.sender": sender},
+                ]
+            }
         ).sort("timestamp", -1)
         return list(results)
     

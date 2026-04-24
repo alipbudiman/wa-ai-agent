@@ -9,7 +9,7 @@
         "contact": {},
         "version": "1.0"
     },
-    "host": "localhost:8001",
+    "host": "localhost:8080",
     "basePath": "/",
     "paths": {
         "/v1/contact/info/{number}": {

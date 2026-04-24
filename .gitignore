@@ -2,6 +2,7 @@
 /playground
 .github/
 .vscode/
+.venv
 
 .env
 use.env.file
@@ -9,3 +10,4 @@ wa_session.db
 test.py
 TODO
 docker-note.md
+pm.py

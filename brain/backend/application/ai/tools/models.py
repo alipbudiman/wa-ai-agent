@@ -35,11 +35,11 @@ class LogSystemEntry(BaseModel):
     metadata: dict | None = None
 
 class InputHistory(BaseModel):
-    id: str = Field(description="Unique identifier for the input history entry.")
+    session_id: str = Field(description="Unique identifier for the input history entry.")
     timestamp: str = Field(description="format YYYY-MM-DD HH:MM:SS (human-readable time). e.g., 2026-04-11 14:35:22")
     sender: str = Field(description="Identifier of the user who sent the input.")
-    message: str = Field(description="Content of the user input message.")
-    status: str = Field(description="Current status of the input (e.g., pending, processed, completed).")
+    message: str = Field(description="Content of the function that was called.")
+    func_name: str = Field(description="Function name of the tool that was called.")
 
 class SendMessageInput(BaseModel):
     number: str = Field(description="Recipient identifier. Required. Use a clean numeric user ID (e.g., 6281234567890) or a full WhatsApp JID when server must be preserved (e.g., 867051314767696@lid). Never guess or fabricate this value.")
@@ -78,7 +78,17 @@ class WorkerTaskInput(BaseModel):
             "diagnostic or test goals unless the user explicitly asks for testing."
         )
     )
-    work_dir: str = Field(
+    session_id: str | None = Field(
+        default=None,
+        description=(
+            "Session ID from a previous worker execution. Optional. Defaults to None (new session). "
+            "When the user wants to continue or resume a previous task, first call `agent_input_log` "
+            "with `func_name='run_worker'` to retrieve existing sessions, then pass the matching "
+            "`session_id` here so the worker resumes from prior conversation context. "
+            "If no previous session exists or the task is entirely new, leave as None."
+        )
+    )
+    work_dir: str | None = Field(
         default="playground/",
         description=(
             "Working directory for the agent's terminal commands. Optional. Defaults to 'playground/'. "

@@ -66,6 +66,16 @@ func Load() Config {
 				InboxCollectionName:        cfg_struct.INBOX_COLLECTION_NAME,
 				InputHistoryCollectionName: cfg_struct.INPUT_HISTORY_COLLECTION_NAME,
 			},
+			AIReply: cfg_struct.AIReplyConfig{
+				Enable: func() bool {
+					return cfg_struct.AppConfig{}.GetAIReplyConfig().Enable()
+				},
+			},
+			AIGroupInterraction: cfg_struct.AIGroupInteractionConfig{
+				Enable: func() bool {
+					return cfg_struct.AppConfig{}.GetAIGroupInteractionConfig().Enable()
+				},
+			},
 			Dynamic: cfg_struct.DynamicManagerConfig{
 				RandID: func() string {
 					return pkg.GenerateUID() // Replace with actual random ID generation logic

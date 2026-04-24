@@ -58,12 +58,6 @@ class WebSearchTool:
         argument is INTERNAL and injected by the system runtime (graph state),
         so the model/user should not provide it manually.
 
-        Workflow:
-        1. Validate Tavily API key availability.
-        2. Send progress notification to the active chat user.
-        3. Execute Tavily search with current timestamp context.
-        4. Normalize and log raw results.
-        5. Ask the LLM to produce a concise answer based on those results.
 
         Args:
             query: The search question/keywords from user intent.
@@ -148,4 +142,4 @@ class WebSearchTool:
         )
     
 
-             
+    

@@ -8,6 +8,31 @@ services:
     volumes:
       - mongo_data:/data/db
 
+  redis:
+    image: redis:7-alpine
+    container_name: wa-agent-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: wa-agent-redisinsight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    environment:
+      - RI_REDIS_HOST=redis
+      - RI_REDIS_PORT=6379
+      - RI_REDIS_PASSWORD=
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      - redis
+
   ollama:
     image: ollama/ollama:latest
     container_name: wa-agent-ollama
@@ -28,17 +53,24 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - MONGODB_URI=mongodb://mongo:27017
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_TTL=2592000
       - ANTHROPIC_BASE_URL=http://ollama:11434
       - GIN_SERVER_HOST=wa-agent
       - GIN_SERVER_PORT=8001
+      - RUN_SUBAGENT_DIR=/app/playground/runSubagent
     depends_on:
       - mongo
+      - redis
       - ollama
     ports:
       - "8000:8000"
     volumes:
-      - ./.claude:/app/.claude:ro
+      - agents_data:/app/.agents
+      - claude_data:/app/.claude
       - playground_data:/app/playground
+      - ./playground/runSubagent:/app/playground/runSubagent
 
   wa-agent:
     build:
@@ -55,6 +87,7 @@ services:
       - GIN_SERVER_PORT=8001
       - MONGODB_URI=mongodb://mongo:27017
       - WA_SESSION_DSN=file:/app/data/wa_session.db?_pragma=foreign_keys(1)
+      - OLLAMA_BASE_URL=http://ollama:11434
       - ANTHROPIC_BASE_URL=http://ollama:11434
     depends_on:
       - brain
@@ -63,12 +96,18 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./.claude:/app/.claude:ro
+      - agents_data:/app/.agents
+      - claude_data:/app/.claude
       - wa_session_data:/app/data
       - playground_data:/app/playground
+      - ./playground/runSubagent:/app/playground/runSubagent
 
 volumes:
   mongo_data:
+  redis_data:
+  redisinsight_data:
   wa_session_data:
   ollama_data:
   playground_data:
+  agents_data:
+  claude_data:

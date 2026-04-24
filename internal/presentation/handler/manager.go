@@ -4,6 +4,7 @@ import (
 	"context"
 
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
+	rulebase "github.com/alipbudiman/wa-ai-agent.git/internal/usecase/agent"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -35,7 +36,6 @@ func GetAIDataStatus(ctx context.Context, chatCompleter ports.ChatCompleter) (*p
 func GetInboxAddress(manager ports.Manager) (types.JID, error) {
 	return manager.GetInboxAddress()
 }
-
 
 func SetInboxAddress(manager ports.Manager, number string) error {
 	return manager.SetInboxAddress(number)
@@ -69,6 +69,15 @@ func MarkInboxMessageAsRead(manager ports.Manager, msg_id string) error {
 	return manager.MarkInboxMessageAsRead(msg_id)
 }
 
+func GetAllCommands(manager ports.Manager) ([]string, error) {
+	register := rulebase.RegisteredCommands()
+	var commandStr []string
+	for _, cmd := range register.All() {
+		commandStr = append(commandStr, cmd.Command)
+	}
+	return commandStr, nil
+}
+
 // TODO: GUI - add this function into get provider via GUI
 func GetSelectedAIProvider(manager ports.Manager) (string, error) {
 	return manager.GetSelectedAIProvider()
@@ -77,4 +86,12 @@ func GetSelectedAIProvider(manager ports.Manager) (string, error) {
 // TODO: GUI - add this function into set provider via GUI
 func SetSelectedAIProvider(manager ports.Manager, providerName string) error {
 	return manager.SetSelectedAIProvider(providerName)
+}
+
+func StoreAIMessageToInbox(manager ports.Manager, message string, senderNumber string) error {
+	return manager.StoreAIMessageToInbox(message, senderNumber)
+}
+
+func InjectAIConversation(chatCompleter ports.ChatCompleter, conversation string, senderNumber string) (bool, error) {
+	return chatCompleter.InjectAIConversation(context.Background(), conversation, senderNumber)
 }
