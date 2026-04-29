@@ -40,6 +40,11 @@ class ChatAgentProcessDiagramResponse(BaseModel):
     mermaid: str
 
 
+class AIDataInjectionRequest(BaseModel):
+    number: str
+    messages: str
+
+
 def create_health_router(usecase: CheckHealthUseCase) -> APIRouter:
     router = APIRouter(prefix="/checkhealth", tags=["health"])
 
@@ -65,8 +70,8 @@ def create_ai_data_router(usecase: CheckAIData) -> APIRouter:
         )
     
     @router.post("/inject-conversation", response_model=AIDataInjectionResponse)
-    def inject_conversation(number: str, messages: str):
-        return usecase.injectAIConversation(number=number, messages=messages)
+    def inject_conversation(request: AIDataInjectionRequest):
+        return usecase.injectAIConversation(number=request.number, messages=request.messages)
 
     return router
 

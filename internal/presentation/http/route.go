@@ -191,7 +191,36 @@ func storeAIMessageHandler(manager ports.Manager) gin.HandlerFunc {
 	}
 }
 
-func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, cfg *config.Config, router *gin.Engine) *gin.Engine {
+func injectAIConversationHandler(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req StoreAIMessageRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		normalizedJID, err := waClient.ParseJID(req.Number)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid number or jid")
+			return
+		}
+
+		success, err := handler.InjectAIConversation(chatCompleter, req.Message, normalizedJID.ToNonAD().String())
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to inject AI conversation")
+			return
+		}
+
+		if !success {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to inject AI conversation")
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "AI conversation injected successfully", nil)
+	}
+}
+
+func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, chatCompleter ports.ChatCompleter, cfg *config.Config, router *gin.Engine) *gin.Engine {
 	v1 := router.Group(BOT_ROUTE_BASE)
 	{
 		v1.GET("/me", meHandler(waClient))
@@ -201,6 +230,7 @@ func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, cfg *config.
 		v1.POST("/message/send-file", sendFileHandler(waClient, manager))
 		v1.GET("/commands", getAllCommandsHandler(manager))
 		v1.POST("/store-ai-message", storeAIMessageHandler(manager))
+		v1.POST("/inject-conversation", injectAIConversationHandler(waClient, chatCompleter))
 	}
 
 	return router

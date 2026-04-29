@@ -13,6 +13,7 @@ from backend.application.ai.agents import ChatAgentUseCase
 
 from backend.application.ai.instruction import Instruction
 from backend.application.ai.tools.time import TimeTool
+from config.config import Config
 class State(MessagesState):
     summary: str = ""
 
@@ -41,9 +42,27 @@ class ResearchAgentUsecase:
         self.wa_integration_tool = WhatsAppIntegration()
         self.agent_usecase = ChatAgentUseCase()
         self.time_tool = TimeTool()
-        
+        self.config = Config()
+    
+    def __llm(self, max_retry=3, retry_count=0, set_default_on_error=None):
+        try:
+            if retry_count >= max_retry:
+                raise Exception("Maximum retry attempts reached for LLM configuration. Please check your configurations and try again.")
+            
+            if not set_default_on_error:
+                ai_config =  self.config.get_agent_model_config()
+                agent_model_config = ai_config.research_model if ai_config.research_model.agent_provider != "default" else None
+            else:
+                agent_model_config = None
+            return self.llm.LLM(reasoning=True, providers=agent_model_config)
+        except Exception as e:
+            logger.error(f"Error initializing LLM: {str(e)}. Retry count: {retry_count}")
+            if "internal Server Error" in str(e).lower() and "status code: -1" in str(e).lower():
+                return self.llm.LLM(reasoning=True, retry_count=retry_count + 1, set_default_on_error=True)
+            raise e
+
     def __conversation(self, state: State):
-        return {"messages": [self.llm.LLM(reasoning=True).invoke([self.sys_msg] + state["messages"])]}
+        return {"messages": [self.__llm().invoke([self.sys_msg] + state["messages"])]}
     
     def should_continue(self, state: State, max_chat_to_summarize: int = 10) -> Literal["summarize_conversation", "__end__"]:
         
@@ -77,7 +96,7 @@ class ResearchAgentUsecase:
 
         # Add prompt to our history
         messages = state["messages"] + [HumanMessage(content=summary_message)]
-        response = self.llm.LLM(reasoning=True).invoke(messages)
+        response = self.__llm().invoke(messages)
         
         # Delete all but the 2 most recent messages
         delete_messages = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
@@ -129,8 +148,7 @@ class ResearchAgentUsecase:
             results_message = self.agent_usecase.extract_ai_content(result.get('messages', []))
             logger.info(f"Detail contact information for {number}: {contact_info}")
             self.wa_integration_tool.store_ai_message_to_inbox(results_message, number)
-            if not group_id:
-                self.wa_integration_tool.request_send_message(send_to, results_message, send_to)
+            self.wa_integration_tool.request_send_message(send_to, results_message, send_to)
         except Exception as e:
             logger.error(f"An error occurred while processing the research agent: {str(e)}")
             error_message = f"An error occurred: {str(e)}"

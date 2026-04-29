@@ -161,15 +161,6 @@ Session Resume (IMPORTANT):
 
     def find_session_agent_input_log(self,sender: str, func_name: str, session_id: str) -> dict | None:
         """Get an input log entry based on task_id. This is currently used for retrieving input history after task completion."""
-        # collection = self.db.get_collection(self.input_history_collection)
-        # results = collection.find_one({"session_id": session_id})
-        # if not results:
-        #     return None
-        # try:
-        #     return InputHistory(**results)
-        # except Exception as exc:
-        #     logger.warning("Invalid input history record for session_id=%s: %s", session_id, exc)
-        #     return None
         key = f"session:{sender}:{func_name}:{session_id}"
         try:
             data = self.redis_client.hgetall(key)
@@ -185,9 +176,6 @@ Session Resume (IMPORTANT):
     
     def add_agent_input_log(self, input_history: InputHistory) -> bool:
         """Insert log for every agent action base on sender and message content. This is currently used for recording pending messages and their status changes."""
-        # collection = self.db.get_collection(self.input_history_collection)
-        # results = collection.insert_one(input_history.model_dump())
-        # return bool(results.inserted_id)
         key = f"session:{input_history.sender}:{input_history.func_name}:{input_history.session_id}"
         record_map = input_history.model_dump()
         if not record_map.get("timestamp"):
@@ -206,12 +194,6 @@ Session Resume (IMPORTANT):
     
     def update_agent_status_input_log(self, sender: str, session_id: str, func_name: str, message: str) -> bool:
         """Update the status of an existing input log entry based on task_id. This is currently used for updating the status of pending messages (e.g., from 'processing' to 'completed')."""
-        # collection = self.db.get_collection(self.input_history_collection)
-        # result = collection.update_one(
-        #     {"session_id": session_id},
-        #     {"$set": {"func_name": func_name, "message": message}}
-        # )
-        
         if not session_id:
             return False
 

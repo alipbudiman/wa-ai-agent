@@ -614,7 +614,8 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 			"InboxMessages": inbox_messages,
 			"SetupBaseURL":  fmt.Sprintf("%s%s%s", API_BASE_PATH, setupRoute.Origin, setupRoute.Inbox),
 			// base on v1.POST("/message/send", sendMessageHandler(waClient)) in route.go
-			"SendMessageEndpoint": fmt.Sprintf("%s%s", BOT_ROUTE_BASE, "/message/send"),
+			"SendMessageEndpoint":        fmt.Sprintf("%s%s", BOT_ROUTE_BASE, "/message/send"),
+			"InjectConversationEndpoint": fmt.Sprintf("%s%s", BOT_ROUTE_BASE, "/inject-conversation"),
 		})
 	})
 

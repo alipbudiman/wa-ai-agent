@@ -1,3 +1,4 @@
+from langchain_core.messages import HumanMessage
 from pycloudflared import try_cloudflare
 from pydantic import BaseModel
 from backend.application.ai.tools.models import LevelSystem
@@ -23,21 +24,23 @@ from claude_agent_sdk import (
 
 from backend.application.ai.tools.filex import FileX
 from backend.application.ai.tools.websearch import WebSearchTool
-from backend.application.ai.tools.models import WorkerTaskInput
+from backend.application.ai.tools.models import InputHistory, WorkerTaskInput
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
+from backend.application.ai.tools.dbaccess import DBAcess
 from config.config import Config, BASE_DIR
 from typing import TypedDict, Annotated
 import operator
 
-from langgraph.graph import MessagesState, StateGraph
+from langgraph.graph import END, START, StateGraph
 
 class AgentInnerResult(BaseModel):
     message: str
     session_id: str | None
 
-class AgentState(MessagesState):
+class AgentState(TypedDict):
     sender: str
-    message: Annotated[str, operator.add]
+    context: str
+    session_id: str | None
 
 class AgentCodeInput(TypedDict):
     task: str
@@ -94,12 +97,14 @@ class AgentCodeUsecase:
         self.filex_tool = FileX()
         self.web_search_tool = WebSearchTool()
         self.config = Config()
+        self.db_access = DBAcess()
 
         self._repo_root = Path(BASE_DIR).resolve()
         self._playground_root = self.filex_tool._playground_root
         self._run_subagent_root = self.filex_tool._run_subagent_root
         self._claude_instructions_root = self.filex_tool._claude_instructions_root
         self._agent_skills_root = self.filex_tool._agent_skills_root
+        self._process_diagram_mermaid = ""
 
     # ------------------------------------------------------------------
     # MCP tools for worker sub-agent
@@ -675,6 +680,30 @@ class AgentCodeUsecase:
                     await self._send_worker_progress(sender, step, f"Task {subtype}", description)
             elif isinstance(message, ResultMessage) and message.subtype == "success":
                 result_message = "" if message.result is None else str(message.result)
+                # add or update session_id
+                final_session_id = options.resume
+                if final_session_id:
+                    existing = self.db_access.find_session_agent_input_log(
+                        sender=sender,
+                        func_name=self.run_worker.__name__,
+                        session_id=final_session_id,
+                    )
+                    if existing:
+                        self.db_access.update_agent_status_input_log(
+                            sender=sender,
+                            session_id=final_session_id,
+                            func_name=self.run_worker.__name__,
+                            message=result_message or "",
+                        )
+                    else:
+                        self.db_access.add_agent_input_log(InputHistory(
+                            session_id=final_session_id,
+                            timestamp="",
+                            sender=sender,
+                            message=result_message or "",
+                            func_name=self.run_worker.__name__,
+                        ))
+
                 if result_message:
                     result_text = result_message.strip()
                     if result_text:
@@ -792,11 +821,6 @@ class AgentCodeUsecase:
                 f"Session: {resume_label}\n"
                 f"Result:\n{normalized_result}"
             )
-        
-        def agent_code_sub_graph(self):
-            
-            
-            pass
             
 
         def _worker_sync(task: str, session_id: str = None, work_dir: str = "playground/", wait_for_completion: bool = True) -> str:
@@ -810,6 +834,47 @@ class AgentCodeUsecase:
             description=self.run_worker_tool_description(),
             args_schema=WorkerTaskInput
         )
+    
+    def __llm(self, reasoning: bool = True):
+        ai_config =  self.config.get_agent_model_config()
+        agent_code_model_config = ai_config.agent_code_model if ai_config.agent_code_model.agent_provider != "default" else None
+        return self.llm.LLM(reasoning=reasoning, providers=agent_code_model_config)
+    
+    def get_all_code_session_logs(self, state: AgentState | None = None):
+        sess_list = self.db_access.get_latest_agent_input_log(
+            sender= state.get("sender", ""),
+            func_name=self.run_worker.__name__
+        )
+        list_str = "\n".join([f"- session_id: {sess.session_id}, timestamp: {sess.timestamp}, message: {sess.message}" for sess in sess_list])
+        session_id = self.__llm().invoke([AssistantMessage(content=f"""#Rules:
+Pada Seasson List du bawah ini, temukan sesi yng sesuai dari context percakapan sebelumnya
+dengan user, Sesi yang dicari adalah sesi yang memiliki hubungan dengan context tersebut. Jika tidak ada sesi yang sesuai, jawab dengan string kosong ''.
+Jika ada beberapa sesi yang sesuai, pilih sesi yang paling relevan berdasarkan konteks percakapan sebelumnya, seperti kesamaan tugas atau waktu percakapan.
+Berikan jawaban dalam return fromat string:
+{list_str}
+                                                       """)]+[HumanMessage(content=state.get("context", ""))])
+        return session_id
+        
+    
+    
+
+    def agent_code_sub_graph(self):
+        code_graph = StateGraph(AgentState)
+        code_graph.add_node("start_get_session", self.start_get_session)
+        code_graph.add_node("get_session", self.db_access.get_agent_input_log(
+            sender= code_graph.get("sender", ""),
+            func_name=self.run_worker.__name__
+        ))
+        code_graph.add_node("run_worker", self.run_worker(code_graph.get("sender", "")))
+        
+        code_graph.add_edge(START, "get_session")
+        code_graph.add_edge("get_session", "run_worker")
+        code_graph.add_edge("run_worker", END)
+        
+        try:self._process_diagram_mermaid = code_graph.get_graph().draw_mermaid()
+        except:self._process_diagram_mermaid = ""
+        
+        return code_graph
     
     async def CodeChatAgent(
             self, 
@@ -830,7 +895,7 @@ class AgentCodeUsecase:
             safe_work_dir = self.safe_worker_dir(task=messages, work_dir="playground/")
             worker_prompt = self.build_worker_prompt(task=messages, work_dir=safe_work_dir)
             result = await self._async_agent_inner(send_to, worker_prompt, safe_work_dir)
-            result_message = result.message if hasattr(result, 'message') else str(result)
+            result_message = result.get('message') if isinstance(result, dict) and 'message' in result else str(result)
             await asyncio.to_thread(
                 self.wa_bot.request_send_message,
                 send_to,

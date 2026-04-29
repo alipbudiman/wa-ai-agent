@@ -232,6 +232,7 @@ Session Resume (IMPORTANT):
         """
 
         self.ROUTE_QUERY_CLASSIFIER_INSTRUCTION = """
+### AI RULE ROUTE QUERY
 Classify the latest user message into exactly one label: direct_chat or assistant.
 Output only one label with no extra text.
 
@@ -255,6 +256,7 @@ Always route to assistant for examples like:
 - database/history retrieval
 - capability/feature scope questions that should call capability_description
 - doing task or job that requires multiple steps, complex reasoning, or state validation
+- if user send contact and information, see chat hostory, and take action base on chat history
 
 Usually route to direct_chat for examples like:
 - greeting, thanks, acknowledgement

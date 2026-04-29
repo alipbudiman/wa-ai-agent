@@ -548,7 +548,7 @@ word-break: break-word;
 
 .conversation-composer {
 display: flex;
-align-items: center;
+align-items: flex-end;
 gap: 0.5rem;
 border: 1px solid rgba(255, 255, 255, 0.14);
 border-radius: 0.78rem;
@@ -560,6 +560,8 @@ margin-top: 0.7rem;
 .chat-input {
 flex-grow: 1;
 min-width: 0;
+min-height: 2.3rem;
+max-height: 8.6rem;
 background: var(--color-bg-soft);
 border: 1px solid rgba(255, 255, 255, 0.16);
 border-radius: 0.58rem;
@@ -568,6 +570,8 @@ font-family: var(--font-mono);
 font-size: 0.78rem;
 line-height: 1.2;
 padding: 0.5rem 0.7rem;
+resize: none;
+overflow-y: hidden;
 }
 
 .chat-input::placeholder {
@@ -770,7 +774,7 @@ justify-content: flex-end;
 <span id="busyStateText">Working...</span>
 </div>
 
-<main id="inboxApp" class="container-fluid app-shell py-3 py-lg-4" data-inbox-base-url="{{ .SetupBaseURL }}" data-send-message-endpoint="{{ .SendMessageEndpoint }}">
+<main id="inboxApp" class="container-fluid app-shell py-3 py-lg-4" data-inbox-base-url="{{ .SetupBaseURL }}" data-send-message-endpoint="{{ .SendMessageEndpoint }}" data-inject-conversation-endpoint="{{ .InjectConversationEndpoint }}">
 <section class="panel-surface topbar-panel">
 <div class="topbar-row">
 <div>
@@ -824,7 +828,7 @@ justify-content: flex-end;
 </div>
 
 <div class="conversation-composer">
-<input type="text" id="chatInput" class="chat-input" placeholder="Select a conversation to send a message" autocomplete="off" disabled />
+<textarea id="chatInput" class="chat-input" placeholder="Select a conversation to send a message" rows="1" disabled></textarea>
 <button type="button" class="btn btn-tech-primary btn-send-message js-action" id="sendChatBtn" aria-label="Send message" disabled>
 <svg viewBox="0 0 16 16" fill="none" role="presentation" aria-hidden="true"><path d="M14 2 2.7 7.2c-.42.2-.41.82.03 1L6.6 9.5l1.28 3.85c.14.44.75.48.95.07L14 2Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"></path><path d="M6.56 9.52 14 2.01" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"></path></svg>
 </button>
@@ -885,6 +889,7 @@ justify-content: flex-end;
 const appRoot = document.getElementById("inboxApp");
 const inboxBaseURL = ((appRoot && appRoot.dataset ? appRoot.dataset.inboxBaseUrl : "") || "/api/bot-setup/inbox").replace(/\/+$/, "");
 const sendMessageEndpoint = ((appRoot && appRoot.dataset ? appRoot.dataset.sendMessageEndpoint : "") || "/v1/message/send").trim();
+const injectConversationEndpoint = ((appRoot && appRoot.dataset ? appRoot.dataset.injectConversationEndpoint : "") || "/v1/inject-conversation").trim();
 const payloadNode = document.getElementById("inboxSsrPayload");
 let ssrPayload = {};
 
@@ -1331,25 +1336,41 @@ function getSelectedThread() {
 return state.threads.find((thread) => thread.jid === state.selectedJID);
 }
 
+function autoResizeComposerInput() {
+if (!ui.chatInput) {
+return;
+}
+
+ui.chatInput.style.height = "auto";
+const minHeight = 36;
+const maxHeight = 138;
+const desiredHeight = Math.max(minHeight, Math.min(ui.chatInput.scrollHeight, maxHeight));
+ui.chatInput.style.height = `${desiredHeight}px`;
+ui.chatInput.style.overflowY = ui.chatInput.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
 function setComposerState() {
 const selectedThread = getSelectedThread();
 const hasSelectedThread = Boolean(selectedThread);
+const hasMessage = Boolean(normalizeMessageText(ui.chatInput.value));
 const disabled = !hasSelectedThread || state.isBusy;
 
 ui.chatInput.disabled = disabled;
-ui.sendChatBtn.disabled = disabled;
+ui.sendChatBtn.disabled = disabled || !hasMessage;
 
 if (!hasSelectedThread) {
 ui.chatInput.placeholder = "Select a conversation to send a message";
 ui.chatInputHint.textContent = "Select a thread to enable outgoing messages.";
+autoResizeComposerInput();
 return;
 }
 
 ui.chatInput.placeholder = "Type a message...";
 const targetNumber = resolveThreadNumber(selectedThread, state.selectedJID);
 ui.chatInputHint.textContent = targetNumber
-? `Sending to ${targetNumber}`
-: `Sending to ${state.selectedJID}`;
+? `Sending to ${targetNumber} | Enter to send | Ctrl+Enter for new line`
+: `Sending to ${state.selectedJID} | Enter to send | Ctrl+Enter for new line`;
+autoResizeComposerInput();
 }
 
 function updateThreadsToggleLabel() {
@@ -1777,6 +1798,20 @@ throw new Error(result.message || "Request failed");
 return result;
 }
 
+async function injectConversationToAIThread(number, message) {
+await requestJSON(injectConversationEndpoint, {
+method: "POST",
+headers: {
+"Accept": "application/json",
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+number,
+message,
+}),
+});
+}
+
 async function syncInboxFromServer() {
 const result = await requestJSON(`${inboxBaseURL}/`, { method: "GET" });
 state.messages = normalizeMessages(result.data);
@@ -2132,10 +2167,22 @@ store: true,
 }),
 });
 
+let injectFailureMessage = "";
+try {
+await injectConversationToAIThread(targetJID, outgoingMessage);
+} catch (error) {
+injectFailureMessage = error instanceof Error ? error.message : "Unknown error";
+}
+
 appendLocalOutgoingMessage(targetJID, outgoingMessage);
 ui.chatInput.value = "";
+autoResizeComposerInput();
 rebuildView(true);
-setFeedback("Message sent successfully.", false);
+if (injectFailureMessage) {
+setFeedback(`Message sent, but failed to inject AI conversation: ${injectFailureMessage}`, true);
+} else {
+setFeedback("Message sent and AI conversation updated successfully.", false);
+}
 
 window.requestAnimationFrame(() => {
 if (!ui.chatInput.disabled) {
@@ -2155,8 +2202,15 @@ ui.sendChatBtn.addEventListener("click", handleSendMessageFromComposer);
 ui.toggleThreadsBtn.addEventListener("click", () => {
 setThreadsCollapsed(!state.threadsCollapsed);
 });
+ui.chatInput.addEventListener("input", () => {
+setComposerState();
+});
 ui.chatInput.addEventListener("keydown", (event) => {
-if (event.key !== "Enter" || event.shiftKey) {
+if (event.key !== "Enter" || event.isComposing) {
+return;
+}
+
+if (event.ctrlKey || event.metaKey || event.shiftKey) {
 return;
 }
 

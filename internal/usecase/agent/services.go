@@ -242,9 +242,14 @@ func (h *Agents) wrapNoAccessHandler(v *events.Message, content InboxContent) bo
 }
 
 func (h *Agents) autoReplyAIHandler(v *events.Message, resolvedSender types.JID, text string) error {
-	if v.Info.Chat.Server == types.GroupServer && !h.config.App.AIGroupInterraction.Enable() {
-		return nil
+
+	if v.Info.Chat.Server == types.GroupServer {
+		if !h.config.App.AIGroupInterraction.Enable() {
+			return nil
+		}
 	}
+	pkg.Marker(pkg.IoColorCyan, "server:", v.Info.Chat.Server, "config interract:", h.config.App.AIGroupInterraction.Enable())
+
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
 		[]openai.ChatCompletionMessage{

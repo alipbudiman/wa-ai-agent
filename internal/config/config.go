@@ -76,6 +76,20 @@ func Load() Config {
 					return cfg_struct.AppConfig{}.GetAIGroupInteractionConfig().Enable()
 				},
 			},
+			AgentConfigModels: cfg_struct.AgentConfigModels{
+				AgentModel: cfg_struct.AgentProvidersAndModel{
+					AgentProvider: func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().AgentModel.AgentProvider() },
+					AgentModel:    func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().AgentModel.AgentModel() },
+				},
+				AgentCodeModel: cfg_struct.AgentProvidersAndModel{
+					AgentProvider: func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().AgentCodeModel.AgentProvider() },
+					AgentModel:    func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().AgentCodeModel.AgentModel() },
+				},
+				ResearchModel: cfg_struct.AgentProvidersAndModel{
+					AgentProvider: func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().ResearchModel.AgentProvider() },
+					AgentModel:    func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().ResearchModel.AgentModel() },
+				},
+			},
 			Dynamic: cfg_struct.DynamicManagerConfig{
 				RandID: func() string {
 					return pkg.GenerateUID() // Replace with actual random ID generation logic

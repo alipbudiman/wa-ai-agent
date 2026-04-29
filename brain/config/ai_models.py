@@ -24,6 +24,16 @@ class AnthropicConfig(BaseModel):
     model: str
     auth_token: str = ""
 
+class AgentProvidersAndModel(BaseModel):
+    agent_provider: str
+    agent_model: str
+
+class AgentConfigModels(BaseModel):
+    config_name: str = "agent_config"
+    agent_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
+    agent_code_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
+    research_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
+
 class AIModelConfigManager:
     def __init__(self):
         self.db = MongoDB()
@@ -92,4 +102,21 @@ class AIModelConfigManager:
             api_key=config.get("api_key", ""),
             model=config.get("model", ""),
             auth_token=config.get("auth_token", ""),
+        )
+    
+    def get_agent_model_config(self) -> AgentConfigModels:
+        config = self.collection.find_one({"config_name": "agent_config"})
+        if config is None:
+            config = AgentConfigModels(
+                config_name="agent_config",
+                agent_model=AgentProvidersAndModel(agent_provider="default", agent_model="default"),
+                agent_code_model=AgentProvidersAndModel(agent_provider="default", agent_model="default"),
+                research_model=AgentProvidersAndModel(agent_provider="default", agent_model="default")
+            ).model_dump()
+            self.collection.insert_one(config)
+        return AgentConfigModels(
+            config_name=config.get("config_name", "agent_config"),
+            agent_model=AgentProvidersAndModel(**config.get("agent_model", {"agent_provider": "default", "agent_model": "default"})),
+            agent_code_model=AgentProvidersAndModel(**config.get("agent_code_model", {"agent_provider": "default", "agent_model": "default"})),
+            research_model=AgentProvidersAndModel(**config.get("research_model", {"agent_provider": "default", "agent_model": "default"}))
         )

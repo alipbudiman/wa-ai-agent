@@ -298,7 +298,9 @@ class ChatAgentUseCase:
         return "end"
     
     def __llm(self, reasoning: bool = True):
-        return self.llm.LLM(reasoning=reasoning)
+        ai_config =  self.config.get_agent_model_config()
+        agent_model_config = ai_config.agent_model if ai_config.agent_model.agent_provider != "default" else None
+        return self.llm.LLM(reasoning=reasoning, providers=agent_model_config)
 
     def __content_to_text(self, content) -> str:
         """
@@ -896,7 +898,6 @@ class ChatAgentUseCase:
 
         return [self.__system_rule(use_tools=use_tools)] + assistant_messages
         
-    # only use for testing (skripsi)
     def __save_process_diagram(self, react_graph) -> None:
         """
         Cache the current LangGraph process flow as Mermaid text.
@@ -966,7 +967,7 @@ class ChatAgentUseCase:
 
         try:
             classification = self.__llm(reasoning=True).invoke([
-                SystemMessage(content=classifier_prompt),
+                AIMessage(content=classifier_prompt),
                 HumanMessage(content=recent_user_messages),
             ])
 

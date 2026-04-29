@@ -134,7 +134,7 @@ func serverRunner(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	router = route.RouterV1(waClient, manager, cfg, router)
+	router = route.RouterV1(waClient, manager, chatCompleter, cfg, router)
 	router = route.ManagerRouter(manager, chatCompleter, waClient, cfg, router)
 	router = route.FrontendRouter(manager, chatCompleter, cfg, router)
 	// Swagger UI route
@@ -225,7 +225,7 @@ func main() {
 	}
 
 	if shouldRunEmbeddedBrain() {
-	go brainRunner()
+		go brainRunner()
 	} else {
 		log.Println("Embedded brain runner disabled; using external brain service")
 	}

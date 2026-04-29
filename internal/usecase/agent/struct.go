@@ -48,6 +48,7 @@ type CommandCollection struct {
 	AgentCode                CommandInfo
 	AutoReplyAIConfig        CommandInfo
 	AIGroupInteractionConfig CommandInfo
+	AgentModelConfig         CommandInfo
 	OllamaConfig             CommandInfo
 	OpenRouterConfig         CommandInfo
 	NvidiaConfig             CommandInfo

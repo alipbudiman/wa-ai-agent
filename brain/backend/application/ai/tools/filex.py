@@ -91,7 +91,8 @@ class FileX:
                 root_dir=file_path
             )
         else:
-            raise FileNotFoundError(f"File or directory not found: {file_path}")
+            list_file_in_dir = [file for file in os.listdir(os.path.dirname(file_path))] if os.path.isdir(os.path.dirname(file_path)) else []
+            return f"File or directory not found: {file_path}\nList of files in directory: {list_file_in_dir}"
             
         return res
     

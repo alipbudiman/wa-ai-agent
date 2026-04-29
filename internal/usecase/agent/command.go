@@ -142,6 +142,12 @@ func RegisteredCommands() CommandCollection {
 			Command:     "/ai-group-interaction-config",
 			Function:    (*Agents).AIGroupInteractionUpdateConfig,
 		},
+		AgentModelConfig: CommandInfo{
+			Name:        "Agent Model Config",
+			Description: "Configure the AI model used by the agent.",
+			Command:     "/agent-model-config",
+			Function:    (*Agents).AgentModelUpdateConfig,
+		},
 		OllamaConfig: CommandInfo{
 			Name:        "Ollama Config",
 			Description: "Configure Ollama LLM provider settings.",
@@ -186,6 +192,7 @@ func (c CommandCollection) All() []CommandInfo {
 		c.AgentResearch,
 		c.AutoReplyAIConfig,
 		c.AIGroupInteractionConfig,
+		c.AgentModelConfig,
 		c.OllamaConfig,
 		c.OpenRouterConfig,
 		c.NvidiaConfig,
@@ -202,7 +209,6 @@ func CommandString() string {
 	}
 	menuText.WriteString("\nUse the command followed by any required parameters to execute.")
 	menuText.WriteString("\nExample: /ping")
-	fmt.Fprintf(&menuText, "\n\n%s", capabilityDescription)
 	return menuText.String()
 }
 
@@ -241,7 +247,7 @@ func (h *Agents) About(args CommandArgs) {
 	aboutText.WriteString("- Multi-Step Workflow Chaining: Combine multiple API operations in sequence (lookup, enrich, summarize, then send).\n")
 	aboutText.WriteString("- Observability and Tracing: Track agent thinking and tool execution flow for debugging and performance tuning.\n")
 
-	if capability := strings.TrimSpace(readCapabilityDescription()); capability != "" {
+	if capability := strings.TrimSpace(capabilityDescription); capability != "" {
 		aboutText.WriteString("\nCapability Snapshot:\n")
 		aboutText.WriteString(capability)
 	}
@@ -1542,4 +1548,154 @@ func (h *Agents) AIGroupInteractionUpdateConfig(args CommandArgs) {
 		log.Printf("failed to send reply message: %v", err)
 	}
 
+}
+
+func (h *Agents) AgentModelUpdateConfig(args CommandArgs) {
+	cmd := RegisteredCommands().AgentModelConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+	list_providers, err := h.chatCompleter.GetAIDataStatus(context.Background())
+	if err != nil {
+		list_providers = &ports.AIDataStatus{
+			ListAIProviders: []string{"ollama", "openrouter", "nvidia", "anthropic"},
+		}
+		log.Printf("failed to get AI providers: %v", err)
+	}
+
+	if configText == "" {
+		config_help := "Agent Model Config Command Usage:\n" +
+			"To set main agent model: `/agent-model-config main [provider] [model]`\n" +
+			"To set code agent model: `/agent-model-config code [provider] [model]`\n" +
+			"To set research agent model: `/agent-model-config research [provider] [model]`\n" +
+			"Example: `/agent-model-config main ollama llama3`\n" +
+			"\n*Current Agent Model Config:*\n" +
+			"- Main Agent:\n" +
+			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.AgentModel.AgentProvider()) +
+			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.AgentModel.AgentModel()) +
+			"- Code Agent Model:\n" +
+			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.AgentCodeModel.AgentProvider()) +
+			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.AgentCodeModel.AgentModel()) +
+			"- Research Agent Model:\n" +
+			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.ResearchModel.AgentProvider()) +
+			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.ResearchModel.AgentModel()) +
+			"\n*Supported Providers:*\n - " +
+			strings.Join(list_providers.ListAIProviders, "\n- ")
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "main "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 2 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/agent-model-config main [provider] [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		provider := configArgs[0]
+		model := configArgs[1]
+		err := cfg_struct.UpdateAgentConfigModels(cfg_struct.AgentConfigModelsDB{
+			AgentModel: cfg_struct.AgentProvidersAndModelDB{
+				AgentProvider: provider,
+				AgentModel:    model,
+			},
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update main agent model config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Main agent model has been updated to provider '%s' and model '%s'.", provider, model)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "code "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 2 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/agent-model-config code [provider] [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		provider := configArgs[0]
+		model := configArgs[1]
+		err := cfg_struct.UpdateAgentConfigModels(cfg_struct.AgentConfigModelsDB{
+			AgentCodeModel: cfg_struct.AgentProvidersAndModelDB{
+				AgentProvider: provider,
+				AgentModel:    model,
+			},
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update code agent model config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Code agent model has been updated to provider '%s' and model '%s'.", provider, model)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "research "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 2 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/agent-model-config research [provider] [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		provider := configArgs[0]
+		model := configArgs[1]
+		err := cfg_struct.UpdateAgentConfigModels(cfg_struct.AgentConfigModelsDB{
+			ResearchModel: cfg_struct.AgentProvidersAndModelDB{
+				AgentProvider: provider,
+				AgentModel:    model,
+			},
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update research agent model config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Research agent model has been updated to provider '%s' and model '%s'.", provider, model)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid config command. Usage:\n" +
+			"To set main agent model: `/agent-model-config main [provider] [model]`\n" +
+			"To set code agent model: `/agent-model-config code [provider] [model]`\n" +
+			"To set research agent model: `/agent-model-config research [provider] [model]`\n" +
+			"Example: `/agent-model-config main ollama llama3`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
 }

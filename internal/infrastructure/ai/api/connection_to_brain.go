@@ -277,15 +277,15 @@ func (o *BrainAPI) GetAIDataStatus(ctx context.Context) (*AIDataStatus, error) {
 	return &status, nil
 }
 
-func (o *BrainAPI) InjectAIConversation(ctx context.Context, number string, messages string) (bool, error) {
+func (o *BrainAPI) InjectAIConversation(ctx context.Context, conversation string, senderNumber string) (bool, error) {
 	endpoint := o.baseURL + "/api/v1/" + "aidata/inject-conversation"
 	if strings.HasSuffix(o.baseURL, "/api/v1") {
 		endpoint = o.baseURL + "/" + "aidata/inject-conversation"
 	}
 
 	payload := InjectAIConversationRequest{
-		Number:   number,
-		Messages: messages,
+		Number:   senderNumber,
+		Messages: conversation,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
