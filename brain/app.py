@@ -1,13 +1,17 @@
 from backend.bootstrap.app_factory import create_app
 from backend.application.ai.tools.filex import FileX
+from backend.application.ai.tools.dbaccess import DBAcess
 
 app = create_app()
 filex_tool = FileX()
+db_access_tool = DBAcess()
 
 print("Playground folder:", filex_tool._playground_root)
 print("RunSubagent folder:", filex_tool._run_subagent_root)
 print("Agent skills folder:", filex_tool._agent_skills_root)
 print("Claude instructions folder:", filex_tool._claude_instructions_root)
+# clear redis
+db_access_tool.clear_agent_input_log()
 
 
 if __name__ == "__main__":

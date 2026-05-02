@@ -37,7 +37,7 @@ class GinServerConfig(BaseModel):
 class Config(AIModelConfigManager):
     def __init__(self):
         super().__init__()
-        self.list_providers = ["ollama", "openrouter", "nvidia" ,"anthropic"]  # Supported AI model providers
+        self.list_providers = ["ollama", "openrouter", "nvidia" ,"anthropic","google", "minimax"]  # Supported AI model providers
         self.__init_all()
         
     def __init_all(self):
@@ -46,10 +46,6 @@ class Config(AIModelConfigManager):
         self.get_tavily_config()
         self.get_langsmith_config()
         self.get_gin_server_config()
-        self.get_openrouter_config()
-        self.get_ollama_config()
-        self.get_nvidia_config()
-        self.get_anthropic_config()
     
     def get_provider_config(self):
         """Fetch provider configuration from MongoDB, with fallback to default if not present. The providers field is a comma-separated string of enabled providers."""

@@ -1,3 +1,4 @@
+from langgraph.checkpoint.mongodb import MongoDBSaver
 import os
 import redis
 from pymongo import MongoClient
@@ -6,6 +7,7 @@ from datetime import datetime
 
 class MongoDB:
     _instance: MongoClient = None
+    _checkpointer: MongoDBSaver = None
     # database configuration
     MONGO_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
     MONGO_DB_NAME = os.getenv('MONGODB_DB_NAME', 'wa_ai_agent_db')
@@ -19,6 +21,12 @@ class MongoDB:
         if cls._instance is None:
             cls._instance = MongoClient(cls.MONGO_URI)
         return cls._instance
+    
+    @classmethod
+    def get_checkpointer(cls) -> MongoDBSaver:
+        if cls._checkpointer is None:
+            cls._checkpointer = MongoDBSaver(cls.get_client(), db_name=cls.MONGO_DB_NAME, collection_name="agent_checkpointer")
+        return cls._checkpointer
     
     @classmethod
     def close(cls):

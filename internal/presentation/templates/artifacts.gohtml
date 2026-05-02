@@ -362,22 +362,81 @@
 			</div>
 
 			<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-				<p class="kicker mb-0">[ Agent Process Flow ]</p>
-				<div class="d-flex gap-2">
-					<button type="button" id="unhideButton" class="btn btn-outline-light btn-tech btn-sm">Unhide</button>
-					<button type="button" id="hideButton" class="btn btn-outline-light btn-tech btn-sm" disabled>Hide</button>
-					<a href="{{ .ProcessDiagramMermaidEndpoint }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Open Mermaid</a>
-					<button type="button" id="reloadButton" class="btn btn-outline-light btn-tech btn-sm">Reload</button>
+				<p class="kicker mb-0">[ Agent Process Flows ]</p>
+			</div>
+
+			<div class="row g-3">
+				<!-- Chat Agent -->
+				<div class="col-12 col-xl-6">
+					<div class="img-wrap">
+						<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+							<span class="kicker mb-0" style="font-size:0.65rem">Chat Agent</span>
+							<div class="d-flex gap-1">
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-unhide" data-target="diagramChat">Unhide</button>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-hide" data-target="diagramChat" disabled>Hide</button>
+								<a href="{{ .ProcessDiagramMermaidEndpoint }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Mermaid</a>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-reload" data-target="diagramChat" data-endpoint="{{ .ProcessDiagramMermaidEndpoint }}">Reload</button>
+							</div>
+						</div>
+						<div id="diagramChatHidden" class="hidden-state" style="min-height:180px">Click <strong>&nbsp;Unhide&nbsp;</strong> to render.</div>
+						<div id="diagramChat" class="diagram-host d-none" aria-live="polite" data-endpoint="{{ .ProcessDiagramMermaidEndpoint }}"></div>
+						<div id="diagramChatAlert" class="not-found rounded-3 py-2 px-3 mt-2 d-none">Diagram unavailable.</div>
+					</div>
 				</div>
-			</div>
 
-			<div class="img-wrap">
-				<div id="hiddenState" class="hidden-state">Diagram is hidden by default. Click <strong>&nbsp;Unhide&nbsp;</strong> to render the process diagram.</div>
-				<div id="diagramHost" class="diagram-host d-none" aria-live="polite"></div>
-			</div>
+				<!-- Code Agent -->
+				<div class="col-12 col-xl-6">
+					<div class="img-wrap">
+						<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+							<span class="kicker mb-0" style="font-size:0.65rem">Code Agent</span>
+							<div class="d-flex gap-1">
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-unhide" data-target="diagramCode">Unhide</button>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-hide" data-target="diagramCode" disabled>Hide</button>
+								<a href="{{ .ProcessDiagramCodeMermaidEndpoint }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Mermaid</a>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-reload" data-target="diagramCode" data-endpoint="{{ .ProcessDiagramCodeMermaidEndpoint }}">Reload</button>
+							</div>
+						</div>
+						<div id="diagramCodeHidden" class="hidden-state" style="min-height:180px">Click <strong>&nbsp;Unhide&nbsp;</strong> to render.</div>
+						<div id="diagramCode" class="diagram-host d-none" aria-live="polite" data-endpoint="{{ .ProcessDiagramCodeMermaidEndpoint }}"></div>
+						<div id="diagramCodeAlert" class="not-found rounded-3 py-2 px-3 mt-2 d-none">Diagram unavailable.</div>
+					</div>
+				</div>
 
-			<div id="notFoundAlert" class="not-found rounded-3 py-2 px-3 mt-3 d-none">
-				Diagram is not available. Ensure Brain API can return Mermaid process diagram text.
+				<!-- Research Agent -->
+				<div class="col-12 col-xl-6">
+					<div class="img-wrap">
+						<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+							<span class="kicker mb-0" style="font-size:0.65rem">Research Agent</span>
+							<div class="d-flex gap-1">
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-unhide" data-target="diagramResearch">Unhide</button>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-hide" data-target="diagramResearch" disabled>Hide</button>
+								<a href="{{ .ProcessDiagramResearchMermaidEndpoint }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Mermaid</a>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-reload" data-target="diagramResearch" data-endpoint="{{ .ProcessDiagramResearchMermaidEndpoint }}">Reload</button>
+							</div>
+						</div>
+						<div id="diagramResearchHidden" class="hidden-state" style="min-height:180px">Click <strong>&nbsp;Unhide&nbsp;</strong> to render.</div>
+						<div id="diagramResearch" class="diagram-host d-none" aria-live="polite" data-endpoint="{{ .ProcessDiagramResearchMermaidEndpoint }}"></div>
+						<div id="diagramResearchAlert" class="not-found rounded-3 py-2 px-3 mt-2 d-none">Diagram unavailable.</div>
+					</div>
+				</div>
+
+				<!-- Reply Agent -->
+				<div class="col-12 col-xl-6">
+					<div class="img-wrap">
+						<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+							<span class="kicker mb-0" style="font-size:0.65rem">Reply Agent</span>
+							<div class="d-flex gap-1">
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-unhide" data-target="diagramReply">Unhide</button>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-hide" data-target="diagramReply" disabled>Hide</button>
+								<a href="{{ .ProcessDiagramReplyMermaidEndpoint }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Mermaid</a>
+								<button type="button" class="btn btn-outline-light btn-tech btn-sm diagram-reload" data-target="diagramReply" data-endpoint="{{ .ProcessDiagramReplyMermaidEndpoint }}">Reload</button>
+							</div>
+						</div>
+						<div id="diagramReplyHidden" class="hidden-state" style="min-height:180px">Click <strong>&nbsp;Unhide&nbsp;</strong> to render.</div>
+						<div id="diagramReply" class="diagram-host d-none" aria-live="polite" data-endpoint="{{ .ProcessDiagramReplyMermaidEndpoint }}"></div>
+						<div id="diagramReplyAlert" class="not-found rounded-3 py-2 px-3 mt-2 d-none">Diagram unavailable.</div>
+					</div>
+				</div>
 			</div>
 
 			<div class="mt-4">
@@ -413,13 +472,101 @@
 
 	<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 	<script>
-		const diagramHost = document.getElementById("diagramHost");
-		const hiddenState = document.getElementById("hiddenState");
-		const unhideButton = document.getElementById("unhideButton");
-		const hideButton = document.getElementById("hideButton");
-		const reloadButton = document.getElementById("reloadButton");
-		const notFoundAlert = document.getElementById("notFoundAlert");
-		const processDiagramEndpoint = "{{ .ProcessDiagramMermaidEndpoint }}";
+		mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+
+		// ── Generic multi-diagram panel controller ────────────────────────────────
+		const diagramState = {}; // keyed by hostId
+
+		function getDiagramEls(hostId) {
+			return {
+				host:    document.getElementById(hostId),
+				hidden:  document.getElementById(hostId + "Hidden"),
+				alert:   document.getElementById(hostId + "Alert"),
+			};
+		}
+
+		function setDiagramVisible(hostId, isVisible) {
+			const { host, hidden } = getDiagramEls(hostId);
+			if (!host || !hidden) return;
+			hidden.classList.toggle("d-none", isVisible);
+			host.classList.toggle("d-none", !isVisible);
+			// sync buttons
+			document.querySelectorAll(`.diagram-unhide[data-target="${hostId}"]`).forEach(b => b.disabled = isVisible);
+			document.querySelectorAll(`.diagram-hide[data-target="${hostId}"]`).forEach(b => b.disabled = !isVisible);
+			document.querySelectorAll(`.diagram-reload[data-target="${hostId}"]`).forEach(b => b.disabled = !isVisible);
+		}
+
+		async function renderMermaidInHost(hostId, mermaidSource) {
+			const { host } = getDiagramEls(hostId);
+			if (!host) return;
+			host.innerHTML = "";
+			const pre = document.createElement("pre");
+			pre.className = "mermaid";
+			pre.textContent = mermaidSource;
+			host.appendChild(pre);
+			await mermaid.run({ nodes: [pre] });
+			if (!diagramState[hostId]) diagramState[hostId] = {};
+			diagramState[hostId].lastSource = mermaidSource;
+			diagramState[hostId].loaded = true;
+		}
+
+		async function fetchAndRenderDiagram(hostId, endpoint) {
+			const { host, alert: alertEl } = getDiagramEls(hostId);
+			if (!host) return;
+			if (alertEl) alertEl.classList.add("d-none");
+			host.innerHTML = `<div class="hidden-state">Loading...</div>`;
+			try {
+				const resp = await fetch(`${endpoint}?t=${Date.now()}`, { headers: { "Accept": "application/json", "Cache-Control": "no-cache" } });
+				const payload = await resp.json().catch(() => ({}));
+				if (!resp.ok || !payload.success || !payload.data?.mermaid) {
+					throw new Error(payload.message || "Failed to load diagram");
+				}
+				const src = String(payload.data.mermaid || "").trim();
+				if (!src) throw new Error("Empty diagram source");
+				await renderMermaidInHost(hostId, src);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : "Failed to load diagram";
+				if (alertEl) { alertEl.textContent = msg; alertEl.classList.remove("d-none"); }
+				host.innerHTML = `<div class="hidden-state">Diagram could not be rendered.</div>`;
+			}
+		}
+
+		// Wire up all Unhide buttons
+		document.querySelectorAll(".diagram-unhide").forEach(btn => {
+			btn.addEventListener("click", async () => {
+				const hostId = btn.dataset.target;
+				const host = document.getElementById(hostId);
+				const endpoint = host ? host.dataset.endpoint : "";
+				setDiagramVisible(hostId, true);
+				const st = diagramState[hostId] || {};
+				if (!st.loaded) {
+					await fetchAndRenderDiagram(hostId, endpoint);
+				} else if (st.lastSource) {
+					await renderMermaidInHost(hostId, st.lastSource).catch(() => {});
+				}
+			});
+		});
+
+		// Wire up all Hide buttons
+		document.querySelectorAll(".diagram-hide").forEach(btn => {
+			btn.addEventListener("click", () => {
+				const hostId = btn.dataset.target;
+				setDiagramVisible(hostId, false);
+				const alertEl = document.getElementById(hostId + "Alert");
+				if (alertEl) alertEl.classList.add("d-none");
+			});
+		});
+
+		// Wire up all Reload buttons
+		document.querySelectorAll(".diagram-reload").forEach(btn => {
+			btn.addEventListener("click", async () => {
+				const hostId = btn.dataset.target;
+				const endpoint = btn.dataset.endpoint;
+				await fetchAndRenderDiagram(hostId, endpoint);
+			});
+		});
+
+		// ── Playground ─────────────────────────────────────────────────────────────
 		const playgroundListEndpoint = "{{ .PlaygroundListEndpoint }}";
 		const playgroundFileEndpoint = "{{ .PlaygroundFileEndpoint }}";
 		const playgroundOpenEndpoint = "{{ .PlaygroundOpenEndpoint }}";
@@ -438,8 +585,7 @@
 		const playgroundListStatus = document.getElementById("playgroundListStatus");
 		const playgroundList = document.getElementById("playgroundList");
 		const playgroundViewer = document.getElementById("playgroundViewer");
-		let hasLoadedDiagram = false;
-		let latestMermaidSource = "";
+
 		let playgroundFeedbackTimer = null;
 		const playgroundState = {
 			currentPath: "",
@@ -450,61 +596,6 @@
 			isLoading: false,
 		};
 
-		function setDiagramVisible(isVisible) {
-			hiddenState.classList.toggle("d-none", isVisible);
-			diagramHost.classList.toggle("d-none", !isVisible);
-			unhideButton.disabled = isVisible;
-			hideButton.disabled = !isVisible;
-			reloadButton.disabled = !isVisible;
-		}
-
-		async function renderMermaidDiagram(mermaidSource) {
-			if (typeof mermaid === "undefined") {
-				throw new Error("Mermaid renderer is not available");
-			}
-
-			diagramHost.innerHTML = "";
-			const mermaidBlock = document.createElement("pre");
-			mermaidBlock.className = "mermaid";
-			mermaidBlock.textContent = mermaidSource;
-			diagramHost.appendChild(mermaidBlock);
-
-			await mermaid.run({ nodes: [mermaidBlock] });
-			latestMermaidSource = mermaidSource;
-		}
-
-		async function refreshDiagram() {
-			notFoundAlert.classList.add("d-none");
-			diagramHost.innerHTML = "<div class=\"hidden-state\">Loading process diagram...</div>";
-
-			const response = await fetch(`${processDiagramEndpoint}?t=${Date.now()}`, {
-				method: "GET",
-				headers: {
-					"Accept": "application/json",
-					"Cache-Control": "no-cache",
-				},
-			});
-
-			let payload = {};
-			try {
-				payload = await response.json();
-			} catch (_) {
-				payload = {};
-			}
-
-			if (!response.ok || !payload.success || !payload.data || !payload.data.mermaid) {
-				const errorMessage = payload.message || "Failed to load process diagram";
-				throw new Error(errorMessage);
-			}
-
-			const mermaidSource = String(payload.data.mermaid || "").trim();
-			if (!mermaidSource) {
-				throw new Error("Process diagram source is empty");
-			}
-
-			await renderMermaidDiagram(mermaidSource);
-			hasLoadedDiagram = true;
-		}
 
 		function escapeHTML(rawValue) {
 			return String(rawValue || "")
@@ -944,24 +1035,27 @@
 			const safeFileName = escapeHTML(fileData.name || "file");
 			const openURL = buildOpenFileURL(fileData.relative_path || "");
 			const metadata = `${formatBytes(fileData.size)} | ${formatTimestamp(fileData.modified_at)} | ${fileData.content_type || "unknown"}`;
+			const contentType = (fileData.content_type || "").toLowerCase();
 
-			if (!fileData.is_text) {
-				playgroundViewer.className = "playground-viewer";
-				playgroundViewer.innerHTML = `
-					<div class="playground-viewer-header">
-						<h3 class="playground-viewer-title mb-0">${safeFileName}</h3>
-						<a href="${openURL}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Open File</a>
-					</div>
-					<p class="playground-viewer-meta mb-0">${metadata}</p>
-					<div class="playground-viewer-empty">Binary file preview is not shown here. Click Open File to view it.</div>
-				`;
-				return;
+			let previewContent = "";
+
+			if (contentType.startsWith("image/")) {
+				previewContent = `<div class="mt-3 text-center"><img src="${openURL}" alt="${safeFileName}" style="max-width:100%; max-height:50vh; border-radius:0.5rem; object-fit:contain;" /></div>`;
+			} else if (contentType.startsWith("video/")) {
+				previewContent = `<div class="mt-3 text-center"><video src="${openURL}" controls style="max-width:100%; max-height:50vh; border-radius:0.5rem;"></video></div>`;
+			} else if (contentType.startsWith("audio/")) {
+				previewContent = `<div class="mt-3 text-center"><audio src="${openURL}" controls style="width:100%; max-width:400px;"></audio></div>`;
+			} else if (contentType === "application/pdf" || contentType === "text/html") {
+				previewContent = `<div class="mt-3"><iframe src="${openURL}" style="width:100%; height:50vh; border:none; border-radius:0.5rem; background:#fff;"></iframe></div>`;
+			} else if (!fileData.is_text) {
+				previewContent = `<div class="playground-viewer-empty mt-3">Binary file preview is not shown here. Click Open File to view it.</div>`;
+			} else {
+				const safeContent = escapeHTML(fileData.content || "");
+				const truncatedNote = fileData.is_truncated
+					? "<p class=\"playground-viewer-meta mb-0 mt-2\">Preview truncated to keep the page responsive.</p>"
+					: "";
+				previewContent = `${truncatedNote}\n<pre class="playground-preview-content mt-2">${safeContent}</pre>`;
 			}
-
-			const safeContent = escapeHTML(fileData.content || "");
-			const truncatedNote = fileData.is_truncated
-				? "<p class=\"playground-viewer-meta mb-0\">Preview truncated to keep the page responsive.</p>"
-				: "";
 
 			playgroundViewer.className = "playground-viewer";
 			playgroundViewer.innerHTML = `
@@ -970,8 +1064,7 @@
 					<a href="${openURL}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light btn-tech btn-sm">Open File</a>
 				</div>
 				<p class="playground-viewer-meta mb-0">${metadata}</p>
-				${truncatedNote}
-				<pre class="playground-preview-content">${safeContent}</pre>
+				${previewContent}
 			`;
 		}
 
@@ -1051,42 +1144,6 @@
 			securityLevel: "loose",
 		});
 
-		unhideButton.addEventListener("click", async () => {
-			setDiagramVisible(true);
-			if (!hasLoadedDiagram) {
-				try {
-					await refreshDiagram();
-				} catch (error) {
-					notFoundAlert.textContent = error instanceof Error ? error.message : "Failed to load process diagram";
-					notFoundAlert.classList.remove("d-none");
-					diagramHost.innerHTML = "<div class=\"hidden-state\">Process diagram could not be rendered.</div>";
-				}
-			} else if (latestMermaidSource) {
-				try {
-					await renderMermaidDiagram(latestMermaidSource);
-				} catch (error) {
-					notFoundAlert.textContent = error instanceof Error ? error.message : "Failed to render process diagram";
-					notFoundAlert.classList.remove("d-none");
-				}
-			}
-		});
-
-		hideButton.addEventListener("click", () => {
-			setDiagramVisible(false);
-			notFoundAlert.classList.add("d-none");
-		});
-
-		reloadButton.addEventListener("click", async () => {
-			try {
-				await refreshDiagram();
-				notFoundAlert.classList.add("d-none");
-			} catch (error) {
-				notFoundAlert.textContent = error instanceof Error ? error.message : "Failed to reload process diagram";
-				notFoundAlert.classList.remove("d-none");
-				diagramHost.innerHTML = "<div class=\"hidden-state\">Process diagram could not be rendered.</div>";
-			}
-		});
-
 		playgroundBackButton.addEventListener("click", () => {
 			navigatePlaygroundHistory(-1);
 		});
@@ -1132,7 +1189,6 @@
 			uploadPlaygroundFile(playgroundUploadInput.files[0]);
 		});
 
-		setDiagramVisible(false);
 		loadPlaygroundFolder("");
 	</script>
 </body>

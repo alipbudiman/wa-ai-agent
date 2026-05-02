@@ -24,6 +24,7 @@ const (
 
 	CHAT_AGENT_ROUTE     = "chat-agent-code"
 	RESEARCH_AGENT_ROUTE = "agent-research"
+	REPLY_AGENT_ROUTE    = "agent-reply"
 )
 
 var (
@@ -44,6 +45,7 @@ type CommandCollection struct {
 	UnsendPendingFile        CommandInfo
 	SelectProvider           CommandInfo
 	GetContactInfo           CommandInfo
+	AgentReply               CommandInfo
 	AgentResearch            CommandInfo
 	AgentCode                CommandInfo
 	AutoReplyAIConfig        CommandInfo
@@ -53,6 +55,8 @@ type CommandCollection struct {
 	OpenRouterConfig         CommandInfo
 	NvidiaConfig             CommandInfo
 	AnthropicConfig          CommandInfo
+	GoogleConfig             CommandInfo
+	MinimaxConfig            CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

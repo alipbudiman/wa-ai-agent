@@ -48,6 +48,52 @@ type brainProcessDiagramResponse struct {
 	Mermaid string `json:"mermaid"`
 }
 
+// proxyBrainDiagram fetches a mermaid process diagram from a brain API endpoint and forwards it to the client.
+func proxyBrainDiagram(c *gin.Context, endpoint string) {
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		ErrorHTTPResp(c, http.StatusBadGateway, "failed to build process diagram request")
+		return
+	}
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		ErrorHTTPResp(c, http.StatusBadGateway, fmt.Sprintf("failed to fetch process diagram: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "process diagram service returned an error")
+			return
+		}
+		bodyText := strings.TrimSpace(string(bodyBytes))
+		if bodyText == "" {
+			bodyText = fmt.Sprintf("upstream status %d", resp.StatusCode)
+		}
+		ErrorHTTPResp(c, http.StatusBadGateway, "process diagram service error: "+bodyText)
+		return
+	}
+
+	var payload brainProcessDiagramResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		ErrorHTTPResp(c, http.StatusBadGateway, "invalid process diagram response payload")
+		return
+	}
+
+	mermaidSource := strings.TrimSpace(payload.Mermaid)
+	if mermaidSource == "" {
+		ErrorHTTPResp(c, http.StatusBadGateway, "empty process diagram payload")
+		return
+	}
+
+	SuccessHTTPResp(c, http.StatusOK, "", gin.H{"mermaid": mermaidSource})
+}
+
 func normalizePlaygroundPath(rawPath string) string {
 	trimmed := strings.TrimSpace(rawPath)
 	if trimmed == "" {
@@ -512,51 +558,35 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 		if brainBaseURL == "" {
 			brainBaseURL = "http://127.0.0.1:8000"
 		}
-
 		endpoint := brainBaseURL + "/api/v1/chat-agent/process-diagram"
-		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, endpoint, nil)
-		if err != nil {
-			ErrorHTTPResp(c, http.StatusBadGateway, "failed to build process diagram request")
-			return
+		proxyBrainDiagram(c, endpoint)
+	})
+
+	router.GET("/artifacts/process-diagram/code-mermaid", func(c *gin.Context) {
+		brainBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BRAIN_API_BASE_URL")), "/")
+		if brainBaseURL == "" {
+			brainBaseURL = "http://127.0.0.1:8000"
 		}
-		req.Header.Set("Accept", "application/json")
+		endpoint := brainBaseURL + "/api/v1/chat-agent-code/process-diagram"
+		proxyBrainDiagram(c, endpoint)
+	})
 
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			ErrorHTTPResp(c, http.StatusBadGateway, fmt.Sprintf("failed to fetch process diagram: %v", err))
-			return
+	router.GET("/artifacts/process-diagram/research-mermaid", func(c *gin.Context) {
+		brainBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BRAIN_API_BASE_URL")), "/")
+		if brainBaseURL == "" {
+			brainBaseURL = "http://127.0.0.1:8000"
 		}
-		defer resp.Body.Close()
+		endpoint := brainBaseURL + "/api/v1/agent-research/process-diagram"
+		proxyBrainDiagram(c, endpoint)
+	})
 
-		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-			bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			if readErr != nil {
-				ErrorHTTPResp(c, http.StatusBadGateway, "process diagram service returned an error")
-				return
-			}
-
-			bodyText := strings.TrimSpace(string(bodyBytes))
-			if bodyText == "" {
-				bodyText = fmt.Sprintf("upstream status %d", resp.StatusCode)
-			}
-			ErrorHTTPResp(c, http.StatusBadGateway, "process diagram service error: "+bodyText)
-			return
+	router.GET("/artifacts/process-diagram/reply-mermaid", func(c *gin.Context) {
+		brainBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BRAIN_API_BASE_URL")), "/")
+		if brainBaseURL == "" {
+			brainBaseURL = "http://127.0.0.1:8000"
 		}
-
-		var payload brainProcessDiagramResponse
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			ErrorHTTPResp(c, http.StatusBadGateway, "invalid process diagram response payload")
-			return
-		}
-
-		mermaidSource := strings.TrimSpace(payload.Mermaid)
-		if mermaidSource == "" {
-			ErrorHTTPResp(c, http.StatusBadGateway, "empty process diagram payload")
-			return
-		}
-
-		SuccessHTTPResp(c, http.StatusOK, "", gin.H{"mermaid": mermaidSource})
+		endpoint := brainBaseURL + "/api/v1/agent-reply/process-diagram"
+		proxyBrainDiagram(c, endpoint)
 	})
 
 	router.GET("/access", func(c *gin.Context) {
@@ -573,15 +603,18 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 
 	router.GET("/artifacts", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "artifacts.gohtml", gin.H{
-			"Title":                          "Agent Accsessible Resources",
-			"ProcessDiagramPath":             "/assets/artifacts/chat_agent_process_table.png",
-			"ProcessDiagramMermaidEndpoint":  "/artifacts/process-diagram/mermaid",
-			"PlaygroundListEndpoint":         "/artifacts/playground/list",
-			"PlaygroundFileEndpoint":         "/artifacts/playground/file",
-			"PlaygroundOpenEndpoint":         "/artifacts/playground/open",
-			"PlaygroundDeleteEndpoint":       "/artifacts/playground/delete",
-			"PlaygroundCreateFolderEndpoint": "/artifacts/playground/folder",
-			"PlaygroundUploadEndpoint":       "/artifacts/playground/upload",
+			"Title":                                   "Agent Accsessible Resources",
+			"ProcessDiagramPath":                      "/assets/artifacts/chat_agent_process_table.png",
+			"ProcessDiagramMermaidEndpoint":           "/artifacts/process-diagram/mermaid",
+			"ProcessDiagramCodeMermaidEndpoint":       "/artifacts/process-diagram/code-mermaid",
+			"ProcessDiagramResearchMermaidEndpoint":   "/artifacts/process-diagram/research-mermaid",
+			"ProcessDiagramReplyMermaidEndpoint":      "/artifacts/process-diagram/reply-mermaid",
+			"PlaygroundListEndpoint":                  "/artifacts/playground/list",
+			"PlaygroundFileEndpoint":                  "/artifacts/playground/file",
+			"PlaygroundOpenEndpoint":                  "/artifacts/playground/open",
+			"PlaygroundDeleteEndpoint":                "/artifacts/playground/delete",
+			"PlaygroundCreateFolderEndpoint":          "/artifacts/playground/folder",
+			"PlaygroundUploadEndpoint":                "/artifacts/playground/upload",
 		})
 	})
 

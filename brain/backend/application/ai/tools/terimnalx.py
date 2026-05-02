@@ -1,12 +1,11 @@
 import logging
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
 
 from langchain_core.tools import StructuredTool
-from pycloudflared import try_cloudflare
-
 
 from backend.application.ai.tools.filex import FileX
 from backend.application.ai.tools.models import CommandInput
@@ -231,12 +230,63 @@ class TerminalX:
             return f"[OK] Archive created at: {archive_path}"
         except Exception as e:
             return f"[ERROR] Failed to create archive: {str(e)}"
-    
-    def port_forward_tunnel(self, port: int) -> str:
+
+    def screen_command(self) -> dict[str, str]:
         """
-        Create a secure tunnel (port forward) to the local server on the specified port using ngrok.
-        This tool is used for running system or website, always use if user want to running system or website,
-        and make sure to use the returned tunnel URL for any external access.
+        Get tmux commands for managing terminal sessions.
+        This tool is used for managing terminal sessions, always use if user want to manage terminal sessions
+        (like run system in localhost or see list of sessions), and make sure to use the returned commands for any session management.
+        All commands are non-interactive and run in detached mode.
+        To start a session: use 'new' then 'send' to run a command inside it.
+        To check output: use 'capture'. To stop: use 'kill'.
+        Always find and use empty ports for new sessions, do not hardcode common ports like 8000 or 8001 to avoid conflicts with existing services.
+        If run in tmux, always use `cloudflared tunnel --url http://127.0.0.1:<port> > tunnel.log 2>&1` and return the tunnel URL from tunnel.log.
+        the tunnel connection will take a few seconds - minute. Be patience for the tunnel to be ready.
         """
-        tunnel = try_cloudflare(port=port)        
-        return f"[OK] Tunnel established at: {tunnel.tunnel} forwarding to local port {port}"
+        port_instructions = "always find and use empty ports for new sessions, do not hardcode common ports like 8000 or 8001 to avoid conflicts with existing services."
+        tunnel_instructions = "if run in tmux, always use `cloudflared tunnel --url http://127.0.0.1:<port> > tunnel.log 2>&1` (port: your app port). The `.trycloudflare.com` URL will be saved in tunnel.log. Wait a few seconds, then run `cat tunnel.log` to find the public URL."
+        tunnel_time_waiting = "the tunnel connection will take a few seconds - minute. Be patience for the tunnel to be ready."
+        system = platform.system()
+        if system == "Windows":
+            wsl_available = shutil.which("wsl") is not None
+            os_type = "windows_wsl" if wsl_available else "windows"
+        elif system == "Linux":
+            os_type = "linux"
+        else:
+            return {"error": f"Unsupported OS: {system}. This tool only supports Windows and Linux."}
+
+        commands = {}
+
+        if os_type == "linux":
+            has_tmux = shutil.which("tmux") is not None
+            if has_tmux:
+                commands = {
+                    "new":     lambda name: f"tmux new-session -d -s {name}",
+                    "send":    lambda name, command: f"tmux send-keys -t {name} '{command}' Enter",
+                    "capture": lambda name: f"tmux capture-pane -pS - -t {name}",
+                    "list":    lambda: "tmux list-sessions",
+                    "kill":    lambda name: f"tmux kill-session -t {name}",
+                    "rename":  lambda old, new: f"tmux rename-session -t {old} {new}",
+                    "exists":  lambda name: f"tmux has-session -t {name} 2>/dev/null && echo yes || echo no",
+                }
+            else:
+                commands = {"error": "tmux tidak terinstall. Jalankan: sudo apt install tmux"}
+
+        elif os_type == "windows_wsl":
+            commands = {
+                "new":     lambda name: f"wsl tmux new-session -d -s {name}",
+                "send":    lambda name, command: f"wsl tmux send-keys -t {name} '{command}' Enter",
+                "capture": lambda name: f"wsl tmux capture-pane -pS - -t {name}",
+                "list":    lambda: "wsl tmux list-sessions",
+                "kill":    lambda name: f"wsl tmux kill-session -t {name}",
+                "rename":  lambda old, new: f"wsl tmux rename-session -t {old} {new}",
+                "exists":  lambda name: f"wsl tmux has-session -t {name} 2>nul && echo yes || echo no",
+            }
+
+        elif os_type == "windows":
+            commands = {
+                "error":   "WSL tidak ditemukan. tmux membutuhkan WSL di Windows.",
+                "install": "wsl --install",
+            }
+                                 
+        return {"os": system, "commands": commands, "important_note": port_instructions + tunnel_instructions + tunnel_time_waiting}

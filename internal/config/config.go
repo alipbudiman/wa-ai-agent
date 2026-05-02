@@ -89,6 +89,10 @@ func Load() Config {
 					AgentProvider: func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().ResearchModel.AgentProvider() },
 					AgentModel:    func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().ResearchModel.AgentModel() },
 				},
+				ReplyModel: cfg_struct.AgentProvidersAndModel{
+					AgentProvider: func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().ReplyModel.AgentProvider() },
+					AgentModel:    func() string { return cfg_struct.AppConfig{}.GetAgentConfigModels().ReplyModel.AgentModel() },
+				},
 			},
 			Dynamic: cfg_struct.DynamicManagerConfig{
 				RandID: func() string {

@@ -30,3 +30,5 @@
 ## Validate Information, Check 
 - Always verify the syntax and execution results of generated code before presenting it as a final solution.
 - Double-check runtime paths and file existence before attempting to read, write, or execute.
+
+DONT RUN IN PORT 8000 AND 8001, ALWAYS CHECK EMPTY PORTS BEFORE STARTING SERVICES.

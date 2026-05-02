@@ -262,7 +262,7 @@ func (h *Agents) autoReplyAIHandler(v *events.Message, resolvedSender types.JID,
 		false,
 		ports.NONE,
 		resolvedSender,
-		RESEARCH_AGENT_ROUTE,
+		REPLY_AGENT_ROUTE,
 	)
 	if err != nil {
 		log.Printf("error in auto-reply handler: %v", err)

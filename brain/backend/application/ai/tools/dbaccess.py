@@ -214,6 +214,20 @@ Session Resume (IMPORTANT):
         except Exception as exc:
             logger.warning("Failed to update Redis session key=%s: %s", key, exc)
             return False
+    
+    def clear_agent_input_log(self):
+        """Clear all input logs. This is currently used for cleaning up all session logs, e.g., during testing or when resetting the system."""
+        key_pattern = f"session:*"
+        try:
+            keys_deleted = 0
+            for redis_key in self.redis_client.scan_iter(match=key_pattern):
+                self.redis_client.delete(redis_key)
+                keys_deleted += 1
+            logger.info("Cleared %d Redis session logs with pattern=%s", keys_deleted, key_pattern)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to clear Redis session logs with pattern=%s: %s", key_pattern, exc)
+            return False
 
     def delete_agent_input_log(self, session_id: str) -> bool:
         """Delete log for every agent action base on sender. This is currently used for cleaning up input history after task completion."""

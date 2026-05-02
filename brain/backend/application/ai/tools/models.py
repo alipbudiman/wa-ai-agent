@@ -69,6 +69,10 @@ class SendFileInput(BaseModel):
 class CommandInput(BaseModel):
     command: str = Field(description="Command to execute in the terminal. Required.")
 
+class CommandInputGenerateImage(BaseModel):
+    prompts: list[str] = Field(description="A list of text descriptions/prompts for image generation. Required. If multiple images are requested, you MUST provide multiple separate items in this list. DO NOT combine them into a single 'collage' prompt.")
+    folder_path: str = Field(description="The absolute or relative path to the directory where images should be saved. Required.")
+
 class WorkerTaskInput(BaseModel):
     task: str = Field(
         description=(

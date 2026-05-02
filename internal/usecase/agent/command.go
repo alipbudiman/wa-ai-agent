@@ -118,6 +118,12 @@ func RegisteredCommands() CommandCollection {
 			Command:     "/contact-info",
 			Function:    (*Agents).GetContactInfo,
 		},
+		AgentReply: CommandInfo{
+			Name:        "Agent Reply",
+			Description: "Initiate a reply query using the AI agent.",
+			Command:     "/reply",
+			Function:    (*Agents).ReplyAgent,
+		},
 		AgentResearch: CommandInfo{
 			Name:        "Agent Research",
 			Description: "Initiate a research query using the AI agent.",
@@ -172,6 +178,18 @@ func RegisteredCommands() CommandCollection {
 			Command:     "/anthropic-config",
 			Function:    (*Agents).AnthropicConfig,
 		},
+		GoogleConfig: CommandInfo{
+			Name:        "Google Config",
+			Description: "Configure Google LLM provider settings.",
+			Command:     "/google-config",
+			Function:    (*Agents).GoogleConfig,
+		},
+		MinimaxConfig: CommandInfo{
+			Name:        "Minimax Config",
+			Description: "Configure Minimax LLM provider settings.",
+			Command:     "/minimax-config",
+			Function:    (*Agents).MinimaxConfig,
+		},
 	}
 }
 
@@ -190,6 +208,7 @@ func (c CommandCollection) All() []CommandInfo {
 		c.GetContactInfo,
 		c.AgentCode,
 		c.AgentResearch,
+		c.AgentReply,
 		c.AutoReplyAIConfig,
 		c.AIGroupInteractionConfig,
 		c.AgentModelConfig,
@@ -197,6 +216,8 @@ func (c CommandCollection) All() []CommandInfo {
 		c.OpenRouterConfig,
 		c.NvidiaConfig,
 		c.AnthropicConfig,
+		c.GoogleConfig,
+		c.MinimaxConfig,
 	}
 }
 
@@ -859,7 +880,7 @@ func (h *Agents) SelectAIProvider(args CommandArgs) {
 	list_providers, err := h.chatCompleter.GetAIDataStatus(context.Background())
 	if err != nil {
 		list_providers = &ports.AIDataStatus{
-			ListAIProviders: []string{"ollama", "openrouter", "nvidia", "anthropic"},
+			ListAIProviders: []string{"ollama", "openrouter", "nvidia", "anthropic", "google"},
 		}
 		log.Printf("failed to get AI providers: %v", err)
 	}
@@ -953,6 +974,59 @@ func (h *Agents) GetContactInfo(args CommandArgs) {
 		Conversation: proto.String(infoText),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) ReplyAgent(args CommandArgs) {
+	cmd := RegisteredCommands().AgentReply
+	prompt := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if prompt == "" {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Please provide a prompt to reply to the agent. Usage: " + cmd.Command + " [prompt]"),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	replyStatus, err := h.responder.Reply(
+		context.Background(),
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    h.isFromGroup(args.Evt),
+				Content: prompt,
+			},
+		},
+		false,
+		ports.HISTORY,
+		args.Evt.Info.Sender,
+		REPLY_AGENT_ROUTE,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to send reply to agent: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if replyStatus == ai_providers_api.SUCCESS {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("📨 Your message has been sent to the agent."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+	} else {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Failed to notify agent about your reply."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
 	}
 }
 
@@ -1136,9 +1210,10 @@ func (h *Agents) OpenRouterConfig(args CommandArgs) {
 	if configText == "" {
 		openrouter_config_info := cfg_struct.GetOpenRouterConfig()
 		config_help := "OpenRouter Config Command Usage:\n" +
-			"To set API key: `/openrouter-config api_key [your_api_key]`\n" +
+			"To set API key: `/openrouter-config api-key [your_api_key]`\n" +
+			"To delete API key: `/openrouter-config api-key delete`\n" +
 			"To set model: `/openrouter-config model [model_name]`\n" +
-			"Example: `/openrouter-config api_key sk-xxxxxx`\n" +
+			"Example: `/openrouter-config api-key sk-xxxxxx`\n" +
 			"\n*See OpenRouter API documentation on*\n https://openrouter.ai/models" +
 			"\n*Current OpenRouter Config:*\n" +
 			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(openrouter_config_info.APIKey, 4, 4)) +
@@ -1152,8 +1227,11 @@ func (h *Agents) OpenRouterConfig(args CommandArgs) {
 		return
 	}
 
-	if after, ok := strings.CutPrefix(configText, "api_key "); ok {
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
 		apiKey := strings.TrimSpace(after)
+		if strings.ToLower(apiKey) == "delete" {
+			apiKey = "-DELETE-"
+		}
 		err := cfg_struct.UpdateOpenRouterConfig(cfg_struct.OpenRouterConfig{APIKey: apiKey})
 		if err != nil {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -1163,8 +1241,13 @@ func (h *Agents) OpenRouterConfig(args CommandArgs) {
 			}
 			return
 		}
+
+		successMsg := "OpenRouter API key has been updated."
+		if apiKey == "-DELETE-" {
+			successMsg = "OpenRouter API key has been deleted."
+		}
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String("OpenRouter API key has been updated."),
+			Conversation: proto.String(successMsg),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 		}
@@ -1192,8 +1275,9 @@ func (h *Agents) OpenRouterConfig(args CommandArgs) {
 
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String("Invalid config command. Usage:\n" +
-			"To set OpenRouter API key: `/openrouter-config api_key [your_api_key]`\n" +
-			"Example: `/openrouter-config api_key sk-xxxxxx`"),
+			"To set OpenRouter API key: `/openrouter-config api-key [your_api_key]`\n" +
+			"To delete API key: `/openrouter-config api-key delete`\n" +
+			"Example: `/openrouter-config api-key sk-xxxxxx`"),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
@@ -1206,9 +1290,10 @@ func (h *Agents) NvidiaConfig(args CommandArgs) {
 	if configText == "" {
 		nvidia_config_info := cfg_struct.GetNvidiaConfig()
 		config_help := "NVIDIA Config Command Usage:\n" +
-			"To set API key: `/nvidia-config api_key [your_api_key]`\n" +
+			"To set API key: `/nvidia-config api-key [your_api_key]`\n" +
+			"To delete API key: `/nvidia-config api-key delete`\n" +
 			"To set model: `/nvidia-config model [model_name]`\n" +
-			"Example: `/nvidia-config api_key sk-xxxxxx`\n" +
+			"Example: `/nvidia-config api-key sk-xxxxxx`\n" +
 			"\n*See NVIDIA API models on*\n https://build.nvidia.com/models" +
 			"\n*Current NVIDIA Config:*\n" +
 			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(nvidia_config_info.APIKey, 4, 4)) +
@@ -1222,8 +1307,11 @@ func (h *Agents) NvidiaConfig(args CommandArgs) {
 		return
 	}
 
-	if after, ok := strings.CutPrefix(configText, "api_key "); ok {
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
 		apiKey := strings.TrimSpace(after)
+		if strings.ToLower(apiKey) == "delete" {
+			apiKey = "-DELETE-"
+		}
 		err := cfg_struct.UpdateNvidiaConfig(cfg_struct.NvidiaConfig{APIKey: apiKey})
 		if err != nil {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -1233,8 +1321,13 @@ func (h *Agents) NvidiaConfig(args CommandArgs) {
 			}
 			return
 		}
+
+		successMsg := "NVIDIA API key has been updated."
+		if apiKey == "-DELETE-" {
+			successMsg = "NVIDIA API key has been deleted."
+		}
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String("NVIDIA API key has been updated."),
+			Conversation: proto.String(successMsg),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 		}
@@ -1262,8 +1355,9 @@ func (h *Agents) NvidiaConfig(args CommandArgs) {
 
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String("Invalid config command. Usage:\n" +
-			"To set NVIDIA API key: `/nvidia-config api_key [your_api_key]`\n" +
-			"Example: `/nvidia-config api_key sk-xxxxxx`"),
+			"To set NVIDIA API key: `/nvidia-config api-key [your_api_key]`\n" +
+			"To delete API key: `/nvidia-config api-key delete`\n" +
+			"Example: `/nvidia-config api-key sk-xxxxxx`"),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
@@ -1276,11 +1370,13 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 	if configText == "" {
 		anthropic_config_info := cfg_struct.GetAnthropicConfig()
 		config_help := "Anthropic Config Command Usage:\n" +
-			"To set API key: `/anthropic-config api_key [your_api_key]`\n" +
+			"To set API key: `/anthropic-config api-key [your_api_key]`\n" +
+			"To delete API key: `/anthropic-config api-key delete`\n" +
 			"To set model: `/anthropic-config model [model_name]`\n" +
-			"To set Base URL: `/anthropic-config base_url [url]`\n" +
-			"To set AuthToken: `/anthropic-config auth_token [token]`\n" +
-			"Example: `/anthropic-config api_key sk-xxxxxx`\n" +
+			"To set Base URL: `/anthropic-config base-url [url]`\n" +
+			"To set AuthToken: `/anthropic-config auth-token [token]`\n" +
+			"To delete AuthToken: `/anthropic-config auth-token delete`\n" +
+			"Example: `/anthropic-config api-key sk-xxxxxx`\n" +
 			"\n*See Anthropic API documentation on*\n https://platform.claude.com/docs/en/about-claude/models/overview" +
 			"\n*Current Anthropic Config:*\n" +
 			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(anthropic_config_info.APIKey, 4, 4)) +
@@ -1296,8 +1392,11 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 		return
 	}
 
-	if after, ok := strings.CutPrefix(configText, "api_key "); ok {
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
 		apiKey := strings.TrimSpace(after)
+		if strings.ToLower(apiKey) == "delete" {
+			apiKey = "-DELETE-"
+		}
 		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{APIKey: apiKey})
 		if err != nil {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -1307,8 +1406,13 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 			}
 			return
 		}
+
+		successMsg := "Anthropic API key has been updated."
+		if apiKey == "-DELETE-" {
+			successMsg = "Anthropic API key has been deleted."
+		}
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String("Anthropic API key has been updated."),
+			Conversation: proto.String(successMsg),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 		}
@@ -1334,7 +1438,7 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 		return
 	}
 
-	if after, ok := strings.CutPrefix(configText, "base_url "); ok {
+	if after, ok := strings.CutPrefix(configText, "base-url "); ok {
 		baseURL := strings.TrimSpace(after)
 		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{BaseURL: baseURL})
 		if err != nil {
@@ -1353,8 +1457,11 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 		return
 	}
 
-	if after, ok := strings.CutPrefix(configText, "auth_token "); ok {
+	if after, ok := strings.CutPrefix(configText, "auth-token "); ok {
 		authToken := strings.TrimSpace(after)
+		if strings.ToLower(authToken) == "delete" {
+			authToken = "-DELETE-"
+		}
 		err := cfg_struct.UpdateAnthropicConfig(cfg_struct.AnthropicConfig{AuthToken: authToken})
 		if err != nil {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -1364,8 +1471,13 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 			}
 			return
 		}
+
+		successMsg := "Anthropic Auth Token has been updated."
+		if authToken == "-DELETE-" {
+			successMsg = "Anthropic Auth Token has been deleted."
+		}
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String("Anthropic Auth Token has been updated."),
+			Conversation: proto.String(successMsg),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 		}
@@ -1374,8 +1486,210 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String("Invalid config command. Usage:\n" +
-			"To set Anthropic API key: `/anthropic-config api_key [your_api_key]`\n" +
-			"Example: `/anthropic-config api_key sk-xxxxxx`"),
+			"To set Anthropic API key: `/anthropic-config api-key [your_api_key]`\n" +
+			"To delete API key: `/anthropic-config api-key delete`\n" +
+			"To delete AuthToken: `/anthropic-config auth-token delete`\n" +
+			"Example: `/anthropic-config api-key sk-xxxxxx`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) MinimaxConfig(args CommandArgs) {
+	cmd := RegisteredCommands().MinimaxConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		minimax_config_info := cfg_struct.GetMinimaxConfig()
+		config_help := "Minimax Config Command Usage:\n" +
+			"To set API Key: `/minimax-config api-key [api_key]`\n" +
+			"To delete API Key: `/minimax-config api-key delete`\n" +
+			"To set Model: `/minimax-config model [model]`\n" +
+			"Example: `/minimax-config model image-01`\n\n" +
+			"*Current Minimax Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(minimax_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", minimax_config_info.Model)
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/minimax-config api-key [api_key]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		api_key := configArgs[0]
+		if strings.ToLower(api_key) == "delete" {
+			api_key = "-DELETE-"
+		}
+		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
+			APIKey: api_key,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		successMsg := "Minimax config has been updated."
+		if api_key == "-DELETE-" {
+			successMsg = "Minimax API Key has been deleted."
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(successMsg),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/minimax-config model [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		model := configArgs[0]
+		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
+			Model: model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Minimax config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid minimax config command. Usage:\n" +
+			"To set API Key: `/minimax-config api-key [api_key]`\n" +
+			"To delete API Key: `/minimax-config api-key delete`\n" +
+			"To set Model: `/minimax-config model [model]`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) GoogleConfig(args CommandArgs) {
+	cmd := RegisteredCommands().GoogleConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		google_config_info := cfg_struct.GetGoogleConfig()
+		config_help := "Google Config Command Usage:\n" +
+			"To set API Key: `/google-config api-key [api_key]`\n" +
+			"To delete API Key: `/google-config api-key delete`\n" +
+			"To set Model: `/google-config model [model]`\n" +
+			"Example: `/google-config model gemini-2.5-flash`\n\n" +
+			"*Current Google Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(google_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", google_config_info.Model)
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/google-config api-key [api_key]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		api_key := configArgs[0]
+		if strings.ToLower(api_key) == "delete" {
+			api_key = "-DELETE-"
+		}
+		err := cfg_struct.UpdateGoogleConfig(cfg_struct.GoogleConfig{
+			APIKey: api_key,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update google config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		successMsg := "Google config has been updated."
+		if api_key == "-DELETE-" {
+			successMsg = "Google API Key has been deleted."
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(successMsg),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/google-config model [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		model := configArgs[0]
+		err := cfg_struct.UpdateGoogleConfig(cfg_struct.GoogleConfig{
+			Model: model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update google config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Google config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid google config command. Usage:\n" +
+			"To set API Key: `/google-config api-key [api_key]`\n" +
+			"To delete API Key: `/google-config api-key delete`\n" +
+			"To set Model: `/google-config model [model]`"),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
@@ -1556,7 +1870,7 @@ func (h *Agents) AgentModelUpdateConfig(args CommandArgs) {
 	list_providers, err := h.chatCompleter.GetAIDataStatus(context.Background())
 	if err != nil {
 		list_providers = &ports.AIDataStatus{
-			ListAIProviders: []string{"ollama", "openrouter", "nvidia", "anthropic"},
+			ListAIProviders: []string{"ollama", "openrouter", "nvidia", "anthropic", "google"},
 		}
 		log.Printf("failed to get AI providers: %v", err)
 	}
@@ -1566,18 +1880,22 @@ func (h *Agents) AgentModelUpdateConfig(args CommandArgs) {
 			"To set main agent model: `/agent-model-config main [provider] [model]`\n" +
 			"To set code agent model: `/agent-model-config code [provider] [model]`\n" +
 			"To set research agent model: `/agent-model-config research [provider] [model]`\n" +
+			"To set reply agent model: `/agent-model-config reply [provider] [model]`\n" +
 			"Example: `/agent-model-config main ollama llama3`\n" +
 			"\n*Current Agent Model Config:*\n" +
-			"- Main Agent:\n" +
+			"- *Main Agent:*\n" +
 			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.AgentModel.AgentProvider()) +
 			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.AgentModel.AgentModel()) +
-			"- Code Agent Model:\n" +
+			"- *Code Agent Model:*\n" +
 			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.AgentCodeModel.AgentProvider()) +
 			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.AgentCodeModel.AgentModel()) +
-			"- Research Agent Model:\n" +
+			"- *Research Agent Model:*\n" +
 			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.ResearchModel.AgentProvider()) +
 			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.ResearchModel.AgentModel()) +
-			"\n*Supported Providers:*\n - " +
+			"- *Reply Agent Model:*\n" +
+			fmt.Sprintf("  - Provider: %s\n", h.config.App.AgentConfigModels.ReplyModel.AgentProvider()) +
+			fmt.Sprintf("  - Model: %s\n", h.config.App.AgentConfigModels.ReplyModel.AgentModel()) +
+			"\n*Supported Providers:*\n- " +
 			strings.Join(list_providers.ListAIProviders, "\n- ")
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String(config_help),
@@ -1689,11 +2007,46 @@ func (h *Agents) AgentModelUpdateConfig(args CommandArgs) {
 		return
 	}
 
+	if after, ok := strings.CutPrefix(configText, "reply "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 2 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/agent-model-config reply [provider] [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		provider := configArgs[0]
+		model := configArgs[1]
+		err := cfg_struct.UpdateAgentConfigModels(cfg_struct.AgentConfigModelsDB{
+			ReplyModel: cfg_struct.AgentProvidersAndModelDB{
+				AgentProvider: provider,
+				AgentModel:    model,
+			},
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update reply agent model config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Reply agent model has been updated to provider '%s' and model '%s'.", provider, model)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String("Invalid config command. Usage:\n" +
 			"To set main agent model: `/agent-model-config main [provider] [model]`\n" +
 			"To set code agent model: `/agent-model-config code [provider] [model]`\n" +
 			"To set research agent model: `/agent-model-config research [provider] [model]`\n" +
+			"To set reply agent model: `/agent-model-config reply [provider] [model]`\n" +
 			"Example: `/agent-model-config main ollama llama3`"),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)

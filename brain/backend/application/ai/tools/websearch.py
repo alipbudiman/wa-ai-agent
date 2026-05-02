@@ -8,6 +8,7 @@ from langchain_core.tools import StructuredTool
 from backend.application.ai.tools.models import WebSearchInput
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 from config.config import Config
+from langchain_community.document_loaders import WikipediaLoader
 
 
 logger = logging.getLogger('uvicorn.error')
@@ -140,6 +141,31 @@ class WebSearchTool:
             ),
             args_schema=WebSearchInput,
         )
+    
+    def search_wikipedia(self, question: str) -> str:
+        """ search wikipedia and return formatted results. for search on wikipedia, we can directly return the search result without sending progress notification to user, because wikipedia search is usually fast enough and we can include the search result in the conversation flow seamlessly without breaking the user experience. """
+        try:
+            search_docs = WikipediaLoader(query=question, load_max_docs=2).load()
+        except Exception as err:
+            logger.warning("Wikipedia search failed for query '%s': %s", question, err)
+            return "No relevant Wikipedia data available."
+
+        if not search_docs:
+            return "No relevant Wikipedia data available."
+
+        formatted_search_docs = "\n\n---\n\n".join(
+            [
+                (
+                    f'<Document source="{doc.metadata.get("source", "-")}" '
+                    f'page="{doc.metadata.get("page", "")}">\n'
+                    f"{doc.page_content}\n</Document>"
+                )
+                for doc in search_docs
+                if getattr(doc, "page_content", "").strip()
+            ]
+        )
+
+        return formatted_search_docs or "No relevant Wikipedia data available."
     
 
     

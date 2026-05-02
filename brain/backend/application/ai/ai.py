@@ -3,6 +3,7 @@ import logging
 
 from langchain.messages import AIMessage
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openrouter import ChatOpenRouter
 from langchain_ollama import ChatOllama
 from langchain_anthropic import ChatAnthropic
@@ -22,10 +23,9 @@ class AI:
     def __init__(self, model: Optional[str] = None):
         self.config = Config()
         self.model = model
-        self.mongo_client = MongoDB.get_client()
-        self.checkpointer = None  # Lazily initialized
+        self.checkpointer = MongoDB.get_checkpointer()
 
-    def LLM(self, temperature: Optional[float] = None, reasoning: bool = True, providers: Optional[AgentProvidersAndModel] = None) -> Any:
+    def LLM(self, temperature: Optional[float] = None, reasoning: bool = True, providers: Optional[AgentProvidersAndModel] = None, structured_output: Optional[Any] = None) -> Any:
         if providers != None:
             model = providers.agent_model if providers.agent_model != "default" or providers.agent_model is None else self.model
             set_providers = providers.agent_provider
@@ -50,6 +50,8 @@ class AI:
                     temperature=temperature,
                     reasoning={"effort": "medium", "summary": "auto"} if reasoning else None
                 )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
                 return llm
             
             case "nvidia":
@@ -63,6 +65,8 @@ class AI:
                     temperature=temperature,
                     model_kwargs={"thinking_mode": True} if reasoning else {},
                 )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
                 return llm
             
             case "ollama":
@@ -73,6 +77,8 @@ class AI:
                     temperature=temperature,
                     reasoning=reasoning,
                 )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
                 return llm
             
             case "anthropic":
@@ -87,6 +93,19 @@ class AI:
                     temperature=1 if reasoning else (temperature or 1),
                     effort="medium" if reasoning else None,     # xhigh, high, medium, low, minimal, none
                 )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
+                return llm
+            
+            case "google":
+                google_config = self.config.get_google_config()
+                llm = ChatGoogleGenerativeAI(
+                    model=model if model else google_config.model,
+                    temperature=temperature,
+                    reasoning=reasoning,
+                )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
                 return llm
             case _:
                 raise ValueError(f"Unsupported provider configuration: {providers}. Please check the 'providers' field in the database. if you in bot, type `/select-providers` to set it.")
@@ -104,10 +123,6 @@ class AI:
             if not normalized_messages:
                 return False
 
-            # Lazy initialize checkpointer only when needed
-            if self.checkpointer is None:
-                self.checkpointer = MongoDBSaver(self.mongo_client, db_name="agent_memory_db", collection_name="agent_memory_collection")
-            
             config = {"configurable": {"thread_id": normalized_thread_id}}
 
             builder = StateGraph(MessagesState)

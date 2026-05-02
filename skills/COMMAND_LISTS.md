@@ -15,8 +15,10 @@ Here are the available commands you can use to interact with the WhatsApp AI Age
 - /contact-info - Retrieves information about a specific contact.
 - /code - Delegate task direct to Agent Code
 - /research - Initiate a research query using the AI agent.
+- /reply - Initiate a reply query using the AI agent.
 - /auto-reply-config - Configure auto-reply AI settings.
 - /ai-group-interaction-config - Configure AI group interaction settings.
+- /agent-model-config - Configure the AI model used by the agent.
 - /ollama-config - Configure Ollama LLM provider settings.
 - /openrouter-config - Configure OpenRouter LLM provider settings.
 - /nvidia-config - Configure Nvidia LLM provider settings.

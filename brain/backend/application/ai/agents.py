@@ -1,3 +1,4 @@
+from typing import Any
 import logging
 import json
 import os
@@ -30,6 +31,7 @@ from langchain_community.agent_toolkits import FileManagementToolkit
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langchain_core.messages import trim_messages
 from typing_extensions import Literal
+from pydantic import BaseModel
 
 
 logger = logging.getLogger('uvicorn.error')
@@ -37,6 +39,9 @@ logger = logging.getLogger('uvicorn.error')
 class State(MessagesState):
     summary: str
     sender: str
+
+class FeedBackType(BaseModel):
+    is_approved: str
 
 class ChatAgentUseCase:
     TUNNING_PARAM = 3
@@ -109,8 +114,7 @@ class ChatAgentUseCase:
         self.langgraph_file_manager = FileManagementToolkit(root_dir=self.langgraph_file_manager_root)
         self.langgraph_file_manager_tools = self.langgraph_file_manager.get_tools()
         logger.info("FileManagementToolkit root_dir=%s", self.langgraph_file_manager_root)
-        self.mongo_cleint = MongoDB.get_client()
-        self.checkpointer = MongoDBSaver(self.mongo_cleint, db_name="agent_memory_db", collection_name="agent_memory_collection")
+        self.checkpointer = MongoDB.get_checkpointer()
         self.__init_langsmith()
         self.react_graph = self.__agent_logic()
         
@@ -136,7 +140,8 @@ class ChatAgentUseCase:
             self.wa_integration_tool.broadcast_message,
             self.filex_tool.compress,
             self.filex_tool.delete_file_dir,
-            self.terminalx_tool.port_forward_tunnel,
+            self.websearch_tool.search_wikipedia,
+            self.terminalx_tool.screen_command,
             *self.langgraph_file_manager_tools,
         ]
         
@@ -145,6 +150,7 @@ class ChatAgentUseCase:
         self._human_interrup_chche: dict[str, str] = {} # user number -> interruption message
         self._pending_sensitive_tool_calls: dict[str, list[dict]] = {}
         self._process_diagram_mermaid = ""
+        self._reasoning = True
     
     @staticmethod
     def __token_counter(messages: list) -> int:
@@ -217,7 +223,7 @@ class ChatAgentUseCase:
 
         # Add prompt to our history
         messages = summary_source + [HumanMessage(content=summary_message)]
-        response = self.__llm(reasoning=True).invoke(messages)
+        response = self.__llm(reasoning=self._reasoning).invoke(messages)
         
         # Keep a short recent window and rely on summary for older history.
         keep_recent = self.SUMMARIZE_KEEP_RECENT_MESSAGES
@@ -297,10 +303,10 @@ class ChatAgentUseCase:
 
         return "end"
     
-    def __llm(self, reasoning: bool = True):
+    def __llm(self, reasoning: bool = True, structured_output: Any = None):
         ai_config =  self.config.get_agent_model_config()
         agent_model_config = ai_config.agent_model if ai_config.agent_model.agent_provider != "default" else None
-        return self.llm.LLM(reasoning=reasoning, providers=agent_model_config)
+        return self.llm.LLM(reasoning=reasoning, providers=agent_model_config, structured_output=structured_output)
 
     def __content_to_text(self, content) -> str:
         """
@@ -704,48 +710,6 @@ class ChatAgentUseCase:
                 flagged.append((tool_call, reason))
         return flagged
 
-    @staticmethod
-    def __human_feedback_intent(text: str) -> Literal["approve", "reject", "unknown"]:
-        """Interpret human confirmation response for pending sensitive actions."""
-        normalized = " ".join((text or "").strip().lower().split())
-        if not normalized:
-            return "unknown"
-
-        reject_markers = (
-            "batal",
-            "cancel",
-            "jangan",
-            "tidak",
-            "no",
-            "stop",
-            "ga jadi",
-            "gak jadi",
-            "nggak jadi",
-            "tolak",
-            "reject",
-            "deny",
-        )
-        if any(marker in normalized for marker in reject_markers):
-            return "reject"
-
-        approve_markers = (
-            "lanjut",
-            "setuju",
-            "yes",
-            "ya",
-            "ok",
-            "oke",
-            "confirm",
-            "konfirmasi",
-            "proceed",
-            "continue",
-            "lanjutkan",
-        )
-        if any(marker in normalized for marker in approve_markers):
-            return "approve"
-
-        return "unknown"
-
     def __human_feedback_reason_label(self, reason: str) -> str:
         if reason == "sensitive_action":
             return "This action is sensitive and requires explicit approval."
@@ -883,6 +847,29 @@ class ChatAgentUseCase:
         max_tokens = self.ASSISTANT_CONTEXT_MAX_TOKENS if use_tools else self.DIRECT_CHAT_CONTEXT_MAX_TOKENS
         assistant_messages = self.__assistant_context(state, max_tokens=max_tokens)
 
+        if not use_tools:
+            # Scrub tool calls and convert ToolMessages for plain-text LLMs.
+            # Many providers (like Ollama) drop history or fail if tool_calls are
+            # present but no tools are bound to the request.
+            scrubbed_messages = []
+            for msg in assistant_messages:
+                if isinstance(msg, AIMessage):
+                    tool_calls = getattr(msg, "tool_calls", [])
+                    if tool_calls:
+                        tool_names = [call.get("name", "unknown") for call in tool_calls]
+                        content = self.__content_to_text(getattr(msg, "content", ""))
+                        text = f"{content}\n[Executed tools: {', '.join(tool_names)}]" if content else f"[Executed tools: {', '.join(tool_names)}]"
+                        scrubbed_messages.append(AIMessage(content=text.strip()))
+                    else:
+                        scrubbed_messages.append(msg)
+                elif isinstance(msg, ToolMessage):
+                    tool_name = getattr(msg, "name", "unknown")
+                    content = self.__content_to_text(getattr(msg, "content", ""))
+                    scrubbed_messages.append(SystemMessage(content=f"Tool '{tool_name}' result: {content}"))
+                else:
+                    scrubbed_messages.append(msg)
+            assistant_messages = scrubbed_messages
+
         if not self.__has_non_system_message(assistant_messages):
             # Prefer latest human input to keep fallback context aligned
             # with the current turn and avoid older assistant echoes.
@@ -944,16 +931,17 @@ class ChatAgentUseCase:
             confirm_sensitive_tools, or cancel_sensitive_tools.
         """
         sender = state.get("sender", "")
-        # Use only the latest user turn for route classification to avoid
-        # stale-intent contamination from previous turns.
+        # Use recent context for route classification so short replies (like typos) are understood
         recent_user_messages = self.__latest_user_text(state, max_messages=1).strip()
+        recent_context = self.__fallback_state_excerpt(state.get("messages", []), max_messages=4, max_chars=1000)
 
         if self._pending_sensitive_tool_calls.get(sender):
             decision_text = self.__latest_user_text(state, max_messages=1)
-            decision = self.__human_feedback_intent(decision_text)
-            if decision == "approve":
+            decision = self.__llm(reasoning=True,structured_output=FeedBackType).invoke(f"analyze the following user input ```{decision_text}```. return are in this inout, user agree or not, if agree return is_approved='approve', else return is_approved='cancel' ")
+
+            if decision.is_approved == "approve":
                 return "confirm_sensitive_tools"
-            if decision == "reject":
+            if decision.is_approved == "cancel":
                 return "cancel_sensitive_tools"
             return "human_feedback"
 
@@ -966,9 +954,9 @@ class ChatAgentUseCase:
         classifier_prompt = self.instruction.route_query_instruction()
 
         try:
-            classification = self.__llm(reasoning=True).invoke([
+            classification = self.__llm(reasoning=self._reasoning).invoke([
                 AIMessage(content=classifier_prompt),
-                HumanMessage(content=recent_user_messages),
+                HumanMessage(content=recent_context),
             ])
 
             route = self.__content_to_text(classification.content).strip().lower()
@@ -992,13 +980,13 @@ class ChatAgentUseCase:
         payload = self.__message_guard_payload(state, use_tools=False)
         
         try:
-            response = self.__llm(reasoning=False).invoke(payload)
+            response = self.__llm(reasoning=self._reasoning).invoke(payload)
         except Exception as err:
             # Handle Ollama Service Unavailable (503) or other temporary API failures.
-            logger.warning("Assistant direct_chat invoke failed with %s for %s; retrying with reasoning=True.", err, sender)
+            logger.warning("Assistant direct_chat invoke failed with %s for %s; retrying with reasoning=%s.", err, sender, self._reasoning)
             try:
                 # Fallback to a reasoning model or different endpoint.
-                retry_llm = self.__llm(reasoning=True)
+                retry_llm = self.__llm(reasoning=self._reasoning)
                 response = retry_llm.invoke(payload)
             except Exception as retry_err:
                 logger.error("Fallback direct chat retry also failed for %s: %s", sender, retry_err)
@@ -1120,8 +1108,9 @@ class ChatAgentUseCase:
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
             self.wa_integration_tool.send_file(sender=sender),
-            self.agent_code.run_worker(sender=sender),
+            self.agent_code.make_agent_code_tool(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
+            self.filex_tool.generate_images(sender=sender),
         ]
     
     async def __tool_node(self, state: State):
@@ -1145,7 +1134,7 @@ class ChatAgentUseCase:
         # ambil dari cache, kalau belum ada baru bind
         if sender not in self._llm_cache:
             tools = self.__get_tools(state)
-            self._llm_cache[sender] = self.__llm(reasoning=True).bind_tools(tools)
+            self._llm_cache[sender] = self.__llm(reasoning=self._reasoning).bind_tools(tools)
         
         llm_with_tools = self._llm_cache[sender]
         payload = self.__message_guard_payload(state, use_tools=True)
@@ -1162,11 +1151,13 @@ class ChatAgentUseCase:
                 raise
 
             logger.warning(
-                "Assistant invoke failed with ResponseError for %s; retrying with reasoning=True. detail=%s",
+                "Assistant invoke failed with ResponseError for %s; retrying with reasoning=%s. detail=%s",
                 sender,
+                self._reasoning,
                 err,
             )
-            retry_llm = self.__llm(reasoning=True).bind_tools(self.__get_tools(state))
+
+            retry_llm = self.__llm(reasoning=self._reasoning).bind_tools(self.__get_tools(state))
             response = retry_llm.invoke(payload)
             response = self.__coerce_textual_tool_response(response)
 
@@ -1523,7 +1514,6 @@ class ChatAgentUseCase:
 
             input_messages = []
             config = {"configurable": {"thread_id": group_id if group_id else number}}
-            contact_info = self.wa_integration_tool.get_user_information(number)
             
             
             if is_system:
@@ -1543,10 +1533,10 @@ class ChatAgentUseCase:
                 )
                 return
             
-            input_messages.append(SystemMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}"))
+            contact_info = self.wa_integration_tool.get_user_information(number)
             if reply_content:
                 input_messages.append(AIMessage(content=f"User Replying Message from AI:\n{reply_content}"))
-            input_messages.append(HumanMessage(content=messages))
+            input_messages.append(HumanMessage(content=f"User information: {contact_info.data.model_dump() if contact_info.data else 'N/A'}\nSend at {self.time_tool.current_time()}. Message: {messages}"))
 
             result = await self.react_graph.ainvoke({
                 "messages": input_messages,

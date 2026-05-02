@@ -27,6 +27,15 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 
 ---
 
+## Image Generation
+- Use `{self.filex_tool.generate_images.__name__}` to generate images from a list of text prompts.
+- All generated images must be saved into a single, relevant folder inside `{self.filex_tool._playground_root}` (e.g. `playground/images/<topic>`).
+- You can pass multiple prompts at once for batch generation.
+- IMPORTANT: If the user asks for multiple images, you MUST provide multiple separate prompts in the list. Do NOT combine them into a single 'collage' prompt.
+- Use `{self.wa_bot_tool.send_file.__name__}` to send the generated images to the user.
+
+---
+
 ## Runtime Modes
 - The runtime has two execution modes:
     - `direct_chat`: no tools are bound for this turn. Use reasoning and conversation context only.

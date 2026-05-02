@@ -24,6 +24,16 @@ class AnthropicConfig(BaseModel):
     model: str
     auth_token: str = ""
 
+class GoogleConfig(BaseModel):
+    config_name: str = "google"  # MongoDB document identifier
+    api_key: str
+    model: str
+
+class MinimaxConfig(BaseModel):
+    config_name: str = "minimax"  # MongoDB document identifier
+    api_key: str
+    model: str
+
 class AgentProvidersAndModel(BaseModel):
     agent_provider: str
     agent_model: str
@@ -33,6 +43,7 @@ class AgentConfigModels(BaseModel):
     agent_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
     agent_code_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
     research_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
+    reply_model: AgentProvidersAndModel = AgentProvidersAndModel(agent_provider="default", agent_model="default")
 
 class AIModelConfigManager:
     def __init__(self):
@@ -104,12 +115,43 @@ class AIModelConfigManager:
             auth_token=config.get("auth_token", ""),
         )
     
+    def get_google_config(self) -> GoogleConfig:
+        config = self.collection.find_one({"config_name": "google"})
+        if config is None:
+            config = GoogleConfig(
+                config_name="google",
+                api_key='',
+                model='gemini-2.5-flash'
+            ).model_dump()
+            self.collection.insert_one(config)
+        return GoogleConfig(
+            config_name=config.get("config_name", "google"),
+            api_key=config.get("api_key", ""),
+            model=config.get("model", "gemini-2.5-flash"),
+        )
+    
+    def get_minimax_config(self) -> MinimaxConfig:
+        config = self.collection.find_one({"config_name": "minimax"})
+        if config is None:
+            config = MinimaxConfig(
+                config_name="minimax",
+                api_key='',
+                model='image-01'
+            ).model_dump()
+            self.collection.insert_one(config)
+        return MinimaxConfig(
+            config_name=config.get("config_name", "minimax"),
+            api_key=config.get("api_key", ""),
+            model=config.get("model", "image-01"),
+        )
+    
     def get_agent_model_config(self) -> AgentConfigModels:
         config = self.collection.find_one({"config_name": "agent_config"})
         if config is None:
             config = AgentConfigModels(
                 config_name="agent_config",
                 agent_model=AgentProvidersAndModel(agent_provider="default", agent_model="default"),
+                reply_model=AgentProvidersAndModel(agent_provider="default", agent_model="default"),
                 agent_code_model=AgentProvidersAndModel(agent_provider="default", agent_model="default"),
                 research_model=AgentProvidersAndModel(agent_provider="default", agent_model="default")
             ).model_dump()
@@ -117,6 +159,7 @@ class AIModelConfigManager:
         return AgentConfigModels(
             config_name=config.get("config_name", "agent_config"),
             agent_model=AgentProvidersAndModel(**config.get("agent_model", {"agent_provider": "default", "agent_model": "default"})),
+            reply_model=AgentProvidersAndModel(**config.get("reply_model", {"agent_provider": "default", "agent_model": "default"})),
             agent_code_model=AgentProvidersAndModel(**config.get("agent_code_model", {"agent_provider": "default", "agent_model": "default"})),
             research_model=AgentProvidersAndModel(**config.get("research_model", {"agent_provider": "default", "agent_model": "default"}))
         )

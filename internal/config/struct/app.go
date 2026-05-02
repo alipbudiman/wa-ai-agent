@@ -51,6 +51,7 @@ type AgentConfigModelsDB struct {
 	AgentModel     AgentProvidersAndModelDB `bson:"agent_model"`
 	AgentCodeModel AgentProvidersAndModelDB `bson:"agent_code_model"`
 	ResearchModel  AgentProvidersAndModelDB `bson:"research_model"`
+	ReplyModel     AgentProvidersAndModelDB `bson:"reply_model"`
 }
 
 type AppConfig struct {
@@ -78,6 +79,7 @@ type AgentConfigModels struct {
 	AgentModel     AgentProvidersAndModel
 	AgentCodeModel AgentProvidersAndModel
 	ResearchModel  AgentProvidersAndModel
+	ReplyModel     AgentProvidersAndModel
 }
 
 func (a AppConfig) GetAIReplyConfig() AIReplyConfig {
@@ -219,6 +221,7 @@ func (a AppConfig) GetAgentConfigModels() AgentConfigModels {
 				AgentModel:     AgentProvidersAndModelDB{AgentProvider: string(agentConfigModelDefault), AgentModel: string(agentConfigModelDefault)},
 				AgentCodeModel: AgentProvidersAndModelDB{AgentProvider: string(agentConfigModelDefault), AgentModel: string(agentConfigModelDefault)},
 				ResearchModel:  AgentProvidersAndModelDB{AgentProvider: string(agentConfigModelDefault), AgentModel: string(agentConfigModelDefault)},
+				ReplyModel:     AgentProvidersAndModelDB{AgentProvider: string(agentConfigModelDefault), AgentModel: string(agentConfigModelDefault)},
 			}
 			res, err := databases.MongoManager.InsertOne(
 				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
@@ -236,6 +239,7 @@ func (a AppConfig) GetAgentConfigModels() AgentConfigModels {
 				AgentModel:     AgentProvidersAndModel{AgentProvider: func() string { return default_config.AgentModel.AgentProvider }, AgentModel: func() string { return default_config.AgentModel.AgentModel }},
 				AgentCodeModel: AgentProvidersAndModel{AgentProvider: func() string { return default_config.AgentCodeModel.AgentProvider }, AgentModel: func() string { return default_config.AgentCodeModel.AgentModel }},
 				ResearchModel:  AgentProvidersAndModel{AgentProvider: func() string { return default_config.ResearchModel.AgentProvider }, AgentModel: func() string { return default_config.ResearchModel.AgentModel }},
+				ReplyModel:     AgentProvidersAndModel{AgentProvider: func() string { return default_config.ReplyModel.AgentProvider }, AgentModel: func() string { return default_config.ReplyModel.AgentModel }},
 			}
 		}
 		return AgentConfigModels{}
@@ -244,6 +248,7 @@ func (a AppConfig) GetAgentConfigModels() AgentConfigModels {
 		AgentModel:     AgentProvidersAndModel{AgentProvider: func() string { return config.AgentModel.AgentProvider }, AgentModel: func() string { return config.AgentModel.AgentModel }},
 		AgentCodeModel: AgentProvidersAndModel{AgentProvider: func() string { return config.AgentCodeModel.AgentProvider }, AgentModel: func() string { return config.AgentCodeModel.AgentModel }},
 		ResearchModel:  AgentProvidersAndModel{AgentProvider: func() string { return config.ResearchModel.AgentProvider }, AgentModel: func() string { return config.ResearchModel.AgentModel }},
+		ReplyModel:     AgentProvidersAndModel{AgentProvider: func() string { return config.ReplyModel.AgentProvider }, AgentModel: func() string { return config.ReplyModel.AgentModel }},
 	}
 }
 
@@ -263,6 +268,11 @@ func UpdateAgentConfigModels(config AgentConfigModelsDB) error {
 		update["$set"].(bson.M)["research_model"] = bson.M{
 			"agent_provider": config.ResearchModel.AgentProvider,
 			"agent_model":    config.ResearchModel.AgentModel,
+		}
+	} else if config.ReplyModel.AgentProvider != "" || config.ReplyModel.AgentModel != "" {
+		update["$set"].(bson.M)["reply_model"] = bson.M{
+			"agent_provider": config.ReplyModel.AgentProvider,
+			"agent_model":    config.ReplyModel.AgentModel,
 		}
 	} else {
 		return fmt.Errorf("no fields to update")

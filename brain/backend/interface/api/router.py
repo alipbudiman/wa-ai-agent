@@ -13,6 +13,7 @@ from backend.domain.report import LangSmithLogReport, LangSmithRunReport
 from backend.application.ai.tools.models import LevelSystem
 from backend.application.aidata import CheckAIData
 from backend.domain.aidata import AIDataInjectionResponse, AIDataStatus
+from backend.application.ai.reply import ReplyAgentUsecase
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -135,6 +136,13 @@ def create_chat_agent_router(usecase: ChatAgentUseCase) -> APIRouter:
 def create_chat_agent_code_router(usecase: AgentCodeUsecase) -> APIRouter:
     router = APIRouter(prefix="/chat-agent-code", tags=["chat-agent-code"])
 
+    @router.get("/process-diagram", response_model=ChatAgentProcessDiagramResponse)
+    def get_code_process_diagram() -> ChatAgentProcessDiagramResponse:
+        mermaid_source = usecase.get_process_diagram_mermaid().strip()
+        if not mermaid_source:
+            raise HTTPException(status_code=503, detail="process diagram is not available")
+        return ChatAgentProcessDiagramResponse(status="success", mermaid=mermaid_source)
+
     @router.post("", response_model=ChatAgentResponse)
     async def chat_agent_code(
             request: ChatAgentRequest, 
@@ -165,6 +173,13 @@ def create_chat_agent_code_router(usecase: AgentCodeUsecase) -> APIRouter:
 def create_chat_agent_research_router(usecase: ResearchAgentUsecase) -> APIRouter:
     router = APIRouter(prefix="/agent-research", tags=["agent-research"])
 
+    @router.get("/process-diagram", response_model=ChatAgentProcessDiagramResponse)
+    def get_research_process_diagram() -> ChatAgentProcessDiagramResponse:
+        mermaid_source = usecase.get_process_diagram_mermaid().strip()
+        if not mermaid_source:
+            raise HTTPException(status_code=503, detail="process diagram is not available")
+        return ChatAgentProcessDiagramResponse(status="success", mermaid=mermaid_source)
+
     @router.post("", response_model=ChatAgentResponse)
     async def agent_research(
             request: ChatAgentRequest, 
@@ -177,6 +192,43 @@ def create_chat_agent_research_router(usecase: ResearchAgentUsecase) -> APIRoute
             logger.info(f"Invalid log level '{request.level}' received. Defaulting to INFO.")
         background_tasks.add_task(
             usecase.ResearchAgent,
+            messages=request.message,
+            number=request.number,
+            is_system=request.is_system,
+            level=level,
+            group_id=request.group_id if request.group_id else None,
+            reply_content=request.reply_content if request.reply_content else None,
+            # image=request.image if request.image else None,
+        )
+        return ChatAgentResponse(
+            status="success",
+            response="success to call brain"
+        )
+
+    return router
+
+def create_chat_agent_reply_router(usecase: ReplyAgentUsecase) -> APIRouter:
+    router = APIRouter(prefix="/agent-reply", tags=["agent-reply"])
+
+    @router.get("/process-diagram", response_model=ChatAgentProcessDiagramResponse)
+    def get_reply_process_diagram() -> ChatAgentProcessDiagramResponse:
+        mermaid_source = usecase.get_process_diagram_mermaid().strip()
+        if not mermaid_source:
+            raise HTTPException(status_code=503, detail="process diagram is not available")
+        return ChatAgentProcessDiagramResponse(status="success", mermaid=mermaid_source)
+
+    @router.post("", response_model=ChatAgentResponse)
+    async def agent_reply(
+            request: ChatAgentRequest, 
+            background_tasks: BackgroundTasks
+        ) -> ChatAgentResponse:
+        try:
+            level = LevelSystem[request.level.upper()]
+        except KeyError:
+            level = LevelSystem.INFO
+            logger.info(f"Invalid log level '{request.level}' received. Defaulting to INFO.")
+        background_tasks.add_task(
+            usecase.ReplyAgent,
             messages=request.message,
             number=request.number,
             is_system=request.is_system,
