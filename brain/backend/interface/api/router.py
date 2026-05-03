@@ -1,3 +1,10 @@
+from backend.application.ingestion.loader import (
+    DocumentDeleteResult,
+    DocumentIngestResult,
+    DocumentListResponse,
+    DocumentLoader,
+    SupportedDocumentType,
+)
 from datetime import datetime
 import logging
 
@@ -44,6 +51,19 @@ class ChatAgentProcessDiagramResponse(BaseModel):
 class AIDataInjectionRequest(BaseModel):
     number: str
     messages: str
+
+
+class VectorStoreIngestRequest(BaseModel):
+    folder_path: str | None = None
+    urls: list[str] | None = None
+    file_paths: list[str] | None = None
+    category: str = "general"
+
+
+class VectorStoreDocumentStatusResponse(BaseModel):
+    source: str
+    exists: bool
+    total_chunks: int
 
 
 def create_health_router(usecase: CheckHealthUseCase) -> APIRouter:
@@ -241,5 +261,59 @@ def create_chat_agent_reply_router(usecase: ReplyAgentUsecase) -> APIRouter:
             status="success",
             response="success to call brain"
         )
+
+    return router
+
+def create_vector_store_router(usecase: DocumentLoader) -> APIRouter:
+    router = APIRouter(prefix="/vector-store", tags=["vector-store"])
+
+    @router.get("/supported-document-type", response_model=SupportedDocumentType)
+    def get_supported_document_type() -> SupportedDocumentType:
+        return usecase.get_supported_document_type()
+
+    @router.get("/documents", response_model=DocumentListResponse)
+    def list_documents() -> DocumentListResponse:
+        return usecase.get_list_saved_docs()
+
+    @router.get("/documents/find", response_model=VectorStoreDocumentStatusResponse)
+    def find_document(source: str) -> VectorStoreDocumentStatusResponse:
+        total_chunks = usecase.count_document_by_source(source)
+        return VectorStoreDocumentStatusResponse(
+            source=source,
+            exists=total_chunks > 0,
+            total_chunks=total_chunks,
+        )
+
+    @router.get("/count-document-by-source", response_model=int)
+    def count_document_by_source(source: str) -> int:
+        return usecase.count_document_by_source(source)
+
+    @router.delete("/documents", response_model=DocumentDeleteResult)
+    def delete_document(source: str) -> DocumentDeleteResult:
+        return usecase.delete_document_by_source(source)
+
+    @router.delete("/delete-document-by-source", response_model=bool)
+    def delete_document_by_source(source: str) -> bool:
+        return usecase.delete_document_by_source(source).deleted
+    
+    @router.post("/ingest-document", response_model=DocumentIngestResult)
+    def ingest_document(request: VectorStoreIngestRequest) -> DocumentIngestResult:
+        try:
+            result = usecase.ingest_to_mongodb(
+                folder_path=request.folder_path,
+                urls=request.urls,
+                file_paths=request.file_paths,
+                category=request.category,
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        except Exception as err:
+            logger.exception("Failed to ingest document to vector store")
+            raise HTTPException(status_code=500, detail=str(err)) from err
+
+        if result is None:
+            raise HTTPException(status_code=400, detail="Tidak ada dokumen yang dimuat")
+
+        return result
 
     return router

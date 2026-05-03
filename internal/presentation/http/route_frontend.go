@@ -603,18 +603,24 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 
 	router.GET("/artifacts", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "artifacts.gohtml", gin.H{
-			"Title":                                   "Agent Accsessible Resources",
-			"ProcessDiagramPath":                      "/assets/artifacts/chat_agent_process_table.png",
-			"ProcessDiagramMermaidEndpoint":           "/artifacts/process-diagram/mermaid",
-			"ProcessDiagramCodeMermaidEndpoint":       "/artifacts/process-diagram/code-mermaid",
-			"ProcessDiagramResearchMermaidEndpoint":   "/artifacts/process-diagram/research-mermaid",
-			"ProcessDiagramReplyMermaidEndpoint":      "/artifacts/process-diagram/reply-mermaid",
-			"PlaygroundListEndpoint":                  "/artifacts/playground/list",
-			"PlaygroundFileEndpoint":                  "/artifacts/playground/file",
-			"PlaygroundOpenEndpoint":                  "/artifacts/playground/open",
-			"PlaygroundDeleteEndpoint":                "/artifacts/playground/delete",
-			"PlaygroundCreateFolderEndpoint":          "/artifacts/playground/folder",
-			"PlaygroundUploadEndpoint":                "/artifacts/playground/upload",
+			"Title":                                 "Agent Accsessible Resources",
+			"ProcessDiagramPath":                    "/assets/artifacts/chat_agent_process_table.png",
+			"ProcessDiagramMermaidEndpoint":         "/artifacts/process-diagram/mermaid",
+			"ProcessDiagramCodeMermaidEndpoint":     "/artifacts/process-diagram/code-mermaid",
+			"ProcessDiagramResearchMermaidEndpoint": "/artifacts/process-diagram/research-mermaid",
+			"ProcessDiagramReplyMermaidEndpoint":    "/artifacts/process-diagram/reply-mermaid",
+			"PlaygroundListEndpoint":                "/artifacts/playground/list",
+			"PlaygroundFileEndpoint":                "/artifacts/playground/file",
+			"PlaygroundOpenEndpoint":                "/artifacts/playground/open",
+			"PlaygroundDeleteEndpoint":              "/artifacts/playground/delete",
+			"PlaygroundCreateFolderEndpoint":        "/artifacts/playground/folder",
+			"PlaygroundUploadEndpoint":              "/artifacts/playground/upload",
+		})
+	})
+
+	router.GET("/database", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "database.gohtml", gin.H{
+			"LoadDocumentBaseURL": fmt.Sprintf("%s%s", API_BASE_PATH, LOAD_DOCUMENT_PATH),
 		})
 	})
 

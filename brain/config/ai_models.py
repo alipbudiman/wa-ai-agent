@@ -27,10 +27,17 @@ class AnthropicConfig(BaseModel):
 class GoogleConfig(BaseModel):
     config_name: str = "google"  # MongoDB document identifier
     api_key: str
+    img_model: str
     model: str
 
 class MinimaxConfig(BaseModel):
     config_name: str = "minimax"  # MongoDB document identifier
+    api_key: str
+    img_model: str
+    model: str
+
+class OpenAIConfig(BaseModel):
+    config_name: str = "openai"  # MongoDB document identifier
     api_key: str
     model: str
 
@@ -121,12 +128,14 @@ class AIModelConfigManager:
             config = GoogleConfig(
                 config_name="google",
                 api_key='',
+                img_model='gemini-2.5-flash',
                 model='gemini-2.5-flash'
             ).model_dump()
             self.collection.insert_one(config)
         return GoogleConfig(
             config_name=config.get("config_name", "google"),
             api_key=config.get("api_key", ""),
+            img_model=config.get("img_model", "gemini-2.5-flash"),
             model=config.get("model", "gemini-2.5-flash"),
         )
     
@@ -136,15 +145,32 @@ class AIModelConfigManager:
             config = MinimaxConfig(
                 config_name="minimax",
                 api_key='',
-                model='image-01'
+                img_model='image-01',
+                model='MiniMax-M2.7'
             ).model_dump()
             self.collection.insert_one(config)
         return MinimaxConfig(
             config_name=config.get("config_name", "minimax"),
             api_key=config.get("api_key", ""),
-            model=config.get("model", "image-01"),
+            img_model=config.get("img_model", "image-01"),
+            model=config.get("model", "MiniMax-M2.7"),
         )
     
+    def get_openai_config(self) -> OpenAIConfig:
+        config = self.collection.find_one({"config_name": "openai"})
+        if config is None:
+            config = OpenAIConfig(
+                config_name="openai",
+                api_key='',
+                model='gpt-5'
+            ).model_dump()
+            self.collection.insert_one(config)
+        return OpenAIConfig(
+            config_name=config.get("config_name", "openai"),
+            api_key=config.get("api_key", ""),
+            model=config.get("model", "gpt-5")
+        )
+
     def get_agent_model_config(self) -> AgentConfigModels:
         config = self.collection.find_one({"config_name": "agent_config"})
         if config is None:

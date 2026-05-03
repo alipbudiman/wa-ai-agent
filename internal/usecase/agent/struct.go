@@ -57,6 +57,7 @@ type CommandCollection struct {
 	AnthropicConfig          CommandInfo
 	GoogleConfig             CommandInfo
 	MinimaxConfig            CommandInfo
+	OpenAIConfig             CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

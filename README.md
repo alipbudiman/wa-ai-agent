@@ -11,7 +11,7 @@ WaNexus is a state-of-the-art AI-powered WhatsApp bot system. It leverages a mod
   * **Execute Actions Natively:** Run terminal commands, deploy background workers, and perform complex iterative scripting directly on the host system.
   * **Manage Files:** Read, manipulate, and compress files into archives seamlessly.
   * **Search the Web:** Perform real-time internet searches for factual lookups.
-  * **Interact with Databases:** Safely execute localized queries.
+  * **Interact with Databases:** Safely execute localized queries and perform high-performance **Vector Search** using MongoDB Atlas integration.
   * **WhatsApp Automation:** Send rich texts, files, broadcast messages, and manage contacts autonomously via WhatsApp.
 * **Dual-Core Architecture:** A robust Go-based WhatsApp client (using WhatsMeow) securely handles message streams and interfaces with a Python (FastAPI) Brain backend for cognitive tasks.
 * **Automated Task Pipelines:** Consistent and repeatable workflows capable of handling complex multi-step chains (e.g., lookup → enrich → summarize → send).
@@ -40,7 +40,7 @@ Verify available services:
 ```bash
 docker compose config --services
 ```
-*Expected output: `mongo`, `redis`, `ollama`, `brain`, `wa-agent`*
+*Expected output: `mongo` (Atlas Local), `redis`, `ollama`, `brain`, `wa-agent`*
 
 ### 1. Initial Setup Sequence
 Before starting the full stack, you must prepare your LLM backend (Ollama, Anthropic, or OpenRouter). The recommended path is to begin with Ollama.
@@ -48,8 +48,7 @@ Before starting the full stack, you must prepare your LLM backend (Ollama, Anthr
 **Environment Configurations:**
 Ensure your `.env` variables align with your deployment. Example configuration:
 ```env
-MONGODB_URI=mongodb://mongo:27017
-MONGODB_DB_ALIAS=wa_ai_agent
+# MONGODB_URI=mongodb://mongo:27017  # Default to internal Docker Atlas. Uncomment to override.
 MONGODB_DB_NAME=wa_ai_agent
 REDIS_HOST=redis
 REDIS_PORT=6379
@@ -59,6 +58,8 @@ GIN_SERVER_PORT=8001
 GIN_SERVER_HOST=localhost
 APP_MODE=release
 ```
+
+> **Pro Tip:** If you want to use **MongoDB Atlas Cloud**, simply set your connection string in the `MONGODB_URI` variable inside `.env`. Docker will automatically prioritize your cloud database over the local container.
 
 ### 2. Start Core Data Services (MongoDB + Redis)
 ```bash
@@ -142,7 +143,7 @@ docker compose down
   ```
 - **Data Persistence:**
   - Authentication data is persisted within the `ollama_data` Docker volume.
-  - MongoDB, Redis data, and WA Sessions are similarly volume-backed.
+  - **MongoDB Atlas Local**, Redis data, and WA Sessions are similarly volume-backed.
   - Shared playground files are kept in `playground_data` (mapped to `/app/playground`).
 - **Resetting the Environment:**
   Running `docker compose down` will stop containers but retain data. If you intend to completely wipe the system state (requiring a re-login and model re-download), use `docker compose down -v`.

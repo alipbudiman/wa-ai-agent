@@ -12,6 +12,7 @@ wa_session.db
 playground
 assets/artifacts
 assets/video
+uploads
 docker-note.md
 TODO
 pm.py

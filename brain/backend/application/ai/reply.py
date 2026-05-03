@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from langchain.messages import HumanMessage, RemoveMessage, AIMessage
+from langchain.messages import HumanMessage, RemoveMessage, SystemMessage
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from typing import Literal
@@ -15,29 +15,41 @@ from backend.application.ai.agents import ChatAgentUseCase
 from backend.application.ai.instruction import Instruction
 from backend.application.ai.tools.time import TimeTool
 from config.config import Config
+from backend.application.ingestion.loader import DocumentLoader
+
+
 class State(MessagesState):
     summary: str = ""
+    rag_context: str = ""
+    rag_query: str = ""
 
 logger = logging.getLogger('uvicorn.error')
 
 
 class ReplyAgentUsecase:
+    RAG_TOP_K = 5
+    RAG_SCORE_THRESHOLD = 0.60
+
     def __init__(self):
         self.llm = AI()
         self.instruction = Instruction()        
-        self.sys_msg = (
-            "you are a reply agent, your name is sofia, you are a helpful assistant for replying to messages, you will receive a message and you need to reply to that message."
-            "you are reply agent, you will receive a message and you need to reply to that message."
-            "you need to answer the question or reply the message based on the message content, you can also ask for clarification if the message is not clear."
-        )
         self.checkpointer = MongoDB.get_checkpointer()
-        self.react_graph = self.__agent_logic()
         self.wa_integration_tool = WhatsAppIntegration()
         self.agent_usecase = ChatAgentUseCase()
         self.time_tool = TimeTool()
         self.config = Config()
         self._process_diagram_mermaid = ""
         self._reasoning = True
+
+        self.doc_loader = DocumentLoader()
+
+        self.sys_msg = (
+            "You are a reply agent named Sofia, a helpful assistant. "
+            "If document context is provided, use it to answer accurately. "
+            "If not relevant or empty, answer from general knowledge. "
+            "Always be concise and clear."
+        )
+        self.react_graph = self.__agent_logic()
 
     
     def __llm(self, max_retry=3, retry_count=0, set_default_on_error=None):
@@ -56,9 +68,83 @@ class ReplyAgentUsecase:
             if "internal Server Error" in str(e).lower() and "status code: -1" in str(e).lower():
                 return self.llm.LLM(reasoning=self._reasoning, retry_count=retry_count + 1, set_default_on_error=True)
             raise e
+    
+    def __retrieve(self, state: State):
+        """
+        Ambil dokumen relevan dari vector DB berdasarkan pesan terakhir user.
+        Node ini HANYA membaca dari collection 'documents'.
+        Conversation TIDAK pernah ditulis ke vector DB.
+        """
+        try:
+            query = str(state.get("rag_query") or "").strip()
+            if not query:
+                last_msg = state["messages"][-1]
+                query = (
+                    last_msg.content
+                    if isinstance(last_msg.content, str)
+                    else str(last_msg.content)
+                )
+
+            docs_with_scores = self.doc_loader.similarity_search_with_relevance_scores(
+                query=query,
+                k=self.RAG_TOP_K,
+                score_threshold=self.RAG_SCORE_THRESHOLD,
+            )
+
+            if docs_with_scores:
+                context_parts = [
+                    (
+                        f"[source: {doc.metadata.get('source', '?')} | "
+                        f"chunk: {doc.metadata.get('chunk_index', doc.metadata.get('chunk_id', '?'))} | "
+                        f"score: {score:.3f}]\n{doc.page_content}"
+                    )
+                    for doc, score in docs_with_scores
+                ]
+                rag_context = "\n\n".join(context_parts)
+                logger.info(f"RAG: {len(docs_with_scores)} dokumen relevan ditemukan")
+            else:
+                rag_context = ""
+                logger.info("RAG: tidak ada dokumen relevan melewati threshold, fallback ke general knowledge")
+
+            return {"rag_context": rag_context}
+
+        except Exception as e:
+            logger.error(f"RAG retrieve error: {e}")
+            return {"rag_context": ""}
+    
+    
 
     def __conversation(self, state: State):
-        return {"messages": [self.__llm().invoke([self.sys_msg] + state["messages"])]}
+        """
+        Generate jawaban berdasarkan:
+        - sys_msg (instruksi dasar Sofia)
+        - summary (ringkasan percakapan lama jika ada)
+        - rag_context (dokumen relevan dari vector DB, jika ada)
+        - messages (history chat dari checkpointer)
+        
+        Tidak ada penulisan ke vector DB di sini.
+        """
+        rag_context = state.get("rag_context", "")
+        summary     = state.get("summary", "")
+
+        system_content = self.sys_msg
+
+        # Sisipkan summary jika ada
+        if summary:
+            system_content += f"\n\nRingkasan percakapan sebelumnya:\n{summary}"
+
+        # Sisipkan konteks dokumen jika ada
+        if rag_context:
+            system_content += f"\n\nKonteks dari dokumen yang telah diupload:\n{rag_context}"
+        else:
+            system_content += (
+                "\n\n(Tidak ada dokumen relevan ditemukan. "
+                "Jawab berdasarkan pengetahuan umum.)"
+            )
+
+        messages = [SystemMessage(content=system_content)] + state["messages"]
+        response = self.__llm().invoke(messages)
+        return {"messages": [response]}
     
     def should_continue(self, state: State, max_chat_to_summarize: int = 10) -> Literal["summarize_conversation", "__end__"]:
         
@@ -124,10 +210,12 @@ class ReplyAgentUsecase:
 
     def __agent_logic(self):
         builder = StateGraph(State)
+        builder.add_node("retrieve", self.__retrieve)
         builder.add_node("conversation", self.__conversation)
         builder.add_node("summarize_conversation", self.summarize_conversation)
 
-        builder.add_edge(START, "conversation")
+        builder.add_edge(START, "retrieve")
+        builder.add_edge("retrieve", "conversation")
         builder.add_conditional_edges("conversation", self.should_continue)
         builder.add_edge("summarize_conversation", END)
         
@@ -158,6 +246,9 @@ class ReplyAgentUsecase:
             result = await self.react_graph.ainvoke({
                 "messages": input_messages,
                 "sender": group_id if group_id else number,
+                "rag_query": messages,
+                "rag_context": "",
+                "summary": "",
             }, config=config)
             
             results_message = self.agent_usecase.extract_ai_content(result.get('messages', []))

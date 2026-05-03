@@ -4,8 +4,10 @@ import logging
 from langchain.messages import AIMessage
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_openrouter import ChatOpenRouter
 from langchain_ollama import ChatOllama
+from langchain_community.chat_models import MiniMaxChat
 from langchain_anthropic import ChatAnthropic
 from langgraph.graph import END, START, StateGraph, MessagesState
 
@@ -13,7 +15,6 @@ from backend.infrastructure.database.database import MongoDB
 from config.ai_models import AgentProvidersAndModel
 from config.config import Config
 
-from langgraph.checkpoint.mongodb import MongoDBSaver
 
 
 logger = logging.getLogger('uvicorn.error')
@@ -24,6 +25,7 @@ class AI:
         self.config = Config()
         self.model = model
         self.checkpointer = MongoDB.get_checkpointer()
+        self.list_providers = self.config.list_providers
 
     def LLM(self, temperature: Optional[float] = None, reasoning: bool = True, providers: Optional[AgentProvidersAndModel] = None, structured_output: Optional[Any] = None) -> Any:
         if providers != None:
@@ -34,6 +36,9 @@ class AI:
             set_providers = providers if providers else self.config.get_provider_config().providers
             if not set_providers:
                 raise ValueError("No providers configured. Please set the 'providers' field in the database. if you in bot, type `/select-providers` to set it.")
+        
+        if set_providers not in self.list_providers:
+            raise ValueError(f"Unsupported provider configuration: {set_providers}. Please check the 'providers' field in the database. if you in bot, type `/select-providers` to set it.")
         
         match set_providers:
             
@@ -99,10 +104,38 @@ class AI:
             
             case "google":
                 google_config = self.config.get_google_config()
+                if not google_config.api_key:
+                    raise ValueError("Google API key is required. Please set it in the configuration. if you in bot, type `/google-config` to set it.")
                 llm = ChatGoogleGenerativeAI(
                     model=model if model else google_config.model,
                     temperature=temperature,
                     reasoning=reasoning,
+                )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
+                return llm
+            
+            case "minimax":
+                minimax_config = self.config.get_minimax_config()
+                if not minimax_config.api_key:
+                    raise ValueError("Minimax API key is required. Please set it in the configuration. if you in bot, type `/minimax-config` to set it.")
+                llm = MiniMaxChat(
+                    api_key=minimax_config.api_key,
+                    model=model if model else minimax_config.model,
+                    temperature=temperature,
+                )
+                if structured_output:
+                    llm = llm.with_structured_output(structured_output)
+                return llm
+            
+            case "openai":
+                openai_config = self.config.get_openai_config()
+                if not openai_config.api_key:
+                    raise ValueError("OpenAI API key is required. Please set it in the configuration. if you in bot, type `/openai-config` to set it.")
+                llm = ChatOpenAI(
+                    model=model if model else openai_config.model,
+                    temperature=temperature,
+                    reasoning={"effort": "medium", "summary": "auto"} if reasoning else None
                 )
                 if structured_output:
                     llm = llm.with_structured_output(structured_output)

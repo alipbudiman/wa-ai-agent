@@ -45,10 +45,18 @@ type AnthropicConfig struct {
 type GoogleConfig struct {
 	ConfigName string `bson:"config_name" json:"config_name"`
 	APIKey     string `bson:"api_key" json:"api_key"`
+	ImgModel   string `bson:"img_model" json:"img_model"`
 	Model      string `bson:"model" json:"model"`
 }
 
 type MinimaxConfig struct {
+	ConfigName string `bson:"config_name" json:"config_name"`
+	APIKey     string `bson:"api_key" json:"api_key"`
+	ImgModel   string `bson:"img_model" json:"img_model"`
+	Model      string `bson:"model" json:"model"`
+}
+
+type OpenAIConfig struct {
 	ConfigName string `bson:"config_name" json:"config_name"`
 	APIKey     string `bson:"api_key" json:"api_key"`
 	Model      string `bson:"model" json:"model"`
@@ -361,6 +369,7 @@ func GetGoogleConfig() GoogleConfig {
 	default_config := GoogleConfig{
 		ConfigName: GOOGLE_CONFIG_NAME,
 		APIKey:     Env("GOOGLE_API_KEY", ""),
+		ImgModel:   Env("GOOGLE_IMG_MODEL", "gemini-2.5-flash-lite"),
 		Model:      Env("GOOGLE_MODEL", "gemini-2.5-flash-lite"),
 	}
 
@@ -405,9 +414,11 @@ func UpdateGoogleConfig(config GoogleConfig) error {
 	} else if config.APIKey != "" {
 		data_config["$set"].(bson.M)["api_key"] = config.APIKey
 	}
-
 	if config.Model != "" {
 		data_config["$set"].(bson.M)["model"] = config.Model
+	}
+	if config.ImgModel != "" {
+		data_config["$set"].(bson.M)["img_model"] = config.ImgModel
 	}
 
 	res, err := databases.MongoManager.UpdateOne(
@@ -434,7 +445,8 @@ func GetMinimaxConfig() MinimaxConfig {
 	default_config := MinimaxConfig{
 		ConfigName: MINIMAX_CONFIG_NAME,
 		APIKey:     Env("MINIMAX_API_KEY", ""),
-		Model:      Env("MINIMAX_MODEL", "image-01"),
+		ImgModel:   Env("MINIMAX_IMG_MODEL", "image-01"),
+		Model:      Env("MINIMAX_MODEL", "MiniMax-M2.7"),
 	}
 
 	filter := bson.M{"config_name": MINIMAX_CONFIG_NAME}
@@ -481,6 +493,9 @@ func UpdateMinimaxConfig(config MinimaxConfig) error {
 	if config.Model != "" {
 		data_config["$set"].(bson.M)["model"] = config.Model
 	}
+	if config.ImgModel != "" {
+		data_config["$set"].(bson.M)["img_model"] = config.ImgModel
+	}
 
 	res, err := databases.MongoManager.UpdateOne(
 		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
@@ -499,4 +514,76 @@ func UpdateMinimaxConfig(config MinimaxConfig) error {
 	}
 
 	return nil
+}
+
+func GetOpenAIConfig() OpenAIConfig {
+	var config OpenAIConfig
+	default_config := OpenAIConfig{
+		ConfigName: "openai",
+		APIKey:     Env("OPENAI_API_KEY", ""),
+		Model:      Env("OPENAI_MODEL", "gpt-5"),
+	}
+
+	filter := bson.M{"config_name": "openai"}
+	err := databases.MongoManager.FindOne(
+		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+		BOT_CONFIG_COLLECTION_NAME,
+		filter,
+		&config,
+	)
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			res, err := databases.MongoManager.InsertOne(
+				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+				BOT_CONFIG_COLLECTION_NAME,
+				default_config,
+			)
+			if err != nil {
+				return default_config
+			}
+
+			if res.InsertedID == nil {
+				return default_config
+			}
+
+			return default_config
+		}
+		return default_config
+	}
+	return config
+}
+
+func UpdateOpenAIConfig(config OpenAIConfig) error {
+
+	data_config := bson.M{
+		"$set": bson.M{},
+	}
+
+	if config.APIKey == "-DELETE-" {
+		data_config["$set"].(bson.M)["api_key"] = ""
+	} else if config.APIKey != "" {
+		data_config["$set"].(bson.M)["api_key"] = config.APIKey
+	}
+	if config.Model != "" {
+		data_config["$set"].(bson.M)["model"] = config.Model
+	}
+
+	res, err := databases.MongoManager.UpdateOne(
+		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+		BOT_CONFIG_COLLECTION_NAME,
+		bson.M{"config_name": "openai"},
+		data_config,
+	)
+	if err != nil {
+		return err
+	}
+
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("no document found to update")
+	}
+	return nil
+
 }

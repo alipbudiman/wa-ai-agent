@@ -36,8 +36,6 @@ class FileX:
         self.config = Config()
         self.google_config = self.config.get_google_config()
         self.minimax_config = self.config.get_minimax_config()
-        self.gemini_image_model = "imagen-4.0-generate-001"
-        self.minimax_image_model = "image-01"
 
     def __resolve_folder_root(self, folder_name: str = "playground") -> Path:
         """Resolve repository playground root for file guard checks."""
@@ -158,12 +156,11 @@ class FileX:
     
     def __gen_image_by_gemini(self, prompt: str, output_path: str):
         """Generate gambar dari teks prompt."""
-        google_config = self.config.get_google_config()
-        if google_config.api_key == "":
+        if self.google_config.api_key == "":
             raise Exception("Google API Key not found. Please set it using /google-config.")
-        client = genai.Client(api_key=google_config.api_key)
+        client = genai.Client(api_key=self.google_config.api_key)
         response = client.models.generate_content(
-            model=self.gemini_image_model,
+            model=self.google_config.img_model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"]
@@ -183,16 +180,15 @@ class FileX:
     
     def __gen_image_by_minimax(self, prompt: str, output_path: str):
         """Generate image by using Minimax AI"""
-        minimax_config = self.config.get_minimax_config()
-        if minimax_config.api_key == "":
+        if self.minimax_config.api_key == "":
             raise Exception("Minimax API Key not found. Please set it using /minimax-config.")
             
-        api_key = minimax_config.api_key
+        api_key = self.minimax_config.api_key
             
         url = "https://api.minimax.io/v1/image_generation"
         headers = {"Authorization": f"Bearer {api_key}"}
         payload = {
-            "model": self.minimax_image_model,
+            "model": self.minimax_config.img_model,
             "prompt": prompt,
             "aspect_ratio": "16:9",
             "response_format": "base64",

@@ -37,7 +37,7 @@ class GinServerConfig(BaseModel):
 class Config(AIModelConfigManager):
     def __init__(self):
         super().__init__()
-        self.list_providers = ["ollama", "openrouter", "nvidia" ,"anthropic","google", "minimax"]  # Supported AI model providers
+        self.list_providers = ["ollama", "openrouter", "nvidia" ,"anthropic","google", "minimax", "openai"]  # Supported AI model providers
         self.__init_all()
         
     def __init_all(self):

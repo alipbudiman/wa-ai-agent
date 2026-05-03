@@ -190,6 +190,12 @@ func RegisteredCommands() CommandCollection {
 			Command:     "/minimax-config",
 			Function:    (*Agents).MinimaxConfig,
 		},
+		OpenAIConfig: CommandInfo{
+			Name:        "OpenAI Config",
+			Description: "Configure OpenAI LLM provider settings.",
+			Command:     "/openai-config",
+			Function:    (*Agents).OpenAIConfig,
+		},
 	}
 }
 
@@ -218,6 +224,7 @@ func (c CommandCollection) All() []CommandInfo {
 		c.AnthropicConfig,
 		c.GoogleConfig,
 		c.MinimaxConfig,
+		c.OpenAIConfig,
 	}
 }
 
@@ -1495,106 +1502,6 @@ func (h *Agents) AnthropicConfig(args CommandArgs) {
 	}
 }
 
-func (h *Agents) MinimaxConfig(args CommandArgs) {
-	cmd := RegisteredCommands().MinimaxConfig
-	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
-
-	if configText == "" {
-		minimax_config_info := cfg_struct.GetMinimaxConfig()
-		config_help := "Minimax Config Command Usage:\n" +
-			"To set API Key: `/minimax-config api-key [api_key]`\n" +
-			"To delete API Key: `/minimax-config api-key delete`\n" +
-			"To set Model: `/minimax-config model [model]`\n" +
-			"Example: `/minimax-config model image-01`\n\n" +
-			"*Current Minimax Config:*\n" +
-			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(minimax_config_info.APIKey, 4, 4)) +
-			fmt.Sprintf("- Model: %s\n", minimax_config_info.Model)
-		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String(config_help),
-		}); err != nil {
-			log.Printf("failed to send reply message: %v", err)
-		}
-		return
-	}
-
-	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
-		configArgs := strings.Fields(after)
-		if len(configArgs) != 1 {
-			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-				Conversation: proto.String("Invalid command format. Usage: `/minimax-config api-key [api_key]`"),
-			}); err != nil {
-				log.Printf("failed to send reply message: %v", err)
-			}
-			return
-		}
-		api_key := configArgs[0]
-		if strings.ToLower(api_key) == "delete" {
-			api_key = "-DELETE-"
-		}
-		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
-			APIKey: api_key,
-		})
-		if err != nil {
-			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
-			}); err != nil {
-				log.Printf("failed to send reply message: %v", err)
-			}
-			return
-		}
-
-		successMsg := "Minimax config has been updated."
-		if api_key == "-DELETE-" {
-			successMsg = "Minimax API Key has been deleted."
-		}
-		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String(successMsg),
-		}); err != nil {
-			log.Printf("failed to send reply message: %v", err)
-		}
-		return
-	}
-
-	if after, ok := strings.CutPrefix(configText, "model "); ok {
-		configArgs := strings.Fields(after)
-		if len(configArgs) != 1 {
-			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-				Conversation: proto.String("Invalid command format. Usage: `/minimax-config model [model]`"),
-			}); err != nil {
-				log.Printf("failed to send reply message: %v", err)
-			}
-			return
-		}
-		model := configArgs[0]
-		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
-			Model: model,
-		})
-		if err != nil {
-			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
-			}); err != nil {
-				log.Printf("failed to send reply message: %v", err)
-			}
-			return
-		}
-		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String("Minimax config has been updated."),
-		}); err != nil {
-			log.Printf("failed to send reply message: %v", err)
-		}
-		return
-	}
-
-	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-		Conversation: proto.String("Invalid minimax config command. Usage:\n" +
-			"To set API Key: `/minimax-config api-key [api_key]`\n" +
-			"To delete API Key: `/minimax-config api-key delete`\n" +
-			"To set Model: `/minimax-config model [model]`"),
-	}); err != nil {
-		log.Printf("failed to send reply message: %v", err)
-	}
-}
-
 func (h *Agents) GoogleConfig(args CommandArgs) {
 	cmd := RegisteredCommands().GoogleConfig
 	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
@@ -1605,10 +1512,12 @@ func (h *Agents) GoogleConfig(args CommandArgs) {
 			"To set API Key: `/google-config api-key [api_key]`\n" +
 			"To delete API Key: `/google-config api-key delete`\n" +
 			"To set Model: `/google-config model [model]`\n" +
+			"To set Image Model: `/google-config img-model [img_model]`\n" +
 			"Example: `/google-config model gemini-2.5-flash`\n\n" +
 			"*Current Google Config:*\n" +
 			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(google_config_info.APIKey, 4, 4)) +
-			fmt.Sprintf("- Model: %s\n", google_config_info.Model)
+			fmt.Sprintf("- Model: %s\n", google_config_info.Model) +
+			fmt.Sprintf("- Image Model: %s\n", google_config_info.ImgModel)
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String(config_help),
 		}); err != nil {
@@ -1685,11 +1594,275 @@ func (h *Agents) GoogleConfig(args CommandArgs) {
 		return
 	}
 
+	if after, ok := strings.CutPrefix(configText, "img-model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/google-config img-model [img_model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		img_model := configArgs[0]
+		err := cfg_struct.UpdateGoogleConfig(cfg_struct.GoogleConfig{
+			ImgModel: img_model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update google config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Google config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String("Invalid google config command. Usage:\n" +
 			"To set API Key: `/google-config api-key [api_key]`\n" +
 			"To delete API Key: `/google-config api-key delete`\n" +
-			"To set Model: `/google-config model [model]`"),
+			"To set Model: `/google-config model [model]`\n" +
+			"To set Image Model: `/google-config img-model [img_model]`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) MinimaxConfig(args CommandArgs) {
+	cmd := RegisteredCommands().MinimaxConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		minimax_config_info := cfg_struct.GetMinimaxConfig()
+		config_help := "Minimax Config Command Usage:\n" +
+			"To set API Key: `/minimax-config api-key [api_key]`\n" +
+			"To delete API Key: `/minimax-config api-key delete`\n" +
+			"To set Model: `/minimax-config model [model]`\n" +
+			"To set Image Model: `/minimax-config img-model [img_model]`\n" +
+			"Example: `/minimax-config model image-01`\n\n" +
+			"*Current Minimax Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(minimax_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", minimax_config_info.Model) +
+			fmt.Sprintf("- Image Model: %s\n", minimax_config_info.ImgModel)
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/minimax-config api-key [api_key]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		api_key := configArgs[0]
+		if strings.ToLower(api_key) == "delete" {
+			api_key = "-DELETE-"
+		}
+		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
+			APIKey: api_key,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		successMsg := "Minimax config has been updated."
+		if api_key == "-DELETE-" {
+			successMsg = "Minimax API Key has been deleted."
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(successMsg),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/minimax-config model [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		model := configArgs[0]
+		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
+			Model: model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Minimax config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "img-model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/minimax-config img-model [img_model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		img_model := configArgs[0]
+		err := cfg_struct.UpdateMinimaxConfig(cfg_struct.MinimaxConfig{
+			ImgModel: img_model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update minimax config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Minimax config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid minimax config command. Usage:\n" +
+			"To set API Key: `/minimax-config api-key [api_key]`\n" +
+			"To delete API Key: `/minimax-config api-key delete`\n" +
+			"To set Model: `/minimax-config model [model]`\n" +
+			"To set Image Model: `/minimax-config img-model [img_model]`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) OpenAIConfig(args CommandArgs) {
+	cmd := RegisteredCommands().OpenAIConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		openai_config_info := cfg_struct.GetOpenAIConfig()
+		config_help := "OpenAI Config Command Usage:\n" +
+			"To set API Key: `/openai-config api-key [api_key]`\n" +
+			"To delete API Key: `/openai-config api-key delete`\n" +
+			"To set Model: `/openai-config model [model]`\n" +
+			"Example: `/openai-config model gpt-4-0613`\n\n" +
+			"*Current OpenAI Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(openai_config_info.APIKey, 4, 4)) +
+			fmt.Sprintf("- Model: %s\n", openai_config_info.Model)
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(config_help),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/openai-config api-key [api_key]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		api_key := configArgs[0]
+		if strings.ToLower(api_key) == "delete" {
+			api_key = "-DELETE-"
+		}
+		err := cfg_struct.UpdateOpenAIConfig(cfg_struct.OpenAIConfig{
+			APIKey: api_key,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update OpenAI config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		successMsg := "OpenAI config has been updated."
+		if api_key == "-DELETE-" {
+			successMsg = "OpenAI API Key has been deleted."
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(successMsg),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/openai-config model [model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		model := configArgs[0]
+		err := cfg_struct.UpdateOpenAIConfig(cfg_struct.OpenAIConfig{
+			Model: model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update OpenAI config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("OpenAI config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid OpenAI config command. Usage:\n" +
+			"To set API Key: `/openai-config api-key [api_key]`\n" +
+			"To delete API Key: `/openai-config api-key delete`\n" +
+			"To set Model: `/openai-config model [model]`"),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
