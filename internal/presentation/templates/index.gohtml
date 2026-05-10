@@ -389,6 +389,14 @@
 			text-transform: uppercase;
 		}
 
+		body {
+			font-size: 1.05rem;
+		}
+
+		:where(p, span, a, label, button, input, select, textarea, td, th, code, .btn, .form-control, .form-select, .form-text, .font-mono, .small) {
+			font-size: max(1.02rem, 1em) !important;
+		}
+
 		@media (max-width: 991.98px) {
 			.core-wrap {
 				min-height: auto;
@@ -451,7 +459,7 @@
 									<source src="https://raw.githubusercontent.com/alipbudiman/asset/main/tantan.mp4" type="video/mp4" />
 									Your browser does not support HTML5 video playback.
 								</video>
-								<div class="video-overlay">The Hub</div>
+								<div class="video-overlay">WA NEXUS 2.0</div>
 							</div>
 							<div id="qrVisualLayer" class="video-layer video-layer-qr d-none">
 								<div id="qrCoreCanvas" class="qr-core-canvas" aria-live="polite">
@@ -477,7 +485,7 @@
 					<p class="menu-label mb-3">[ navigation ] right</p>
 					<a href="https://smith.langchain.com/" target="_blank" rel="noopener noreferrer" class="menu-btn menu-btn-active d-block text-decoration-none"><span class="icon">07</span>LangSmith</a>
                     <a href="/artifacts" class="menu-btn menu-btn-active d-block text-decoration-none"><span class="icon">08</span>artifacts</a>
-					<button type="button" class="menu-btn menu-dummy"><span class="icon">09</span>Operators</button>
+					<a href="/toolsbuilder" class="menu-btn menu-btn-active d-block text-decoration-none"><span class="icon">09</span>Tool Builder</a>
 					<a href="/database" class="menu-btn menu-btn-active d-block text-decoration-none"><span class="icon">10</span>Database</a>
 					<button type="button" class="menu-btn menu-dummy"><span class="icon">11</span>Valuables</button>
 					<button type="button" class="menu-btn menu-dummy"><span class="icon">12</span>Archive</button>

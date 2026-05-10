@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 class LevelSystem(str, Enum):
@@ -118,3 +118,53 @@ class WebSearchInput(BaseModel):
             "request is explicitly about recent/current events."
         ),
     )
+
+class ToolDataCode(BaseModel):
+    package: list[str] = Field(
+        default_factory=list,
+        description="List of Python packages required to execute the code. Optional. If the code requires specific packages, list them here so the system can ensure they are installed before execution. python packages should be listed by their PyPI name (e.g., 'numpy', 'requests'). If no special packages are needed, this can be an empty list or omitted."
+    )
+    code: str = Field(description="The actual code snippet to execute. Required. python code as a string. If the code is multi-line, ensure it is properly formatted with newline characters (\\n) to preserve structure when executed.")
+
+class ToolData(BaseModel):
+    name: str = Field(description="Name of the tool. Required.")
+    description: str = Field(description="Description of the tool's functionality and purpose. Required.")
+    agent_type: str = Field(description="Type of agent this tool is designed for (e.g., 'main-agent', 'code-agent'). Required.")
+    code: ToolDataCode | None = Field(
+        default=None,
+        description="Code-related data for the tool. Optional. This can include the code snippet and required packages if the tool requires code execution."
+    )
+    information: str | None = Field(
+        default=None,
+        description=(
+            "Additional information about the tool. Optional. This can include usage tips, constraints, or any other relevant details that don't fit in the description."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def require_information_or_code(self):
+        has_information = bool((self.information or "").strip())
+        has_code = self.code is not None and bool((self.code.code or "").strip())
+        if not has_information and not has_code:
+            raise ValueError("ToolData requires at least one of information or code.")
+        return self
+
+class ToolAccess(BaseModel):
+    tool_name: str = Field(description="Name of the custom database tool to access. Required. Use one of the names from the custom tools catalog.")
+    tool_input: str | None = Field(
+        default=None,
+        description=(
+            "Optional input for the selected custom tool. Use plain text or a JSON string when the custom tool needs user-specific data. "
+            "For information-only tools, leave this empty."
+        ),
+    )
+
+# Backward-compatible alias for the previous misspelled class name.
+ToolAcccess = ToolAccess
+    
+class ToolDataRequest(BaseModel):
+    agent_type: str
+
+class ToolDataReturn(BaseModel):
+    name: str
+    description: str

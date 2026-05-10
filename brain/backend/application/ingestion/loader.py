@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field
 from backend.infrastructure.database.database import MongoDB
 from config.config import Config
 
+from backend.application.ai.models import MAIN_AGENT, CODE_AGENT, REASEARCH_AGENT, REPLY_AGENT
+
 
 class DocumentInfo(BaseModel):
     source: str
@@ -84,6 +86,8 @@ class DocumentDeleteResult(BaseModel):
 
 
 class DocumentLoader:
+    SUPPORTED_AGENT_COLLECTIONS = (MAIN_AGENT, CODE_AGENT, REASEARCH_AGENT, REPLY_AGENT)
+    DEFAULT_COLLECTION_NAME = REPLY_AGENT
     EMBEDDING_PROVIDER = "openai"
     EMBEDDING_MODEL = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS = 1536
@@ -91,21 +95,41 @@ class DocumentLoader:
     CHUNK_SIZE = 900
     CHUNK_OVERLAP = 120
     TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "latin-1")
+    SUPPORTED_EXT = ("*.pdf", "*.txt", "*.md", "*.csv", "*.docx", "*.xlsx", "*.pptx")
+    SUPPORTED_URLS = ("any web",)
 
-    def __init__(self):
+    def __init__(self, collection_name: str = DEFAULT_COLLECTION_NAME):
+        self.collection_name = self.resolve_collection_name(collection_name)
         self.db = MongoDB()
-        self.documents_collection = self.db.get_collection("documents")
+        self.documents_collection = self.db.get_collection(self.collection_name)
         self.config = Config()
         self.open_ai_config = self.config.get_openai_config()
         self.embeddings = self.create_embeddings()
-        self.supported_ext = ["*.pdf", "*.txt", "*.md", "*.csv", "*.docx", "*.xlsx", "*.pptx"]
-        self.supported_urls = ["any web"]
+        self.supported_ext = list(self.SUPPORTED_EXT)
+        self.supported_urls = list(self.SUPPORTED_URLS)
         self.vector_store = MongoDBAtlasVectorSearch(
             collection=self.documents_collection,
             embedding=self.embeddings,
             index_name=self.VECTOR_INDEX_NAME,
         )
         self.create_vector_index(self.vector_store)
+
+    @classmethod
+    def list_models(cls) -> list[str]:
+        """List supported agent vector collections."""
+        return list(cls.SUPPORTED_AGENT_COLLECTIONS)
+
+    @classmethod
+    def resolve_collection_name(cls, collection_name: str | None) -> str:
+        clean_collection_name = str(collection_name or "").strip()
+        if not clean_collection_name:
+            clean_collection_name = cls.DEFAULT_COLLECTION_NAME
+
+        if clean_collection_name not in cls.SUPPORTED_AGENT_COLLECTIONS:
+            supported = ", ".join(cls.SUPPORTED_AGENT_COLLECTIONS)
+            raise ValueError(f"Unsupported vector agent '{clean_collection_name}'. Supported agents: {supported}")
+
+        return clean_collection_name
 
     def create_embeddings(self) -> OpenAIEmbeddings:
         self.open_ai_config = self.config.get_openai_config()
@@ -136,7 +160,7 @@ class DocumentLoader:
         self,
         query: str,
         k: int = 4,
-        score_threshold: float = 0.65,
+        score_threshold: float = 0.7,
         filter: dict = None,
     ) -> list[tuple[Document, float]]:
         """Search documents and keep only results above a relevance threshold."""
@@ -153,9 +177,13 @@ class DocumentLoader:
         ]
 
     def get_supported_document_type(self) -> SupportedDocumentType:
+        return self.supported_document_type()
+
+    @classmethod
+    def supported_document_type(cls) -> SupportedDocumentType:
         return SupportedDocumentType(
-            file_type=self.supported_ext,
-            urls=self.supported_urls,
+            file_type=list(cls.SUPPORTED_EXT),
+            urls=list(cls.SUPPORTED_URLS),
         )
 
     def _document_storage_root(self) -> Path:
@@ -574,7 +602,6 @@ class DocumentLoader:
             index_exists = any(idx.get("name") == index_name for idx in existing_indexes)
 
             if index_exists:
-                print(f"Index '{index_name}' sudah ada, melewati proses pembuatan.")
                 return
 
             print(f"Membuat vector search index '{index_name}'...")
@@ -582,7 +609,6 @@ class DocumentLoader:
                 dimensions=self.EMBEDDING_DIMENSIONS,
                 wait_until_complete=30,
             )
-            print(f"Index '{index_name}' berhasil dibuat.")
 
         except Exception as exc:
             print(f"Gagal mengecek/membuat index: {exc}")

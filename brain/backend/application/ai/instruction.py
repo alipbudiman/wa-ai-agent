@@ -179,6 +179,19 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 
 ---
 
+## Research Agent
+- Use `research_agent_tool` (created by `make_agent_reaserch_tool`) when the agent needs delegated deep research before answering.
+- This tool calls a dedicated research sub-agent that can generate focused search queries, run web/Wikipedia research, summarize findings, compare sources, and produce a detailed data-based answer.
+- Prefer `research_agent_tool` over single `websearch` when the user asks for analysis that needs multiple sources, source comparison, detailed factual synthesis, trends, market/news/background research, or when the main agent lacks enough verified data.
+- Do not use `research_agent_tool` for simple questions, casual chat, or tasks that only need one direct lookup; use direct reasoning or `websearch` as appropriate.
+- Build tool inputs carefully:
+    - `messages`: concise but complete user request and relevant conversation context.
+    - `question`: the exact research question to answer.
+    - `topic`: the broader topic/category to guide search query generation.
+- After the tool returns, use its result as the research basis. Do not invent extra facts beyond the returned evidence; if the result is incomplete, say what is missing or run another targeted research call with a different question.
+
+---
+
 ## Port Forwarding / Tunneling
 - Use for exposing local servers or services to the internet.
 - Always provide the generated tunnel URL to the user for external access.
@@ -355,4 +368,3 @@ EXAMPLE:
 
 One idea = one line. No nested tables.
 This rule overrides all other formatting preferences."""
-           

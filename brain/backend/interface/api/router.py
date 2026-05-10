@@ -54,6 +54,7 @@ class AIDataInjectionRequest(BaseModel):
 
 
 class VectorStoreIngestRequest(BaseModel):
+    agent: str | None = None
     folder_path: str | None = None
     urls: list[str] | None = None
     file_paths: list[str] | None = None
@@ -264,20 +265,39 @@ def create_chat_agent_reply_router(usecase: ReplyAgentUsecase) -> APIRouter:
 
     return router
 
-def create_vector_store_router(usecase: DocumentLoader) -> APIRouter:
+def create_vector_store_router(usecase: DocumentLoader | None = None) -> APIRouter:
     router = APIRouter(prefix="/vector-store", tags=["vector-store"])
+    loaders: dict[str, DocumentLoader] = {}
+
+    if usecase is not None:
+        loaders[usecase.collection_name] = usecase
+
+    def get_agent_loader(agent: str | None) -> DocumentLoader:
+        try:
+            collection_name = DocumentLoader.resolve_collection_name(agent)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+        if collection_name not in loaders:
+            loaders[collection_name] = DocumentLoader(collection_name=collection_name)
+
+        return loaders[collection_name]
+
+    @router.get("/supported-agent", response_model=list[str])
+    def get_supported_agent() -> list[str]:
+        return DocumentLoader.list_models()
 
     @router.get("/supported-document-type", response_model=SupportedDocumentType)
     def get_supported_document_type() -> SupportedDocumentType:
-        return usecase.get_supported_document_type()
+        return DocumentLoader.supported_document_type()
 
     @router.get("/documents", response_model=DocumentListResponse)
-    def list_documents() -> DocumentListResponse:
-        return usecase.get_list_saved_docs()
+    def list_documents(agent: str | None = None) -> DocumentListResponse:
+        return get_agent_loader(agent).get_list_saved_docs()
 
     @router.get("/documents/find", response_model=VectorStoreDocumentStatusResponse)
-    def find_document(source: str) -> VectorStoreDocumentStatusResponse:
-        total_chunks = usecase.count_document_by_source(source)
+    def find_document(source: str, agent: str | None = None) -> VectorStoreDocumentStatusResponse:
+        total_chunks = get_agent_loader(agent).count_document_by_source(source)
         return VectorStoreDocumentStatusResponse(
             source=source,
             exists=total_chunks > 0,
@@ -285,21 +305,22 @@ def create_vector_store_router(usecase: DocumentLoader) -> APIRouter:
         )
 
     @router.get("/count-document-by-source", response_model=int)
-    def count_document_by_source(source: str) -> int:
-        return usecase.count_document_by_source(source)
+    def count_document_by_source(source: str, agent: str | None = None) -> int:
+        return get_agent_loader(agent).count_document_by_source(source)
 
     @router.delete("/documents", response_model=DocumentDeleteResult)
-    def delete_document(source: str) -> DocumentDeleteResult:
-        return usecase.delete_document_by_source(source)
+    def delete_document(source: str, agent: str | None = None) -> DocumentDeleteResult:
+        return get_agent_loader(agent).delete_document_by_source(source)
 
     @router.delete("/delete-document-by-source", response_model=bool)
-    def delete_document_by_source(source: str) -> bool:
-        return usecase.delete_document_by_source(source).deleted
+    def delete_document_by_source(source: str, agent: str | None = None) -> bool:
+        return get_agent_loader(agent).delete_document_by_source(source).deleted
     
     @router.post("/ingest-document", response_model=DocumentIngestResult)
     def ingest_document(request: VectorStoreIngestRequest) -> DocumentIngestResult:
         try:
-            result = usecase.ingest_to_mongodb(
+            agent_loader = get_agent_loader(request.agent)
+            result = agent_loader.ingest_to_mongodb(
                 folder_path=request.folder_path,
                 urls=request.urls,
                 file_paths=request.file_paths,

@@ -1,7 +1,15 @@
 package ports
 
 import (
+	"errors"
+
 	"go.mau.fi/whatsmeow/types"
+)
+
+var (
+	ErrToolBuilderAlreadyExists = errors.New("tool builder already exists")
+	ErrToolBuilderNotFound      = errors.New("tool builder not found")
+	ErrInvalidToolBuilderData   = errors.New("invalid tool builder data")
 )
 
 type AccessInfo struct {
@@ -24,6 +32,19 @@ type InboxMessage struct {
 	Read       bool      `json:"read" bson:"read"`
 }
 
+type ToolDataCode struct {
+	Package []string `json:"package" bson:"package"`
+	Code    string   `json:"code" bson:"code"`
+}
+
+type ToolBuilderData struct {
+	Name        string        `json:"name" bson:"name"`
+	Description string        `json:"description" bson:"description"`
+	AgentType   string        `json:"agent_type" bson:"agent_type"`
+	Information string        `json:"information,omitempty" bson:"information,omitempty"`
+	Code        *ToolDataCode `json:"code" bson:"code"`
+}
+
 type Manager interface {
 	CheckAccess(number string) (bool, error)
 	GetAccessList() ([]AccessInfo, error)
@@ -42,4 +63,8 @@ type Manager interface {
 	SetSelectedAIProvider(providerName string) error
 	GetSelectedAIProvider() (string, error)
 	StoreAIMessageToInbox(message, number string) error
+	GetToolsBuilderList(agentType string) ([]ToolBuilderData, error)
+	AddToolBuilder(tool ToolBuilderData) error
+	UpdateToolBuilder(agentType, originalName string, tool ToolBuilderData) error
+	DeleteToolBuilder(agentType, name string) error
 }

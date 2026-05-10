@@ -40,6 +40,8 @@ from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegratio
 from backend.application.ai.tools.dbaccess import DBAcess
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.terimnalx import TerminalX
+from backend.application.ingestion.loader import DocumentLoader
+from backend.application.ai.models import CODE_AGENT
 from config.config import Config, BASE_DIR
 from typing import TypedDict
 
@@ -59,6 +61,8 @@ class AgentState(TypedDict, total=False):
     session_id: str | None
     message: str
     work_dir: str
+    rag_context: str
+    rag_query: str
 
 class AgentCodeInput(TypedDict):
     task: str
@@ -121,6 +125,8 @@ class AgentCodeUsecase:
 
     WORKER_TIMEOUT_SECONDS = 600  # 10-minute hard cap for worker execution
     PROGRESS_SEND_TIMEOUT = 10   # 10-second cap for each progress notification
+    RAG_TOP_K = 5
+    RAG_SCORE_THRESHOLD = 0.6
 
     def __init__(self):
         self.llm = AI()
@@ -132,6 +138,7 @@ class AgentCodeUsecase:
         self.db_access = DBAcess()
         self.time_tool = TimeTool()
         self.checkpointer = MongoDB.get_checkpointer()
+        self.doc_loader = DocumentLoader(collection_name=CODE_AGENT)
 
         self._repo_root = Path(BASE_DIR).resolve()
         self._playground_root = self.filex_tool._playground_root
@@ -338,12 +345,63 @@ class AgentCodeUsecase:
             fallback.mkdir(parents=True, exist_ok=True)
             return str(fallback)
 
+    def __retrieve_context(self, query: str) -> str:
+        """
+        Retrieve code-agent document context from the agent-specific vector DB.
+
+        The worker can still execute normally when no matching documents exist
+        or when vector search is temporarily unavailable.
+        """
+        try:
+            clean_query = (query or "").strip()
+            if not clean_query:
+                return ""
+
+            docs_with_scores = self.doc_loader.similarity_search_with_relevance_scores(
+                query=clean_query,
+                k=self.RAG_TOP_K,
+                score_threshold=self.RAG_SCORE_THRESHOLD,
+            )
+
+            if not docs_with_scores:
+                logger.info("Code agent RAG: no relevant documents passed the threshold")
+                return ""
+
+            context_parts = [
+                (
+                    f"[source: {doc.metadata.get('source', '?')} | "
+                    f"chunk: {doc.metadata.get('chunk_index', doc.metadata.get('chunk_id', '?'))} | "
+                    f"score: {score:.3f}]\n{doc.page_content}"
+                )
+                for doc, score in docs_with_scores
+            ]
+            logger.info("Code agent RAG: %d relevant documents found", len(docs_with_scores))
+            return "\n\n".join(context_parts)
+
+        except Exception as err:
+            logger.error("Code agent RAG retrieve error: %s", err)
+            return ""
+
+    def __retrieve(self, state: AgentState) -> AgentState:
+        query = str(state.get("rag_query") or state.get("context") or "").strip()
+        return {"rag_context": self.__retrieve_context(query)}
+
     # ------------------------------------------------------------------
     # Prompt building
     # ------------------------------------------------------------------
 
-    def build_worker_prompt(self, task: str, work_dir: str) -> str:
+    def build_worker_prompt(self, task: str, work_dir: str, rag_context: str = "") -> str:
         clean_task = (task or "").strip()
+        clean_rag_context = (rag_context or "").strip()
+        document_context_block = ""
+        if clean_rag_context:
+            document_context_block = (
+                "\nDOCUMENT CONTEXT (RAG):\n"
+                "Use this uploaded document context when it is relevant to the coding task. "
+                "Prefer it over assumptions, and ignore it if unrelated.\n"
+                f"{clean_rag_context}\n\n"
+            )
+
         return (
             "WORKSPACE EXECUTION RULES:\n"
             f"- Active workspace: {work_dir}\n"
@@ -352,6 +410,7 @@ class AgentCodeUsecase:
             "- Save all generated files inside the active workspace unless user explicitly requests another location.\n"
             "- After creating or editing files, verify persistence by running LS and reading the saved file(s).\n"
             "- In final output, list concrete saved file paths.\n\n"
+            f"{document_context_block}"
             "USER TASK:\n"
             f"{clean_task}"
         )
@@ -747,20 +806,39 @@ class AgentCodeUsecase:
                 "agent_tools": server,
             },
             allowed_tools=[
+                # == File operations ==
                 "Read",
                 "Write",
                 "Edit",
                 "Glob",
                 "Grep",
+                # == Execution ==
                 "Bash",
                 "Monitor",
-                "WebSearch",
+                # == Web ==
+                # "WebSearch", not used because tool calls use external websearch tool
                 "WebFetch",
+                # == Agent & task ==
                 "Agent",
-                "LS",
-                "TodoWrite",
-                "TodoRead",
+                "TodoWrite",   
+                # == Workflow ==
+                "AskUserQuestion",
                 "Skill",
+                "LS",
+                "EnterPlanMode", 
+                "ExitPlanMode",  
+                "EnterWorktree", 
+                "ExitWorktree",  
+                
+                "CronCreate", 
+                "CronDelete", 
+                "CronList",   
+                # == MCP ==
+                "ListMcpResourcesTool",
+                "ReadMcpResourceTool", 
+                "ToolSearch", 
+                # == Notebook ==
+                "NotebookEdit",
                 *custom_tools,
             ],
             setting_sources=worker_setting_sources,
@@ -932,7 +1010,8 @@ class AgentCodeUsecase:
         async def _worker_async(task: str, session_id: str = None, work_dir: str = "playground/", wait_for_completion: bool = True) -> str:
 
             safe_work_dir = self.safe_worker_dir(task=task, work_dir=work_dir)
-            worker_prompt = self.build_worker_prompt(task=task, work_dir=safe_work_dir)
+            rag_context = self.__retrieve_context(task)
+            worker_prompt = self.build_worker_prompt(task=task, work_dir=safe_work_dir, rag_context=rag_context)
 
             # Log resume status
             resume_label = f"resume={session_id}" if session_id else "new session"
@@ -1233,7 +1312,11 @@ class AgentCodeUsecase:
 
         self.ossync()
         safe_work_dir = self.safe_worker_dir(task=context, work_dir=work_dir)
-        worker_prompt = self.build_worker_prompt(task=context, work_dir=safe_work_dir)
+        worker_prompt = self.build_worker_prompt(
+            task=context,
+            work_dir=safe_work_dir,
+            rag_context=state.get("rag_context", ""),
+        )
         result = await self.async_agent(sender, worker_prompt, safe_work_dir, session_id=session_id)
 
         if isinstance(result, dict):
@@ -1301,6 +1384,7 @@ class AgentCodeUsecase:
     
     def agent_code_sub_graph(self):
         builder = StateGraph(AgentState)
+        builder.add_node("retrieve", self.__retrieve)
         builder.add_node("list_sessions", self.__list_sessions)
         builder.add_node("select_session", self.__select_session)
         builder.add_node("run_worker", self.__run_worker_node)
@@ -1310,10 +1394,11 @@ class AgentCodeUsecase:
             self.__route_code_request,
             {
                 "list_sessions": "list_sessions",
-                "run_worker": "select_session",
+                "run_worker": "retrieve",
             },
         )
         builder.add_edge("list_sessions", END)
+        builder.add_edge("retrieve", "select_session")
         builder.add_edge("select_session", "run_worker")
         builder.add_edge("run_worker", END)
 
@@ -1332,6 +1417,8 @@ class AgentCodeUsecase:
                     "context": context,     # <-- dari LLM / parent graph
                     "session_id": session_id,
                     "work_dir": work_dir,
+                    "rag_query": context,
+                    "rag_context": "",
                 }
             )
             if isinstance(result, dict):
@@ -1389,6 +1476,8 @@ class AgentCodeUsecase:
                     "context": context,
                     "session_id": None,
                     "work_dir": "playground/",
+                    "rag_query": context,
+                    "rag_context": "",
                 },
                 config=config,
             )

@@ -86,13 +86,15 @@
 			letter-spacing: 0.06em;
 		}
 
-		.form-control {
+		.form-control,
+		.form-select {
 			background-color: var(--color-bg-soft);
 			border-color: var(--color-panel-line);
 			color: var(--color-text);
 		}
 
-		.form-control:focus {
+		.form-control:focus,
+		.form-select:focus {
 			background-color: var(--color-bg-soft);
 			border-color: var(--color-accent);
 			box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
@@ -246,6 +248,14 @@
 			color: #ffe8ad;
 		}
 
+		body {
+			font-size: 1.05rem;
+		}
+
+		:where(p, span, a, label, button, input, select, textarea, td, th, code, .btn, .form-control, .form-select, .form-text, .font-mono, .small) {
+			font-size: max(1.02rem, 1em) !important;
+		}
+
 		@media (max-width: 991.98px) {
 			.feedback-toast {
 				top: 0.85rem;
@@ -271,19 +281,39 @@
 	<div id="feedbackToast" class="feedback-toast is-hidden" role="alert"></div>
 
 	<main class="container database-shell py-4 py-lg-5">
-		<section class="panel rounded-3 p-3 p-md-4 mb-4">
-			<div class="d-flex flex-column flex-lg-row align-items-start justify-content-between gap-3">
-				<div>
+		<section class="panel rounded-3 p-3 p-md-4 mb-4" id="agentGate">
+			<div class="row g-3 align-items-end">
+				<div class="col-12 col-lg-7">
 					<p class="tech-kicker mb-2">// VECTOR DATABASE</p>
-					<h1 class="h3 text-uppercase mb-2">Document Ingestion Dashboard</h1>
-					<p class="mb-1 text-muted-tech">Upload files or ingest URLs into the Brain vector store. Uploaded files remain available for review until deleted.</p>
-					<p class="muted-text mb-0"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/database" class="text-decoration-underline">Database</a></p>
+					<h1 class="h3 text-uppercase mb-2">Select Agent Knowledge Base</h1>
+					<p class="mb-0 text-muted-tech">Choose the target agent collection before opening the document ingestion dashboard.</p>
 				</div>
-				<button type="button" class="btn btn-tech-outline" id="refreshButton">Refresh Documents</button>
+				<div class="col-12 col-lg-3">
+					<label class="form-label" for="agentSelect">Agent</label>
+					<select class="form-select" id="agentSelect" disabled>
+						<option value="">Loading agents...</option>
+					</select>
+				</div>
+				<div class="col-12 col-lg-2">
+					<button type="button" class="btn btn-tech-primary w-100" id="selectAgentButton" disabled>Open</button>
+				</div>
 			</div>
 		</section>
 
-		<div class="row g-4">
+		<div id="dashboardContent" class="d-none">
+			<section class="panel rounded-3 p-3 p-md-4 mb-4">
+				<div class="d-flex flex-column flex-lg-row align-items-start justify-content-between gap-3">
+					<div>
+						<p class="tech-kicker mb-2" id="agentKicker">// VECTOR DATABASE</p>
+						<h1 class="h3 text-uppercase mb-2">Document Ingestion Dashboard</h1>
+						<p class="mb-1 text-muted-tech">Upload files or ingest URLs into the selected Brain vector store. Uploaded files remain available for review until deleted.</p>
+						<p class="muted-text mb-0"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/database" class="text-decoration-underline">Database</a> &gt; <span id="selectedAgentCrumb">agent</span></p>
+					</div>
+					<button type="button" class="btn btn-tech-outline" id="refreshButton">Refresh Documents</button>
+				</div>
+			</section>
+
+			<div class="row g-4">
 			<div class="col-12 col-lg-5">
 				<section class="panel rounded-3 p-3 p-md-4 mb-4">
 					<p class="tech-kicker mb-2">[ upload ]</p>
@@ -352,13 +382,21 @@
 				</section>
 			</div>
 		</div>
+		</div>
 	</main>
 
 	<script>
 		const loadDocumentBaseURL = "{{ .LoadDocumentBaseURL }}" || "/api/load-document";
 		const FEEDBACK_AUTO_HIDE_MS = 4200;
+		const initialAgent = new URLSearchParams(window.location.search).get("agent") || "";
 
 		const ui = {
+			agentGate: document.getElementById("agentGate"),
+			agentSelect: document.getElementById("agentSelect"),
+			selectAgentButton: document.getElementById("selectAgentButton"),
+			dashboardContent: document.getElementById("dashboardContent"),
+			agentKicker: document.getElementById("agentKicker"),
+			selectedAgentCrumb: document.getElementById("selectedAgentCrumb"),
 			uploadForm: document.getElementById("uploadForm"),
 			uploadCategoryInput: document.getElementById("uploadCategoryInput"),
 			fileInput: document.getElementById("fileInput"),
@@ -380,12 +418,91 @@
 			loadingCount: 0,
 			feedbackTimerId: null,
 			documents: [],
+			supportedAgents: [],
+			selectedAgent: "",
 		};
 
 		function setButtonsDisabled(disabled) {
 			ui.uploadButton.disabled = disabled;
 			ui.urlButton.disabled = disabled;
 			ui.refreshButton.disabled = disabled;
+			ui.agentSelect.disabled = disabled || state.supportedAgents.length === 0;
+			ui.selectAgentButton.disabled = disabled || ui.agentSelect.value === "";
+		}
+
+		function setDashboardVisible(visible) {
+			ui.dashboardContent.classList.toggle("d-none", !visible);
+		}
+
+		function extractAgents(payload) {
+			const data = payload && payload.data ? payload.data : payload;
+			if (Array.isArray(data)) {
+				return data.map((item) => String(item || "").trim()).filter(Boolean);
+			}
+			if (data && Array.isArray(data.agents)) {
+				return data.agents.map((item) => String(item || "").trim()).filter(Boolean);
+			}
+			return [];
+		}
+
+		function agentURL(url) {
+			if (!state.selectedAgent) {
+				throw new Error("Select an agent knowledge base first.");
+			}
+			const target = new URL(url, window.location.origin);
+			target.searchParams.set("agent", state.selectedAgent);
+			return `${target.pathname}${target.search}`;
+		}
+
+		function selectAgent(agent) {
+			const cleanAgent = String(agent || "").trim();
+			if (!cleanAgent) {
+				showFeedback("Select an agent first.", "warning");
+				return;
+			}
+
+			state.selectedAgent = cleanAgent;
+			ui.agentSelect.value = cleanAgent;
+			ui.agentKicker.textContent = `// VECTOR DATABASE (${cleanAgent.toUpperCase()})`;
+			ui.selectedAgentCrumb.textContent = cleanAgent;
+			setDashboardVisible(true);
+
+			const url = new URL(window.location.href);
+			url.searchParams.set("agent", cleanAgent);
+			window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+			refreshDocuments();
+		}
+
+		function renderAgentOptions(agents) {
+			ui.agentSelect.innerHTML = "";
+			if (agents.length === 0) {
+				const option = document.createElement("option");
+				option.value = "";
+				option.textContent = "No supported agents";
+				ui.agentSelect.appendChild(option);
+				ui.agentSelect.disabled = true;
+				ui.selectAgentButton.disabled = true;
+				return;
+			}
+
+			const placeholder = document.createElement("option");
+			placeholder.value = "";
+			placeholder.textContent = "Choose agent...";
+			ui.agentSelect.appendChild(placeholder);
+
+			agents.forEach((agent) => {
+				const option = document.createElement("option");
+				option.value = agent;
+				option.textContent = agent;
+				ui.agentSelect.appendChild(option);
+			});
+
+			ui.agentSelect.disabled = false;
+			ui.selectAgentButton.disabled = true;
+
+			if (initialAgent && agents.includes(initialAgent)) {
+				selectAgent(initialAgent);
+			}
 		}
 
 		function showLoading(message) {
@@ -439,6 +556,23 @@
 			return payload;
 		}
 
+		async function loadSupportedAgents() {
+			showLoading("Loading supported agents...");
+			try {
+				const payload = await requestJSON(`${loadDocumentBaseURL}/supported-agent`);
+				state.supportedAgents = extractAgents(payload);
+				renderAgentOptions(state.supportedAgents);
+				if (state.supportedAgents.length === 0) {
+					showFeedback("No supported vector agents are configured.", "warning");
+				}
+			} catch (error) {
+				showFeedback(`Failed to load supported agents: ${error.message}`, "error");
+				renderAgentOptions([]);
+			} finally {
+				hideLoading();
+			}
+		}
+
 		function formatNumber(value) {
 			const numberValue = Number(value || 0);
 			return Number.isFinite(numberValue) ? numberValue.toLocaleString() : "0";
@@ -486,7 +620,7 @@
 
 		function renderDocuments(documents) {
 			ui.documentTableBody.innerHTML = "";
-			ui.summaryText.textContent = `${documents.length} documents loaded`;
+			ui.summaryText.textContent = `${documents.length} documents loaded for ${state.selectedAgent || "agent"}`;
 
 			if (documents.length === 0) {
 				const row = document.createElement("tr");
@@ -523,13 +657,17 @@
 		}
 
 		async function refreshDocuments(options = {}) {
+			if (!state.selectedAgent) {
+				return;
+			}
+
 			const snapshot = preserveScroll();
 			if (!options.silent) {
 				showLoading("Syncing vector documents...");
 			}
 
 			try {
-				const payload = await requestJSON(`${loadDocumentBaseURL}/documents`);
+				const payload = await requestJSON(agentURL(`${loadDocumentBaseURL}/documents`));
 				state.documents = extractDocuments(payload);
 				renderDocuments(state.documents);
 				restoreScroll(snapshot);
@@ -547,6 +685,11 @@
 
 		async function handleUpload(event) {
 			event.preventDefault();
+			if (!state.selectedAgent) {
+				showFeedback("Select an agent knowledge base first.", "warning");
+				return;
+			}
+
 			const files = Array.from(ui.fileInput.files || []);
 			if (files.length === 0) {
 				showFeedback("Select at least one document to upload.", "warning");
@@ -556,10 +699,11 @@
 			const formData = new FormData();
 			files.forEach((file) => formData.append("files", file));
 			formData.append("category", ui.uploadCategoryInput.value || "general");
+			formData.append("agent", state.selectedAgent);
 
 			showLoading("Uploading and embedding documents...");
 			try {
-				const payload = await requestJSON(`${loadDocumentBaseURL}/upload`, {
+				const payload = await requestJSON(agentURL(`${loadDocumentBaseURL}/upload`), {
 					method: "POST",
 					body: formData,
 				});
@@ -576,6 +720,11 @@
 
 		async function handleURLIngest(event) {
 			event.preventDefault();
+			if (!state.selectedAgent) {
+				showFeedback("Select an agent knowledge base first.", "warning");
+				return;
+			}
+
 			const urls = ui.urlInput.value
 				.split(/\r?\n/)
 				.map((item) => item.trim())
@@ -591,6 +740,7 @@
 				await requestJSON(`${loadDocumentBaseURL}/ingest-urls`, {
 					method: "POST",
 					body: JSON.stringify({
+						agent: state.selectedAgent,
 						urls,
 						category: ui.urlCategoryInput.value || "general",
 					}),
@@ -624,7 +774,7 @@
 
 			showLoading("Deleting document and vector data...");
 			try {
-				await requestJSON(`${loadDocumentBaseURL}/documents?source=${encodeURIComponent(source)}`, {
+				await requestJSON(agentURL(`${loadDocumentBaseURL}/documents?source=${encodeURIComponent(source)}`), {
 					method: "DELETE",
 				});
 				showFeedback("Document file and vector data deleted.");
@@ -640,8 +790,13 @@
 		ui.urlForm.addEventListener("submit", handleURLIngest);
 		ui.refreshButton.addEventListener("click", () => refreshDocuments());
 		ui.documentTableBody.addEventListener("click", handleDelete);
+		ui.agentSelect.addEventListener("change", () => {
+			ui.selectAgentButton.disabled = ui.agentSelect.value === "";
+		});
+		ui.selectAgentButton.addEventListener("click", () => selectAgent(ui.agentSelect.value));
 
-		refreshDocuments();
+		setDashboardVisible(false);
+		loadSupportedAgents();
 	</script>
 </body>
 </html>

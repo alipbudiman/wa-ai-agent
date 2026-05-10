@@ -20,6 +20,10 @@ from backend.application.ai.tools.models import LevelSystem, LogSystemEntry
 from backend.application.ai.tools.terimnalx import TerminalX
 from backend.application.ai.tools.filex import FileX
 from backend.application.ai.code import AgentCodeUsecase
+from backend.application.ai.reaserch import ResearchAgentUsecase
+from backend.application.ingestion.loader import DocumentLoader
+from backend.application.ai.models import MAIN_AGENT
+from backend.application.ai.tools.tools_builder import ToolsBuilder
 from config.config import Config, BASE_DIR
 
 from langgraph.graph import StateGraph, START, END # pyright: ignore[reportMissingTypeStubs]
@@ -38,12 +42,16 @@ logger = logging.getLogger('uvicorn.error')
 class State(MessagesState):
     summary: str
     sender: str
+    rag_context: str = ""
+    rag_query: str = ""
 
 class FeedBackType(BaseModel):
     is_approved: str
 
 class ChatAgentUseCase:
     TUNNING_PARAM = 3
+    RAG_TOP_K = 5
+    RAG_SCORE_THRESHOLD = 0.6
     
     ASSISTANT_CONTEXT_MAX_TOKENS = 8000 * TUNNING_PARAM
     DIRECT_CHAT_CONTEXT_MAX_TOKENS = 2048 * TUNNING_PARAM
@@ -107,7 +115,10 @@ class ChatAgentUseCase:
         self.db_access_tool = DBAcess()
         self.terminalx_tool = TerminalX()
         self.filex_tool = FileX()
+        self.tools_builder = ToolsBuilder()
         self.agent_code = AgentCodeUsecase()
+        self.agent_reaserch = ResearchAgentUsecase()
+        self.doc_loader = DocumentLoader(collection_name=MAIN_AGENT)
         self.instruction = Instruction()
         self.langgraph_file_manager_root = self.__resolve_langgraph_root_dir()
         self.langgraph_file_manager = FileManagementToolkit(root_dir=self.langgraph_file_manager_root)
@@ -144,7 +155,7 @@ class ChatAgentUseCase:
             *self.langgraph_file_manager_tools,
         ]
         
-        self._llm_cache: dict[str, any] = {}
+        self._llm_cache: dict[str, Any] = {}
         self._tool_node_cache: dict[str, ToolNode] = {}
         self._human_interrup_chche: dict[str, str] = {} # user number -> interruption message
         self._pending_sensitive_tool_calls: dict[str, list[dict]] = {}
@@ -372,6 +383,47 @@ class ChatAgentUseCase:
             return ""
 
         return "\n".join(reversed(collected))
+
+    def __retrieve(self, state: State):
+        """
+        Retrieve relevant uploaded documents for the main chat agent.
+
+        This is read-only against the agent-specific vector collection and is
+        intentionally fail-open so normal chat/tool routing still works when
+        no document context is available.
+        """
+        try:
+            query = str(state.get("rag_query") or "").strip()
+            if not query:
+                query = self.__latest_user_text(state, max_messages=1)
+
+            if not query:
+                return {"rag_context": ""}
+
+            docs_with_scores = self.doc_loader.similarity_search_with_relevance_scores(
+                query=query,
+                k=self.RAG_TOP_K,
+                score_threshold=self.RAG_SCORE_THRESHOLD,
+            )
+
+            if not docs_with_scores:
+                logger.info("Main agent RAG: no relevant documents passed the threshold")
+                return {"rag_context": ""}
+
+            context_parts = [
+                (
+                    f"[source: {doc.metadata.get('source', '?')} | "
+                    f"chunk: {doc.metadata.get('chunk_index', doc.metadata.get('chunk_id', '?'))} | "
+                    f"score: {score:.3f}]\n{doc.page_content}"
+                )
+                for doc, score in docs_with_scores
+            ]
+            logger.info("Main agent RAG: %d relevant documents found", len(docs_with_scores))
+            return {"rag_context": "\n\n".join(context_parts)}
+
+        except Exception as err:
+            logger.error("Main agent RAG retrieve error: %s", err)
+            return {"rag_context": ""}
 
     @staticmethod
     def __coerce_tool_args(args: any) -> dict:
@@ -882,7 +934,17 @@ class ChatAgentUseCase:
                 )
                 assistant_messages = assistant_messages + [fallback_message]
 
-        return [self.__system_rule(use_tools=use_tools)] + assistant_messages
+        payload = [self.__system_rule(use_tools=use_tools)]
+        rag_context = str(state.get("rag_context") or "").strip()
+        if rag_context:
+            payload.append(SystemMessage(content=(
+                "DOCUMENT CONTEXT:\n"
+                "Use this uploaded document context when it is relevant to the user request. "
+                "Prefer it over general knowledge, but ignore it if it is unrelated.\n\n"
+                f"{rag_context}"
+            )))
+
+        return payload + assistant_messages
         
     def __save_process_diagram(self, react_graph) -> None:
         """
@@ -951,6 +1013,15 @@ class ChatAgentUseCase:
             return "assistant"
 
         classifier_prompt = self.instruction.route_query_instruction()
+        custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=MAIN_AGENT)
+        if custom_tools_catalog:
+            classifier_prompt += (
+                "\n\nCustom database tool routing rule:\n"
+                "- If the latest user message matches any custom database tool name, callable tool name, "
+                "or description below, return assistant.\n"
+                "- Custom tools may provide information or execute configured code, so they require the tool-enabled path.\n\n"
+                f"{custom_tools_catalog}"
+            )
 
         try:
             classification = self.__llm(reasoning=self._reasoning).invoke([
@@ -1097,10 +1168,19 @@ class ChatAgentUseCase:
             os.environ['LANGSMITH_TRACING'] = 'true'
             os.environ["LANGSMITH_PROJECT"] = self.config.get_langsmith_config().project_name or "default"
 
-    def __get_tools(self, state: State = "") -> list:
-        sender = state.get("sender", "")
+    @staticmethod
+    def __tool_object_name(tool: Any) -> str:
+        return str(getattr(tool, "name", None) or getattr(tool, "__name__", "") or "").strip()
+
+    def __tool_cache_key(self, state: State | None) -> str:
+        sender = state.get("sender", "") if state else ""
+        custom_signature = self.tools_builder.catalog_signature(agent_type=MAIN_AGENT)
+        return f"{sender}:{custom_signature}"
+
+    def __get_tools(self, state: State | None = None) -> list:
+        sender = state.get("sender", "") if state else ""
         
-        return self.__static_tools + [
+        dynamic_tools = [
             # dynamic tool that needs access to state (sender) must be generated here
             self.websearch_tool.websearch_tool(sender=sender),
             self.db_access_tool.get_current_pending_message(sender=sender),
@@ -1108,18 +1188,38 @@ class ChatAgentUseCase:
             self.wa_integration_tool.send_message(sender=sender),
             self.wa_integration_tool.send_file(sender=sender),
             self.agent_code.make_agent_code_tool(sender=sender),
+            self.agent_reaserch.make_agent_reaserch_tool(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
-            self.filex_tool.generate_images(sender=sender),
+            self.filex_tool.generate_images(sender=sender)
         ]
+        
+        custom_tool_catalog = self.tools_builder.get_tools_builder_list(agent_type=MAIN_AGENT)
+        if custom_tool_catalog:
+            reserved_names = {
+                name
+                for name in (
+                    self.__tool_object_name(tool)
+                    for tool in [*self.__static_tools, *dynamic_tools]
+                )
+                if name
+            }
+            dynamic_tools.extend(
+                self.tools_builder.make_custom_database_tools(
+                    agent_type=MAIN_AGENT,
+                    reserved_names=reserved_names,
+                )
+            )
+        
+        return self.__static_tools + dynamic_tools
     
     async def __tool_node(self, state: State):
-        sender = state.get("sender", "")
+        cache_key = self.__tool_cache_key(state)
         
-        if sender not in self._tool_node_cache:
+        if cache_key not in self._tool_node_cache:
             tools = self.__get_tools(state)
-            self._tool_node_cache[sender] = ToolNode(tools)
+            self._tool_node_cache[cache_key] = ToolNode(tools)
         
-        return await self._tool_node_cache[sender].ainvoke(state)
+        return await self._tool_node_cache[cache_key].ainvoke(state)
 
     def __assistant(self, state: State):
         """
@@ -1129,13 +1229,14 @@ class ChatAgentUseCase:
         trimmed to control token growth and keep reasoning focused.
         """
         sender = state.get("sender", "")
+        cache_key = self.__tool_cache_key(state)
     
         # ambil dari cache, kalau belum ada baru bind
-        if sender not in self._llm_cache:
+        if cache_key not in self._llm_cache:
             tools = self.__get_tools(state)
-            self._llm_cache[sender] = self.__llm(reasoning=self._reasoning).bind_tools(tools)
+            self._llm_cache[cache_key] = self.__llm(reasoning=self._reasoning).bind_tools(tools)
         
-        llm_with_tools = self._llm_cache[sender]
+        llm_with_tools = self._llm_cache[cache_key]
         payload = self.__message_guard_payload(state, use_tools=True)
 
         if not self.__has_non_system_message(payload):
@@ -1170,6 +1271,7 @@ class ChatAgentUseCase:
         consistently on every assistant turn.
         """
         build_msg = "SYSTEM RULES AND INSTRUCTIONS:\n" + self.instruction.system_instruction
+        
         runtime_mode = "assistant" if use_tools else "direct_chat"
         build_msg += f"\n\nRUNTIME MODE: {runtime_mode}"
         if use_tools:
@@ -1178,6 +1280,21 @@ class ChatAgentUseCase:
             build_msg += "\n- Tools are NOT available for this turn. Solve using reasoning and context only."
 
         if use_tools:
+            custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=MAIN_AGENT)
+            if custom_tools_catalog:
+                build_msg += "\n\n" + custom_tools_catalog
+                build_msg += (
+                    "\n\nCUSTOM TOOL USAGE:"
+                    "\n- Match the user's request against each custom tool description."
+                    "\n- If there is a clear match, call the listed callable_tool_name directly."
+                    "\n- If a provider cannot call that native custom tool name, call `access_tools_builder` with `tool_name` set to original_name."
+                    "\n- For information-only custom tools, call the tool and use its returned information; do not guess missing facts."
+                    "\n- For code-backed custom tools, pass `tool_input` when the custom code needs data from the user request."
+                    "\n- After a code-backed custom tool returns, preserve its CUSTOM_TOOL_OUTPUT_BEGIN/CUSTOM_TOOL_OUTPUT_END content in the final answer."
+                    "\n- Final answer format for code-backed custom tools: `output:` then `---`, the captured output, `---`, then a short description."
+                    "\n- Do not dismiss decorative, ASCII-art, animation-frame, or repeated-line custom tool output as meaningless; describe what it shows."
+                )
+
             capability_description = self.instruction.capability_description()
             if capability_description:
                 build_msg += "\n\nCAPABILITY REFERENCE:\n" + capability_description
@@ -1281,6 +1398,7 @@ class ChatAgentUseCase:
         
 
         # Register worker nodes.
+        builder.add_node("retrieve", self.__retrieve)
         builder.add_node("summarize_conversation", self.__summarize_conversation)
         
         # assistant decides whether tools are needed; tools executes tool calls.
@@ -1294,8 +1412,9 @@ class ChatAgentUseCase:
         builder.add_node("tools", self.__tool_node)
         
         # Route from START using early filtering.
+        builder.add_edge(START, "retrieve")
         builder.add_conditional_edges(
-            START,
+            "retrieve",
             self.__route_query,
             {
                 "direct_chat": "direct_chat",  # No-tool path.
@@ -1540,6 +1659,8 @@ class ChatAgentUseCase:
             result = await self.react_graph.ainvoke({
                 "messages": input_messages,
                 "sender": group_id if group_id else number,
+                "rag_query": messages,
+                "rag_context": "",
             }, config=config)
             
             results_message = self.extract_ai_content(result.get('messages', []))

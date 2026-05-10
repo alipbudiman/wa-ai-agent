@@ -7,7 +7,6 @@ from backend.application.aidata import CheckAIData
 from backend.application.ai.code import AgentCodeUsecase
 from backend.application.ai.reaserch import ResearchAgentUsecase
 from backend.application.ai.reply import ReplyAgentUsecase
-from backend.application.ingestion.loader import DocumentLoader
 from backend.interface.api.router import create_ai_data_router, create_health_router
 from backend.interface.api.router import create_langsmith_getlist_router
 from backend.interface.api.router import create_langsmith_select_run_router
@@ -35,7 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(create_chat_agent_reply_router(ReplyAgentUsecase()), prefix="/api/v1")
     app.include_router(create_langsmith_getlist_router(ReportUseCase()), prefix="/api/v1")
     app.include_router(create_langsmith_select_run_router(ReportUseCase()), prefix="/api/v1")
-    app.include_router(create_vector_store_router(DocumentLoader()), prefix="/api/v1")
+    app.include_router(create_vector_store_router(), prefix="/api/v1")
 
 
     return app

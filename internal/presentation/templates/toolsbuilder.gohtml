@@ -1,0 +1,1834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Tool Builder</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.css" />
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/material-darker.min.css" />
+	<style>
+		:root {
+			--color-bg: #090909;
+			--color-bg-soft: #121212;
+			--color-panel: #1a1a1a;
+			--color-panel-line: rgba(255, 255, 255, 0.1);
+			--color-text: #ffffff;
+			--color-muted: #a0a0a0;
+			--color-accent: #d4ed31;
+			--color-cyan: #00e5ff;
+			--color-danger: #ff4d5f;
+			--workbench-bg: transparent;
+			--title-bg: rgba(18, 18, 18, 0.98);
+			--activity-bg: rgba(18, 18, 18, 0.98);
+			--sidebar-bg: rgba(26, 26, 26, 0.98);
+			--editor-bg: rgba(9, 9, 9, 0.94);
+			--panel-bg: rgba(26, 26, 26, 0.98);
+			--panel-bg-soft: var(--color-bg-soft);
+			--line: var(--color-panel-line);
+			--line-soft: rgba(255, 255, 255, 0.08);
+			--text: var(--color-text);
+			--text-bright: var(--color-text);
+			--muted: var(--color-muted);
+			--accent: var(--color-accent);
+			--accent-soft: rgba(212, 237, 49, 0.18);
+			--folder-line: rgba(255, 255, 255, 0.14);
+			--green: var(--color-accent);
+			--yellow: #ffd66b;
+			--danger: var(--color-danger);
+			--font-primary: "Rajdhani", "Segoe UI", sans-serif;
+			--font-mono: "JetBrains Mono", Consolas, monospace;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			min-height: 100vh;
+			margin: 0;
+			background-color: var(--color-bg);
+			color: var(--text);
+			font-family: var(--font-primary);
+			background-image:
+				linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				radial-gradient(circle at 12% -8%, rgba(212, 237, 49, 0.16), transparent 35%),
+				radial-gradient(circle at 98% 5%, rgba(0, 229, 255, 0.12), transparent 30%);
+			background-size: 40px 40px, 40px 40px, auto, auto;
+			overflow-x: hidden;
+		}
+
+		.vscode-workbench {
+			min-height: 100vh;
+			display: grid;
+			grid-template-rows: 36px minmax(0, 1fr) 24px;
+			background: var(--workbench-bg);
+		}
+
+		.title-bar {
+			display: grid;
+			grid-template-columns: minmax(190px, 280px) minmax(0, 1fr) auto;
+			align-items: center;
+			gap: 0.75rem;
+			height: 36px;
+			padding: 0 0.75rem;
+			border-bottom: 1px solid var(--line);
+			background: var(--title-bg);
+			color: var(--muted);
+			font-size: 1rem;
+			user-select: none;
+		}
+
+		.title-bar a {
+			color: var(--text);
+			text-decoration: none;
+		}
+
+		.title-bar a:hover {
+			color: var(--text-bright);
+		}
+
+		.title-path {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			text-align: center;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.window-actions {
+			display: flex;
+			align-items: center;
+			justify-content: flex-end;
+			gap: 0.45rem;
+		}
+
+		.status-dot {
+			width: 0.55rem;
+			height: 0.55rem;
+			border-radius: 999px;
+			background: var(--accent);
+		}
+
+		.workbench-body {
+			min-height: 0;
+			display: grid;
+			grid-template-columns: 48px minmax(250px, 320px) minmax(0, 1fr);
+		}
+
+		.activity-bar {
+			background: var(--activity-bg);
+			border-right: 1px solid var(--line);
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 0.2rem;
+			padding-top: 0.45rem;
+		}
+
+		.activity-button {
+			width: 42px;
+			height: 42px;
+			display: grid;
+			place-items: center;
+			border: 0;
+			border-left: 2px solid transparent;
+			background: transparent;
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			font-weight: 700;
+		}
+
+		.activity-button.active {
+			border-left-color: var(--accent);
+			color: var(--accent);
+			background: rgba(212, 237, 49, 0.08);
+		}
+
+		.side-bar {
+			min-height: 0;
+			display: flex;
+			flex-direction: column;
+			border-right: 1px solid var(--line);
+			background: var(--sidebar-bg);
+		}
+
+		.sidebar-header {
+			padding: 0.75rem 0.85rem 0.45rem;
+			border-bottom: 1px solid var(--line-soft);
+		}
+
+		.sidebar-title {
+			margin: 0 0 0.6rem;
+			color: var(--text-bright);
+			font-size: 1.05rem;
+			font-weight: 600;
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+		}
+
+		.form-label {
+			margin-bottom: 0.32rem;
+			color: var(--muted);
+			font-size: 1rem;
+			font-weight: 600;
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+		}
+
+		.form-control,
+		.form-select {
+			border-radius: 3px;
+			border-color: var(--line);
+			background-color: var(--color-bg-soft);
+			color: var(--text);
+			font-size: 1rem;
+		}
+
+		.form-control:disabled,
+		.form-select:disabled {
+			background-color: rgba(18, 18, 18, 0.72);
+			border-color: rgba(255, 255, 255, 0.07);
+			color: #707070;
+			opacity: 1;
+		}
+
+		.form-control:focus,
+		.form-select:focus {
+			border-color: var(--accent);
+			background-color: var(--color-bg-soft);
+			color: var(--text-bright);
+			box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+		}
+
+		.form-control::placeholder {
+			color: #6f6f6f;
+		}
+
+		.form-text {
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.font-mono {
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.tree-shell {
+			min-height: 0;
+			overflow: auto;
+			padding: 0.45rem 0;
+		}
+
+		.tree-section {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.45rem;
+			width: 100%;
+			min-height: 28px;
+			padding: 0.15rem 0.7rem;
+			border: 0;
+			background: transparent;
+			color: var(--text);
+			text-align: left;
+			font-size: 1rem;
+			font-weight: 700;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+
+		.tree-section-main {
+			min-width: 0;
+			display: flex;
+			align-items: center;
+			gap: 0.45rem;
+		}
+
+		.folder-caret,
+		.folder-icon,
+		.folder-count {
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-weight: 500;
+			text-transform: none;
+		}
+
+		.folder-caret {
+			width: 0.7rem;
+			text-align: center;
+			font-size: 1rem;
+		}
+
+		.folder-icon {
+			color: var(--accent);
+			font-size: 1rem;
+		}
+
+		.folder-count {
+			margin-left: auto;
+			font-size: 1rem;
+		}
+
+		.tree-children {
+			position: relative;
+			margin: 0.1rem 0 0.35rem 1.35rem;
+			padding: 0 0 0.35rem 0.45rem;
+			border-left: 1px solid var(--folder-line);
+		}
+
+		.tree-empty {
+			padding: 0.75rem 0.9rem 0.8rem 0.55rem;
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			line-height: 1.45;
+		}
+
+		.tree-item {
+			position: relative;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
+			min-height: 28px;
+			padding: 0 0.45rem 0 0;
+			border-left: 2px solid transparent;
+		}
+
+		.tree-item::before {
+			content: "";
+			position: absolute;
+			left: -0.45rem;
+			top: 14px;
+			width: 0.42rem;
+			border-top: 1px solid var(--folder-line);
+		}
+
+		.tree-item:hover,
+		.tree-item.active {
+			background: rgba(212, 237, 49, 0.08);
+		}
+
+		.tree-item.active {
+			border-left-color: var(--accent);
+		}
+
+		.tree-tool-button {
+			min-width: 0;
+			width: 100%;
+			display: flex;
+			align-items: center;
+			gap: 0.45rem;
+			padding: 0.2rem 0;
+			border: 0;
+			background: transparent;
+			color: var(--text);
+			text-align: left;
+		}
+
+		.file-badge {
+			width: 34px;
+			height: 26px;
+			display: inline-grid;
+			place-items: center;
+			border-radius: 3px;
+			border: 1px solid rgba(0, 229, 255, 0.28);
+			background: rgba(0, 229, 255, 0.08);
+			color: #c9f7ff;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			font-weight: 700;
+			flex: 0 0 auto;
+		}
+
+		.tree-label {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.tree-meta {
+			margin-left: auto;
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.tree-delete {
+			width: 24px;
+			height: 24px;
+			display: grid;
+			place-items: center;
+			border: 0;
+			border-radius: 3px;
+			background: transparent;
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.tree-delete:hover {
+			background: rgba(255, 77, 95, 0.14);
+			color: var(--danger);
+		}
+
+		.sidebar-footer {
+			margin-top: auto;
+			padding: 0.7rem 0.85rem;
+			border-top: 1px solid var(--line-soft);
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.editor-area {
+			min-width: 0;
+			min-height: 0;
+			display: grid;
+			grid-template-rows: 35px minmax(0, 1fr);
+			background: var(--editor-bg);
+		}
+
+		.editor-tabs {
+			display: flex;
+			align-items: stretch;
+			overflow-x: auto;
+			border-bottom: 1px solid var(--line);
+			background: var(--color-bg-soft);
+		}
+
+		.editor-tab {
+			min-width: 190px;
+			max-width: 280px;
+			min-height: 42px;
+			display: flex;
+			align-items: center;
+			gap: 0.45rem;
+			padding: 0;
+			border-right: 1px solid var(--line);
+			border-top: 2px solid transparent;
+			background: rgba(255, 255, 255, 0.03);
+			color: var(--text);
+			font-size: 1rem;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		.editor-tab.active {
+			border-top-color: var(--accent);
+			background: var(--editor-bg);
+			color: var(--text-bright);
+		}
+
+		.editor-tab-button {
+			min-width: 0;
+			flex: 1 1 auto;
+			height: 100%;
+			display: flex;
+			align-items: center;
+			gap: 0.45rem;
+			padding: 0 0.55rem 0 0.75rem;
+			border: 0;
+			background: transparent;
+			color: inherit;
+			text-align: left;
+		}
+
+		.editor-tab-label {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.editor-tab-close {
+			width: 30px;
+			height: 30px;
+			display: grid;
+			place-items: center;
+			margin-right: 0.35rem;
+			padding: 0;
+			border: 0;
+			border-radius: 3px;
+			background: transparent;
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			line-height: 1;
+		}
+
+		.editor-tab-close:hover {
+			background: rgba(255, 255, 255, 0.09);
+			color: var(--text-bright);
+		}
+
+		.editor-scroll {
+			min-height: 0;
+			overflow: auto;
+		}
+
+		.editor-content {
+			max-width: 1220px;
+			margin: 0 auto;
+			padding: 1rem;
+		}
+
+		.editor-header {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 1rem;
+			padding: 0.85rem 0 1rem;
+			border-bottom: 1px solid var(--line-soft);
+		}
+
+		.editor-title {
+			margin: 0;
+			color: var(--text-bright);
+			font-size: 1.1rem;
+			font-weight: 700;
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+		}
+
+		.editor-kicker {
+			margin: 0 0 0.25rem;
+			color: var(--accent);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+		}
+
+		.editor-actions {
+			display: flex;
+			align-items: center;
+			justify-content: flex-end;
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+
+		.field-grid {
+			display: grid;
+			grid-template-columns: minmax(190px, 0.7fr) minmax(220px, 1fr) minmax(260px, 1.4fr);
+			gap: 0.85rem;
+			margin-top: 1rem;
+		}
+
+		.editor-panel {
+			border: 1px solid var(--line);
+			background: linear-gradient(145deg, rgba(26, 26, 26, 0.98), rgba(18, 18, 18, 0.98));
+		}
+
+		.panel-titlebar {
+			height: 32px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.75rem;
+			padding: 0 0.7rem;
+			border-bottom: 1px solid var(--line);
+			background: var(--color-bg-soft);
+			color: var(--text);
+			font-size: 1rem;
+			font-weight: 700;
+			letter-spacing: 0.05em;
+			text-transform: uppercase;
+		}
+
+		.panel-titlebar span:last-child {
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			font-weight: 500;
+			text-transform: none;
+		}
+
+		.panel-body {
+			padding: 0.85rem;
+		}
+
+		.package-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) 34px;
+			gap: 0.45rem;
+		}
+
+		.package-add-button {
+			width: 34px;
+			height: 32px;
+			display: grid;
+			place-items: center;
+			padding: 0;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			line-height: 1;
+		}
+
+		.package-list {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.45rem;
+			min-height: 35px;
+			margin-top: 0.55rem;
+			padding: 0.45rem;
+			border: 1px dashed var(--line);
+			background: var(--color-bg-soft);
+		}
+
+		.package-chip {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.35rem;
+			max-width: 100%;
+			min-height: 24px;
+			padding: 0.14rem 0.28rem 0.14rem 0.45rem;
+			border: 1px solid rgba(0, 229, 255, 0.34);
+			border-radius: 3px;
+			background: rgba(0, 229, 255, 0.08);
+			color: #c9f7ff;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.package-chip span {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.package-remove {
+			width: 24px;
+			height: 24px;
+			display: grid;
+			place-items: center;
+			padding: 0;
+			border: 0;
+			border-radius: 3px;
+			background: transparent;
+			color: var(--muted);
+			font-size: 1rem;
+			line-height: 1;
+		}
+
+		.package-remove:hover {
+			background: rgba(255, 255, 255, 0.08);
+			color: var(--text-bright);
+		}
+
+		.editor-stack {
+			display: grid;
+			grid-template-rows: minmax(320px, 1fr) minmax(320px, 1fr);
+			gap: 0.85rem;
+			margin-top: 0.85rem;
+			min-height: 690px;
+		}
+
+		.editor-pane {
+			min-height: 0;
+			display: grid;
+			grid-template-rows: 32px minmax(0, 1fr);
+		}
+
+		.editor-textarea {
+			min-height: 0;
+			height: 100%;
+			resize: none;
+			border: 0;
+			border-radius: 0;
+			background: var(--color-bg-soft);
+			color: var(--text);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			line-height: 1.55;
+			tab-size: 4;
+		}
+
+		.editor-textarea:focus {
+			border: 0;
+			box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+			background: var(--color-bg-soft);
+		}
+
+		.code-editor-wrap .CodeMirror {
+			height: 100%;
+			min-height: 0;
+			border: 0;
+			background: var(--color-bg-soft);
+			color: var(--color-text);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			line-height: 1.55;
+		}
+
+		.code-editor-wrap .CodeMirror-gutters {
+			border-right: 1px solid var(--line);
+			background: rgba(255, 255, 255, 0.03);
+		}
+
+		.code-editor-wrap .CodeMirror-linenumber {
+			color: var(--color-muted);
+		}
+
+		.code-editor-wrap .CodeMirror-cursor {
+			border-left-color: var(--color-accent);
+		}
+
+		.code-editor-wrap .CodeMirror-selected {
+			background: rgba(212, 237, 49, 0.16) !important;
+		}
+
+		.code-editor-wrap .CodeMirror-focused {
+			box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+		}
+
+		.code-editor-wrap .CodeMirror.is-disabled {
+			opacity: 0.62;
+		}
+
+		.btn-vscode-primary,
+		.btn-vscode-outline,
+		.btn-vscode-danger {
+			border-radius: 3px;
+			font-size: 1rem;
+			font-weight: 700;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+
+		.btn-vscode-primary {
+			--bs-btn-bg: var(--accent);
+			--bs-btn-border-color: var(--accent);
+			--bs-btn-color: #141414;
+			--bs-btn-hover-bg: #e1ff3f;
+			--bs-btn-hover-border-color: #e1ff3f;
+			--bs-btn-active-bg: #c6df2d;
+			--bs-btn-active-border-color: #c6df2d;
+			--bs-btn-disabled-bg: rgba(212, 237, 49, 0.34);
+			--bs-btn-disabled-border-color: rgba(212, 237, 49, 0.28);
+			--bs-btn-disabled-color: #3a3a3a;
+		}
+
+		.btn-vscode-outline {
+			--bs-btn-color: var(--text);
+			--bs-btn-border-color: var(--line);
+			--bs-btn-hover-bg: rgba(255, 255, 255, 0.09);
+			--bs-btn-hover-border-color: rgba(255, 255, 255, 0.2);
+			--bs-btn-hover-color: var(--text-bright);
+			--bs-btn-disabled-color: #6e6e6e;
+			--bs-btn-disabled-border-color: rgba(255, 255, 255, 0.07);
+		}
+
+		.btn-vscode-danger {
+			--bs-btn-color: #ffb8bf;
+			--bs-btn-border-color: rgba(255, 77, 95, 0.55);
+			--bs-btn-hover-bg: rgba(255, 77, 95, 0.14);
+			--bs-btn-hover-border-color: var(--danger);
+			--bs-btn-hover-color: #ffd8dd;
+		}
+
+		.status-bar {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.75rem;
+			padding: 0 0.75rem;
+			border-top: 1px solid var(--line);
+			background: var(--color-bg-soft);
+			color: var(--color-muted);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+		}
+
+		.status-bar span {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.floating-loading {
+			position: fixed;
+			top: 0.95rem;
+			left: 50%;
+			z-index: 1300;
+			display: flex;
+			align-items: center;
+			gap: 0.62rem;
+			max-width: min(560px, calc(100vw - 1.4rem));
+			padding: 0.72rem 0.95rem;
+			border: 1px solid rgba(0, 229, 255, 0.4);
+			background: rgba(0, 229, 255, 0.09);
+			backdrop-filter: blur(6px);
+			border-radius: 0.65rem;
+			color: #c9f7ff;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			letter-spacing: 0.03em;
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transform: translate(-50%, -12px);
+			transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+		}
+
+		.floating-loading.show {
+			opacity: 1;
+			visibility: visible;
+			transform: translate(-50%, 0);
+		}
+
+		.floating-loading-dot {
+			width: 0.5rem;
+			height: 0.5rem;
+			border-radius: 50%;
+			background: var(--accent);
+			box-shadow: 0 0 10px rgba(212, 237, 49, 0.8);
+			flex-shrink: 0;
+		}
+
+		.feedback-toast {
+			position: fixed;
+			top: 1.05rem;
+			right: 1rem;
+			z-index: 1320;
+			min-width: 270px;
+			max-width: min(92vw, 460px);
+			padding: 0.7rem 0.9rem;
+			border: 1px solid rgba(0, 229, 255, 0.46);
+			background: rgba(0, 229, 255, 0.13);
+			color: #d8fbff;
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			letter-spacing: 0.03em;
+			border-radius: 0.62rem;
+			box-shadow: 0 14px 26px rgba(0, 0, 0, 0.42);
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+			pointer-events: none;
+			transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+		}
+
+		.feedback-toast:not(.is-hidden) {
+			opacity: 1;
+			visibility: visible;
+			transform: translateY(0);
+		}
+
+		.feedback-toast.is-error {
+			border-color: rgba(255, 77, 95, 0.56);
+			background: rgba(255, 77, 95, 0.17);
+			color: #ffd0d5;
+		}
+
+		.feedback-toast.is-warning {
+			border-color: rgba(255, 214, 107, 0.54);
+			background: rgba(255, 214, 107, 0.16);
+			color: #ffe8ad;
+		}
+
+		body {
+			font-size: 1.05rem;
+		}
+
+		:where(p, span, a, label, button, input, select, textarea, td, th, code, .btn, .form-control, .form-select, .form-text, .font-mono, .small) {
+			font-size: max(1.02rem, 1em) !important;
+		}
+
+		@media (max-width: 992px) {
+			.vscode-workbench {
+				grid-template-rows: auto minmax(0, 1fr) 24px;
+			}
+
+			.title-bar {
+				grid-template-columns: 1fr;
+				height: auto;
+				padding: 0.55rem 0.75rem;
+			}
+
+			.title-path {
+				text-align: left;
+			}
+
+			.window-actions {
+				justify-content: flex-start;
+			}
+
+			.workbench-body {
+				grid-template-columns: 1fr;
+			}
+
+			.activity-bar {
+				display: none;
+			}
+
+			.side-bar {
+				max-height: 330px;
+				border-right: 0;
+				border-bottom: 1px solid var(--line);
+			}
+
+			.editor-content {
+				padding: 0.85rem;
+			}
+
+			.field-grid {
+				grid-template-columns: 1fr;
+			}
+
+			.editor-header {
+				flex-direction: column;
+			}
+
+			.editor-actions {
+				width: 100%;
+				justify-content: stretch;
+			}
+
+			.editor-actions .btn {
+				flex: 1 1 auto;
+			}
+
+			.editor-stack {
+				grid-template-rows: minmax(300px, auto) minmax(300px, auto);
+				min-height: auto;
+			}
+
+			.editor-textarea {
+				min-height: 300px;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div id="floatingLoading" class="floating-loading" role="status" aria-live="polite">
+		<span class="floating-loading-dot" aria-hidden="true"></span>
+		<span id="floatingLoadingText">Loading...</span>
+	</div>
+
+	<div id="feedbackToast" class="feedback-toast is-hidden" role="alert"></div>
+
+	<main class="vscode-workbench">
+		<header class="title-bar">
+			<div><a href="/">wa-ai-agent</a> / tool-builder</div>
+			<div class="title-path" id="titlePath">tools_builder / select-agent</div>
+			<div class="window-actions">
+				<span class="status-dot" aria-hidden="true"></span>
+				<span id="summaryText">0 tools</span>
+			</div>
+		</header>
+
+		<div class="workbench-body">
+			<nav class="activity-bar" aria-label="Tool Builder Activity">
+				<button type="button" class="activity-button active" title="Explorer">EX</button>
+			</nav>
+
+			<aside class="side-bar">
+				<div class="sidebar-header">
+					<h1 class="sidebar-title">Explorer</h1>
+					<label class="form-label" for="agentSelect">Select Agent</label>
+					<select class="form-select" id="agentSelect">
+						<option value="">Choose agent...</option>
+					</select>
+				</div>
+
+				<div class="tree-shell">
+					<button type="button" class="tree-section" id="folderHeader">
+						<span class="tree-section-main">
+							<span class="folder-caret">v</span>
+							<span class="folder-icon">[DIR]</span>
+							<span id="folderAgentName">CUSTOM TOOLS</span>
+						</span>
+						<span class="folder-count" id="folderToolCount">0</span>
+					</button>
+					<div class="tree-children" id="toolTreeList">
+						<div class="tree-empty">[ select_agent ] choose an agent first</div>
+					</div>
+				</div>
+
+				<div class="sidebar-footer" id="sidebarFooter">tools_builder collection</div>
+			</aside>
+
+			<section class="editor-area">
+				<div class="editor-tabs" id="editorTabs" aria-label="Tool Builder Tabs"></div>
+
+				<div class="editor-scroll">
+					<div class="editor-content">
+						<div class="editor-header">
+							<div>
+								<p class="editor-kicker" id="formKicker">// add</p>
+								<h2 class="editor-title" id="formTitle">Create Custom Tool</h2>
+							</div>
+							<div class="editor-actions">
+								<button type="button" class="btn btn-vscode-outline" id="refreshButton">Refresh</button>
+								<button type="button" class="btn btn-vscode-outline d-none" id="cancelEditButton">Cancel Edit</button>
+								<button type="submit" form="toolForm" class="btn btn-vscode-primary" id="saveButton">Add Tool</button>
+							</div>
+						</div>
+
+						<form id="toolForm" novalidate>
+							<div class="field-grid">
+								<div>
+									<label class="form-label" for="formAgentSelect">Agent Type</label>
+									<select class="form-select" id="formAgentSelect" required>
+										<option value="">Choose agent...</option>
+									</select>
+								</div>
+								<div>
+									<label class="form-label" for="toolNameInput">Tool Name</label>
+									<input class="form-control font-mono" id="toolNameInput" name="name" placeholder="hitung_bonus" required />
+								</div>
+								<div>
+									<label class="form-label" for="descriptionInput">Description</label>
+									<input class="form-control" id="descriptionInput" placeholder="When should the agent call this tool?" required />
+								</div>
+							</div>
+
+							<div class="editor-panel mt-3">
+								<div class="panel-titlebar">
+									<span>Python Packages</span>
+									<span>code.package</span>
+								</div>
+								<div class="panel-body">
+									<div class="package-row">
+										<input class="form-control font-mono" id="packageNameInput" placeholder="requests" autocomplete="off" />
+										<button type="button" class="btn btn-vscode-primary package-add-button" id="addPackageButton" aria-label="Add package">+</button>
+									</div>
+									<div class="package-list" id="packageList" aria-live="polite">
+										<span class="form-text">No packages added.</span>
+									</div>
+								</div>
+							</div>
+
+							<div class="editor-stack">
+								<div class="editor-panel editor-pane code-editor-wrap">
+									<div class="panel-titlebar">
+										<span>Python Code</span>
+										<span>optional</span>
+									</div>
+									<textarea class="form-control editor-textarea" id="codeInput" placeholder="print(input_data)"></textarea>
+								</div>
+
+								<div class="editor-panel editor-pane">
+									<div class="panel-titlebar">
+										<span>Information</span>
+										<span>required if code is empty</span>
+									</div>
+									<textarea class="form-control editor-textarea" id="informationInput" placeholder="Static knowledge, constraints, usage notes, or reference data."></textarea>
+								</div>
+							</div>
+						</form>
+					</div>
+				</div>
+			</section>
+		</div>
+
+		<footer class="status-bar">
+			<span id="statusLeft">agent: none</span>
+			<span id="statusRight">MongoDB: tools_builder</span>
+		</footer>
+	</main>
+
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/python/python.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/matchbrackets.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/closebrackets.min.js"></script>
+	<script>
+		const toolBuilderBaseURL = "{{ .ToolBuilderBaseURL }}" || "/api/tool-builder";
+		const FEEDBACK_AUTO_HIDE_MS = 4200;
+		const NEW_TOOL_TAB_ID = "__new_tool__";
+		const supportedAgents = ["main-agent", "code-agent", "research-agent", "reply-agent"];
+		const initialAgent = new URLSearchParams(window.location.search).get("agent") || "";
+		let pythonCodeEditor = null;
+
+		const ui = {
+			agentSelect: document.getElementById("agentSelect"),
+			formAgentSelect: document.getElementById("formAgentSelect"),
+			toolForm: document.getElementById("toolForm"),
+			toolNameInput: document.getElementById("toolNameInput"),
+			descriptionInput: document.getElementById("descriptionInput"),
+			informationInput: document.getElementById("informationInput"),
+			packageNameInput: document.getElementById("packageNameInput"),
+			addPackageButton: document.getElementById("addPackageButton"),
+			packageList: document.getElementById("packageList"),
+			codeInput: document.getElementById("codeInput"),
+			saveButton: document.getElementById("saveButton"),
+			cancelEditButton: document.getElementById("cancelEditButton"),
+			refreshButton: document.getElementById("refreshButton"),
+			formKicker: document.getElementById("formKicker"),
+			formTitle: document.getElementById("formTitle"),
+			editorTabs: document.getElementById("editorTabs"),
+			folderHeader: document.getElementById("folderHeader"),
+			folderAgentName: document.getElementById("folderAgentName"),
+			folderToolCount: document.getElementById("folderToolCount"),
+			toolTreeList: document.getElementById("toolTreeList"),
+			sidebarFooter: document.getElementById("sidebarFooter"),
+			summaryText: document.getElementById("summaryText"),
+			titlePath: document.getElementById("titlePath"),
+			statusLeft: document.getElementById("statusLeft"),
+			statusRight: document.getElementById("statusRight"),
+			floatingLoading: document.getElementById("floatingLoading"),
+			floatingLoadingText: document.getElementById("floatingLoadingText"),
+			feedbackToast: document.getElementById("feedbackToast"),
+		};
+
+		const state = {
+			selectedAgent: "",
+			tools: [],
+			packages: [],
+			openTabs: [],
+			activeTab: NEW_TOOL_TAB_ID,
+			tabDrafts: {},
+			editingOriginalName: "",
+			loadingCount: 0,
+			feedbackTimerId: null,
+		};
+
+		const formFields = [
+			ui.toolNameInput,
+			ui.descriptionInput,
+			ui.informationInput,
+			ui.packageNameInput,
+			ui.addPackageButton,
+			ui.codeInput,
+		];
+
+		function escapeHTML(value) {
+			return String(value || "")
+				.replaceAll("&", "&amp;")
+				.replaceAll("<", "&lt;")
+				.replaceAll(">", "&gt;")
+				.replaceAll("\"", "&quot;")
+				.replaceAll("'", "&#039;");
+		}
+
+		function initPythonCodeEditor() {
+			if (typeof window.CodeMirror !== "function" || pythonCodeEditor) {
+				return;
+			}
+
+			pythonCodeEditor = window.CodeMirror.fromTextArea(ui.codeInput, {
+				mode: "python",
+				theme: "material-darker",
+				lineNumbers: true,
+				lineWrapping: false,
+				indentUnit: 4,
+				tabSize: 4,
+				indentWithTabs: false,
+				matchBrackets: true,
+				autoCloseBrackets: true,
+				styleActiveLine: false,
+				extraKeys: {
+					Tab(cm) {
+						if (cm.somethingSelected()) {
+							cm.indentSelection("add");
+							return;
+						}
+						cm.replaceSelection(" ".repeat(cm.getOption("indentUnit")), "end", "+input");
+					},
+					"Shift-Tab": "indentLess",
+				},
+			});
+
+			pythonCodeEditor.on("change", () => {
+				pythonCodeEditor.save();
+			});
+		}
+
+		function syncCodeEditorToTextarea() {
+			if (pythonCodeEditor) {
+				pythonCodeEditor.save();
+			}
+		}
+
+		function getCodeInputValue() {
+			return pythonCodeEditor ? pythonCodeEditor.getValue() : ui.codeInput.value;
+		}
+
+		function setCodeInputValue(value) {
+			const nextValue = String(value || "");
+			ui.codeInput.value = nextValue;
+			if (pythonCodeEditor) {
+				pythonCodeEditor.setValue(nextValue);
+				window.setTimeout(() => pythonCodeEditor.refresh(), 0);
+			}
+		}
+
+		function updateInteractivity() {
+			const isLoading = state.loadingCount > 0;
+			const needsAgent = !state.selectedAgent;
+			const isDisabled = isLoading || needsAgent;
+
+			ui.agentSelect.disabled = isLoading;
+			ui.formAgentSelect.disabled = isLoading;
+			ui.refreshButton.disabled = isLoading || needsAgent;
+			ui.saveButton.disabled = isLoading || needsAgent;
+			ui.cancelEditButton.disabled = isLoading;
+
+			formFields.forEach((field) => {
+				field.disabled = isDisabled;
+			});
+
+			if (pythonCodeEditor) {
+				pythonCodeEditor.setOption("readOnly", isDisabled ? "nocursor" : false);
+				pythonCodeEditor.getWrapperElement().classList.toggle("is-disabled", isDisabled);
+			}
+		}
+
+		function showLoading(message) {
+			state.loadingCount += 1;
+			ui.floatingLoadingText.textContent = message || "Loading...";
+			ui.floatingLoading.classList.add("show");
+			updateInteractivity();
+		}
+
+		function hideLoading() {
+			state.loadingCount = Math.max(0, state.loadingCount - 1);
+			if (state.loadingCount > 0) {
+				return;
+			}
+			window.setTimeout(() => {
+				if (state.loadingCount === 0) {
+					ui.floatingLoading.classList.remove("show");
+					updateInteractivity();
+				}
+			}, 90);
+		}
+
+		function showFeedback(message, tone = "info") {
+			window.clearTimeout(state.feedbackTimerId);
+			ui.feedbackToast.textContent = message;
+			ui.feedbackToast.classList.toggle("is-error", tone === "error");
+			ui.feedbackToast.classList.toggle("is-warning", tone === "warning");
+			ui.feedbackToast.classList.remove("is-hidden");
+			state.feedbackTimerId = window.setTimeout(() => {
+				ui.feedbackToast.classList.add("is-hidden");
+			}, FEEDBACK_AUTO_HIDE_MS);
+		}
+
+		async function requestJSON(url, options = {}) {
+			const response = await fetch(url, {
+				headers: {
+					Accept: "application/json",
+					...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+					...(options.headers || {}),
+				},
+				...options,
+			});
+			const payload = await response.json().catch(() => null);
+			if (!response.ok || !payload || payload.success === false) {
+				const message = payload && payload.message ? payload.message : `request failed with status ${response.status}`;
+				throw new Error(message);
+			}
+			return payload;
+		}
+
+		function toolsEndpoint() {
+			const target = new URL(`${toolBuilderBaseURL}/tools`, window.location.origin);
+			if (state.selectedAgent) {
+				target.searchParams.set("agent", state.selectedAgent);
+			}
+			return `${target.pathname}${target.search}`;
+		}
+
+		function extractTools(payload) {
+			const data = payload && payload.data ? payload.data : payload;
+			if (Array.isArray(data)) {
+				return data;
+			}
+			if (data && Array.isArray(data.tools)) {
+				return data.tools;
+			}
+			return [];
+		}
+
+		function findTool(toolName) {
+			return state.tools.find((item) => item.name === toolName);
+		}
+
+		function blankFormDraft() {
+			return {
+				agentType: state.selectedAgent,
+				name: "",
+				description: "",
+				information: "",
+				code: "",
+				packages: [],
+				packageInput: "",
+				editingOriginalName: "",
+			};
+		}
+
+		function toolToDraft(tool) {
+			return {
+				agentType: tool.agent_type || state.selectedAgent,
+				name: tool.name || "",
+				description: tool.description || "",
+				information: tool.information || "",
+				code: tool.code && tool.code.code ? tool.code.code : "",
+				packages: tool.code && Array.isArray(tool.code.package) ? [...tool.code.package] : [],
+				packageInput: "",
+				editingOriginalName: tool.name || "",
+			};
+		}
+
+		function captureFormDraft() {
+			syncCodeEditorToTextarea();
+			return {
+				agentType: ui.formAgentSelect.value,
+				name: ui.toolNameInput.value,
+				description: ui.descriptionInput.value,
+				information: ui.informationInput.value,
+				code: getCodeInputValue(),
+				packages: [...state.packages],
+				packageInput: ui.packageNameInput.value,
+				editingOriginalName: state.editingOriginalName,
+			};
+		}
+
+		function saveActiveDraft() {
+			if (!state.activeTab) {
+				return;
+			}
+			state.tabDrafts[state.activeTab] = captureFormDraft();
+		}
+
+		function ensureNewToolDraft() {
+			if (!state.tabDrafts[NEW_TOOL_TAB_ID]) {
+				state.tabDrafts[NEW_TOOL_TAB_ID] = blankFormDraft();
+			}
+			return state.tabDrafts[NEW_TOOL_TAB_ID];
+		}
+
+		function applyFormDraft(draft) {
+			const nextDraft = draft || blankFormDraft();
+			state.editingOriginalName = nextDraft.editingOriginalName || "";
+			ui.formAgentSelect.value = nextDraft.agentType || state.selectedAgent;
+			ui.toolNameInput.value = nextDraft.name || "";
+			ui.descriptionInput.value = nextDraft.description || "";
+			ui.informationInput.value = nextDraft.information || "";
+			setCodeInputValue(nextDraft.code || "");
+			state.packages = Array.isArray(nextDraft.packages) ? [...nextDraft.packages] : [];
+			ui.packageNameInput.value = nextDraft.packageInput || "";
+			syncPackageList();
+
+			if (state.editingOriginalName) {
+				ui.formKicker.textContent = "// edit";
+				ui.formTitle.textContent = "Edit Custom Tool";
+				ui.saveButton.textContent = "Update Tool";
+				ui.cancelEditButton.classList.remove("d-none");
+			} else {
+				ui.formKicker.textContent = "// add";
+				ui.formTitle.textContent = "Create Custom Tool";
+				ui.saveButton.textContent = "Add Tool";
+				ui.cancelEditButton.classList.add("d-none");
+			}
+
+			renderEditorTabs();
+			renderTools(state.tools);
+			updateInteractivity();
+		}
+
+		function switchToNewToolTab() {
+			state.activeTab = NEW_TOOL_TAB_ID;
+			applyFormDraft(ensureNewToolDraft());
+		}
+
+		function renderEditorTabs() {
+			ui.editorTabs.innerHTML = "";
+
+			const tabs = [
+				{
+					id: NEW_TOOL_TAB_ID,
+					label: "tool.config.json",
+					badge: "JS",
+					closable: false,
+				},
+				...state.openTabs.map((toolName) => {
+					const tool = findTool(toolName);
+					const hasCode = Boolean(tool && tool.code && String(tool.code.code || "").trim());
+					return {
+						id: toolName,
+						label: `${toolName}.json`,
+						badge: hasCode ? "PY" : "MD",
+						closable: true,
+					};
+				}),
+			];
+
+			tabs.forEach((tab) => {
+				const tabItem = document.createElement("div");
+				tabItem.className = `editor-tab${state.activeTab === tab.id ? " active" : ""}`;
+
+				const tabButton = document.createElement("button");
+				tabButton.type = "button";
+				tabButton.className = "editor-tab-button";
+				tabButton.dataset.tabId = tab.id;
+
+				const badge = document.createElement("span");
+				badge.className = "file-badge";
+				badge.textContent = tab.badge;
+
+				const label = document.createElement("span");
+				label.className = "editor-tab-label";
+				label.textContent = tab.label;
+				label.title = tab.label;
+
+				tabButton.appendChild(badge);
+				tabButton.appendChild(label);
+				tabItem.appendChild(tabButton);
+
+				if (tab.closable) {
+					const closeButton = document.createElement("button");
+					closeButton.type = "button";
+					closeButton.className = "editor-tab-close";
+					closeButton.dataset.tabId = tab.id;
+					closeButton.setAttribute("aria-label", `Close ${tab.label}`);
+					closeButton.textContent = "x";
+					tabItem.appendChild(closeButton);
+				}
+
+				ui.editorTabs.appendChild(tabItem);
+			});
+		}
+
+		function openToolTab(toolName) {
+			if (!toolName) {
+				return;
+			}
+			if (state.activeTab === toolName) {
+				return;
+			}
+			saveActiveDraft();
+			if (!state.openTabs.includes(toolName)) {
+				state.openTabs.push(toolName);
+			}
+			state.activeTab = toolName;
+			loadToolIntoForm(toolName, { useDraft: true });
+		}
+
+		function closeToolTab(toolName) {
+			delete state.tabDrafts[toolName];
+			state.openTabs = state.openTabs.filter((item) => item !== toolName);
+			if (state.activeTab === toolName) {
+				switchToNewToolTab();
+				return;
+			}
+			renderEditorTabs();
+		}
+
+		function activateEditorTab(tabId) {
+			if (tabId === state.activeTab) {
+				return;
+			}
+			if (tabId === NEW_TOOL_TAB_ID) {
+				saveActiveDraft();
+				switchToNewToolTab();
+				return;
+			}
+			openToolTab(tabId);
+		}
+
+		function syncPackageList() {
+			ui.packageList.innerHTML = "";
+			if (state.packages.length === 0) {
+				const empty = document.createElement("span");
+				empty.className = "form-text";
+				empty.textContent = "No packages added.";
+				ui.packageList.appendChild(empty);
+				return;
+			}
+
+			state.packages.forEach((packageName) => {
+				const chip = document.createElement("span");
+				chip.className = "package-chip";
+				chip.innerHTML = `
+					<span>${escapeHTML(packageName)}</span>
+					<button type="button" class="package-remove" data-package="${escapeHTML(packageName)}" title="Remove package">x</button>
+				`;
+				ui.packageList.appendChild(chip);
+			});
+		}
+
+		function addPackage(value, options = {}) {
+			const packageName = String(value || "").trim();
+			if (!packageName) {
+				if (!options.silent) {
+					showFeedback("Package name is empty.", "warning");
+				}
+				return;
+			}
+			if (state.packages.includes(packageName)) {
+				if (!options.silent) {
+					showFeedback("Package already exists.", "warning");
+				}
+				return;
+			}
+			state.packages.push(packageName);
+			ui.packageNameInput.value = "";
+			syncPackageList();
+		}
+
+		function flushPendingPackageInput() {
+			if (ui.packageNameInput.value.trim()) {
+				addPackage(ui.packageNameInput.value, { silent: true });
+			}
+		}
+
+		function clearPackages() {
+			state.packages = [];
+			ui.packageNameInput.value = "";
+			syncPackageList();
+		}
+
+		function buildPayload() {
+			flushPendingPackageInput();
+			syncCodeEditorToTextarea();
+			const code = getCodeInputValue().trim();
+			return {
+				agent_type: ui.formAgentSelect.value.trim(),
+				name: ui.toolNameInput.value.trim(),
+				description: ui.descriptionInput.value.trim(),
+				information: ui.informationInput.value.trim(),
+				code: code ? {
+					package: [...state.packages],
+					code,
+				} : null,
+				...(state.editingOriginalName ? { original_name: state.editingOriginalName } : {}),
+			};
+		}
+
+		function resetForm() {
+			state.editingOriginalName = "";
+			state.activeTab = NEW_TOOL_TAB_ID;
+			state.tabDrafts[NEW_TOOL_TAB_ID] = blankFormDraft();
+			ui.toolForm.reset();
+			setCodeInputValue("");
+			clearPackages();
+			ui.formAgentSelect.value = state.selectedAgent;
+			ui.formKicker.textContent = "// add";
+			ui.formTitle.textContent = "Create Custom Tool";
+			ui.saveButton.textContent = "Add Tool";
+			ui.cancelEditButton.classList.add("d-none");
+			renderEditorTabs();
+			renderTools(state.tools);
+			updateInteractivity();
+		}
+
+		function renderAgentOptions() {
+			supportedAgents.forEach((agent) => {
+				const option = document.createElement("option");
+				option.value = agent;
+				option.textContent = agent;
+				ui.agentSelect.appendChild(option);
+
+				const formOption = document.createElement("option");
+				formOption.value = agent;
+				formOption.textContent = agent;
+				ui.formAgentSelect.appendChild(formOption);
+			});
+
+			if (initialAgent && supportedAgents.includes(initialAgent)) {
+				selectAgent(initialAgent);
+				return;
+			}
+			updateInteractivity();
+		}
+
+		function setAgentChrome(agent) {
+			const agentLabel = agent || "select-agent";
+			ui.agentSelect.value = agent;
+			ui.formAgentSelect.value = agent;
+			ui.folderAgentName.textContent = agent ? agent.toUpperCase() : "CUSTOM TOOLS";
+			ui.folderToolCount.textContent = "0";
+			ui.titlePath.textContent = `tools_builder / ${agentLabel}`;
+			ui.statusLeft.textContent = `agent: ${agent || "none"}`;
+			ui.sidebarFooter.textContent = agent ? `${agent} / tools_builder` : "tools_builder collection";
+		}
+
+		function selectAgent(agent) {
+			const cleanAgent = String(agent || "").trim();
+			if (!cleanAgent) {
+				state.selectedAgent = "";
+				state.tools = [];
+				state.openTabs = [];
+				state.activeTab = NEW_TOOL_TAB_ID;
+				state.tabDrafts = {};
+				setAgentChrome("");
+				renderTools([]);
+				resetForm();
+				return;
+			}
+
+			state.selectedAgent = cleanAgent;
+			state.tools = [];
+			state.openTabs = [];
+			state.activeTab = NEW_TOOL_TAB_ID;
+			state.tabDrafts = {};
+			setAgentChrome(cleanAgent);
+			resetForm();
+
+			const url = new URL(window.location.href);
+			url.searchParams.set("agent", cleanAgent);
+			window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+			refreshTools();
+		}
+
+		function renderTools(tools) {
+			ui.toolTreeList.innerHTML = "";
+			ui.summaryText.textContent = `${tools.length} tools`;
+			ui.folderToolCount.textContent = String(tools.length);
+			ui.statusRight.textContent = `${tools.length} custom tools`;
+
+			if (!state.selectedAgent) {
+				const empty = document.createElement("div");
+				empty.className = "tree-empty";
+				empty.textContent = "[ select_agent ] choose an agent first";
+				ui.toolTreeList.appendChild(empty);
+				return;
+			}
+
+			if (tools.length === 0) {
+				const empty = document.createElement("div");
+				empty.className = "tree-empty";
+				empty.textContent = "[ empty ] no custom tools found";
+				ui.toolTreeList.appendChild(empty);
+				return;
+			}
+
+			tools.forEach((tool) => {
+				const hasCode = Boolean(tool.code && String(tool.code.code || "").trim());
+				const isActive = state.editingOriginalName && state.editingOriginalName === tool.name;
+				const item = document.createElement("div");
+				item.className = `tree-item${isActive ? " active" : ""}`;
+				item.innerHTML = `
+					<button type="button" class="tree-tool-button edit-tool-btn" data-name="${escapeHTML(tool.name)}" title="${escapeHTML(tool.description)}">
+						<span class="file-badge">${hasCode ? "PY" : "MD"}</span>
+						<span class="tree-label">${escapeHTML(tool.name)}</span>
+						<span class="tree-meta">${hasCode ? "code" : "info"}</span>
+					</button>
+					<button type="button" class="tree-delete delete-tool-btn" data-name="${escapeHTML(tool.name)}" title="Delete tool">x</button>
+				`;
+				ui.toolTreeList.appendChild(item);
+			});
+		}
+
+		async function refreshTools(options = {}) {
+			if (!state.selectedAgent) {
+				renderTools([]);
+				updateInteractivity();
+				return;
+			}
+			if (!options.silent) {
+				showLoading("Loading custom tools...");
+			}
+			try {
+				saveActiveDraft();
+				const payload = await requestJSON(toolsEndpoint());
+				state.tools = extractTools(payload);
+				const toolNames = new Set(state.tools.map((tool) => tool.name));
+				state.openTabs = state.openTabs.filter((toolName) => toolNames.has(toolName));
+				Object.keys(state.tabDrafts).forEach((tabId) => {
+					if (tabId !== NEW_TOOL_TAB_ID && !toolNames.has(tabId)) {
+						delete state.tabDrafts[tabId];
+					}
+				});
+				const activeToolMissing = state.activeTab !== NEW_TOOL_TAB_ID && !toolNames.has(state.activeTab);
+				if (activeToolMissing) {
+					switchToNewToolTab();
+				} else {
+					renderTools(state.tools);
+					renderEditorTabs();
+				}
+				if (!options.silent) {
+					showFeedback("Custom tool list refreshed.");
+				}
+			} catch (error) {
+				showFeedback(`Failed to load custom tools: ${error.message}`, "error");
+			} finally {
+				if (!options.silent) {
+					hideLoading();
+				}
+			}
+		}
+
+		async function handleSubmit(event) {
+			event.preventDefault();
+			if (!state.selectedAgent) {
+				showFeedback("Select an agent first.", "warning");
+				return;
+			}
+
+			const payload = buildPayload();
+			if (!payload.agent_type || !payload.name || !payload.description) {
+				showFeedback("Agent type, tool name, and description are required.", "warning");
+				return;
+			}
+			if (!payload.information && !(payload.code && payload.code.code)) {
+				showFeedback("Fill at least one: information or Python code.", "warning");
+				return;
+			}
+
+			const isEdit = Boolean(state.editingOriginalName);
+			const previousEditingName = state.editingOriginalName;
+			const preservedNewDraft = isEdit ? state.tabDrafts[NEW_TOOL_TAB_ID] : null;
+			showLoading(isEdit ? "Updating custom tool..." : "Saving custom tool...");
+			try {
+				await requestJSON(`${toolBuilderBaseURL}/tools`, {
+					method: isEdit ? "PUT" : "POST",
+					body: JSON.stringify(payload),
+				});
+
+				const nextAgent = payload.agent_type;
+				if (isEdit) {
+					state.openTabs = state.openTabs.map((toolName) => {
+						return toolName === previousEditingName ? payload.name : toolName;
+					});
+					if (state.tabDrafts[previousEditingName]) {
+						state.tabDrafts[payload.name] = {
+							...state.tabDrafts[previousEditingName],
+							name: payload.name,
+							editingOriginalName: payload.name,
+						};
+						delete state.tabDrafts[previousEditingName];
+					}
+				}
+				if (isEdit) {
+					if (preservedNewDraft) {
+						state.tabDrafts[NEW_TOOL_TAB_ID] = preservedNewDraft;
+					}
+					switchToNewToolTab();
+				} else {
+					resetForm();
+				}
+				showFeedback(isEdit ? "Custom tool updated." : "Custom tool added.");
+				if (nextAgent && nextAgent !== state.selectedAgent) {
+					selectAgent(nextAgent);
+					return;
+				}
+				await refreshTools({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to save tool: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		function loadToolIntoForm(toolName, options = {}) {
+			const tool = findTool(toolName);
+			if (!tool) {
+				showFeedback("Tool data is missing.", "error");
+				return;
+			}
+
+			state.activeTab = tool.name || "";
+			if (!state.tabDrafts[tool.name] || !options.useDraft) {
+				state.tabDrafts[tool.name] = toolToDraft(tool);
+			}
+			applyFormDraft(state.tabDrafts[tool.name]);
+		}
+
+		function handleEdit(toolName) {
+			openToolTab(toolName);
+			ui.toolNameInput.focus();
+		}
+
+		async function handleDelete(toolName) {
+			if (!toolName) {
+				showFeedback("Tool name is missing.", "error");
+				return;
+			}
+			if (!window.confirm(`Delete custom tool '${toolName}' from ${state.selectedAgent}?`)) {
+				return;
+			}
+
+			showLoading("Deleting custom tool...");
+			try {
+				await requestJSON(`${toolBuilderBaseURL}/tools`, {
+					method: "DELETE",
+					body: JSON.stringify({
+						agent_type: state.selectedAgent,
+						name: toolName,
+					}),
+				});
+				state.openTabs = state.openTabs.filter((item) => item !== toolName);
+				if (state.editingOriginalName === toolName) {
+					switchToNewToolTab();
+				}
+				showFeedback("Custom tool deleted.");
+				await refreshTools({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to delete tool: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		ui.agentSelect.addEventListener("change", () => selectAgent(ui.agentSelect.value));
+		ui.formAgentSelect.addEventListener("change", () => {
+			if (ui.formAgentSelect.value && ui.formAgentSelect.value !== state.selectedAgent) {
+				selectAgent(ui.formAgentSelect.value);
+			}
+		});
+		ui.editorTabs.addEventListener("click", (event) => {
+			const closeButton = event.target.closest(".editor-tab-close");
+			if (closeButton) {
+				event.stopPropagation();
+				closeToolTab(closeButton.dataset.tabId || "");
+				return;
+			}
+
+			const tabButton = event.target.closest(".editor-tab-button");
+			if (tabButton) {
+				activateEditorTab(tabButton.dataset.tabId || NEW_TOOL_TAB_ID);
+			}
+		});
+		ui.refreshButton.addEventListener("click", () => refreshTools());
+		ui.toolForm.addEventListener("submit", handleSubmit);
+		ui.cancelEditButton.addEventListener("click", resetForm);
+		ui.addPackageButton.addEventListener("click", () => addPackage(ui.packageNameInput.value));
+		ui.packageNameInput.addEventListener("keydown", (event) => {
+			if (event.key === "Enter") {
+				event.preventDefault();
+				addPackage(ui.packageNameInput.value);
+			}
+		});
+		ui.packageList.addEventListener("click", (event) => {
+			const removeButton = event.target.closest(".package-remove");
+			if (!removeButton) {
+				return;
+			}
+			const targetPackage = removeButton.dataset.package || "";
+			state.packages = state.packages.filter((item) => item !== targetPackage);
+			syncPackageList();
+		});
+		ui.toolTreeList.addEventListener("click", (event) => {
+			const deleteButton = event.target.closest(".delete-tool-btn");
+			if (deleteButton) {
+				handleDelete(deleteButton.dataset.name || "");
+				return;
+			}
+			const editButton = event.target.closest(".edit-tool-btn");
+			if (editButton) {
+				handleEdit(editButton.dataset.name || "");
+			}
+		});
+
+		setAgentChrome("");
+		initPythonCodeEditor();
+		clearPackages();
+		renderTools([]);
+		renderEditorTabs();
+		renderAgentOptions();
+	</script>
+</body>
+</html>

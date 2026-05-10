@@ -288,6 +288,14 @@
 			color: #ffffff;
 		}
 
+		body {
+			font-size: 1.05rem;
+		}
+
+		:where(p, span, a, label, button, input, select, textarea, td, th, code, .btn, .form-control, .form-select, .form-text, .font-mono, .small) {
+			font-size: max(1.02rem, 1em) !important;
+		}
+
 		@media (max-width: 991.98px) {
 			.feedback-toast {
 				top: 0.85rem;

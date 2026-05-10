@@ -98,7 +98,7 @@ class TerminalX:
             + compact_output
         )
     
-    def __do_exec(self, command: str, timeout: int = 120) -> str:
+    def do_exec(self, command: str, timeout: int = 120) -> str:
         # Auto-inject flags non-interactive
         command = self.__prepare_command(command)
 
@@ -187,7 +187,7 @@ class TerminalX:
                 f"🤖 *Executing command:* `{command}`",
                 sender
             )
-            return self.__do_exec(command)
+            return self.do_exec(command)
 
         return StructuredTool.from_function(  # pyright: ignore[reportUnknownMemberType]
             func=_exec,

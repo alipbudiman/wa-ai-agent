@@ -16,7 +16,7 @@ from backend.application.ai.instruction import Instruction
 from backend.application.ai.tools.time import TimeTool
 from config.config import Config
 from backend.application.ingestion.loader import DocumentLoader
-
+from backend.application.ai.models import REPLY_AGENT
 
 class State(MessagesState):
     summary: str = ""
@@ -28,7 +28,7 @@ logger = logging.getLogger('uvicorn.error')
 
 class ReplyAgentUsecase:
     RAG_TOP_K = 5
-    RAG_SCORE_THRESHOLD = 0.60
+    RAG_SCORE_THRESHOLD = 0.6
 
     def __init__(self):
         self.llm = AI()
@@ -41,7 +41,7 @@ class ReplyAgentUsecase:
         self._process_diagram_mermaid = ""
         self._reasoning = True
 
-        self.doc_loader = DocumentLoader()
+        self.doc_loader = DocumentLoader(collection_name=REPLY_AGENT)
 
         self.sys_msg = (
             "You are a reply agent named Sofia, a helpful assistant. "
@@ -71,9 +71,9 @@ class ReplyAgentUsecase:
     
     def __retrieve(self, state: State):
         """
-        Ambil dokumen relevan dari vector DB berdasarkan pesan terakhir user.
-        Node ini HANYA membaca dari collection 'documents'.
-        Conversation TIDAK pernah ditulis ke vector DB.
+        Retrieve relevant documents from the vector DB based on the latest user message.
+        This node ONLY reads from the 'documents' collection.
+        Conversation messages are NEVER written to the vector DB.
         """
         try:
             query = str(state.get("rag_query") or "").strip()
@@ -101,10 +101,10 @@ class ReplyAgentUsecase:
                     for doc, score in docs_with_scores
                 ]
                 rag_context = "\n\n".join(context_parts)
-                logger.info(f"RAG: {len(docs_with_scores)} dokumen relevan ditemukan")
+                logger.info(f"RAG: {len(docs_with_scores)} relevant documents found")
             else:
                 rag_context = ""
-                logger.info("RAG: tidak ada dokumen relevan melewati threshold, fallback ke general knowledge")
+                logger.info("RAG: no relevant documents passed the threshold, fallback to general knowledge")
 
             return {"rag_context": rag_context}
 
@@ -116,31 +116,39 @@ class ReplyAgentUsecase:
 
     def __conversation(self, state: State):
         """
-        Generate jawaban berdasarkan:
-        - sys_msg (instruksi dasar Sofia)
-        - summary (ringkasan percakapan lama jika ada)
-        - rag_context (dokumen relevan dari vector DB, jika ada)
-        - messages (history chat dari checkpointer)
+        Generate a response based on:
+        - sys_msg (Sofia's base instruction)
+        - summary (previous conversation summary, if available)
+        - rag_context (relevant documents from vector DB, if available)
+        - messages (chat history from the checkpointer)
         
-        Tidak ada penulisan ke vector DB di sini.
+        No writes to vector DB happen in this node.
         """
         rag_context = state.get("rag_context", "")
         summary     = state.get("summary", "")
 
-        system_content = self.sys_msg
+        context_block = (
+            rag_context
+            if rag_context
+            else "No relevant uploaded document context was found."
+        )
 
-        # Sisipkan summary jika ada
-        if summary:
-            system_content += f"\n\nRingkasan percakapan sebelumnya:\n{summary}"
+        summary_block = summary if summary else "No prior summary is available."
 
-        # Sisipkan konteks dokumen jika ada
-        if rag_context:
-            system_content += f"\n\nKonteks dari dokumen yang telah diupload:\n{rag_context}"
-        else:
-            system_content += (
-                "\n\n(Tidak ada dokumen relevan ditemukan. "
-                "Jawab berdasarkan pengetahuan umum.)"
-            )
+        system_content = (
+            "ROLE:\n"
+            "You are Sofia, a helpful and reliable reply assistant.\n\n"
+            "PRIMARY INSTRUCTIONS:\n"
+            "1. Prioritize factual accuracy and clarity.\n"
+            "2. If uploaded document context is relevant, prioritize it over general knowledge.\n"
+            "3. If uploaded document context is missing or irrelevant, use general knowledge.\n"
+            "4. Keep answers concise, direct, and easy to understand.\n"
+            "5. Do not mention hidden reasoning steps. Provide only the final answer.\n\n"
+            "CONVERSATION SUMMARY:\n"
+            f"{summary_block}\n\n"
+            "DOCUMENT CONTEXT:\n"
+            f"{context_block}"
+        )
 
         messages = [SystemMessage(content=system_content)] + state["messages"]
         response = self.__llm().invoke(messages)
@@ -248,7 +256,7 @@ class ReplyAgentUsecase:
                 "sender": group_id if group_id else number,
                 "rag_query": messages,
                 "rag_context": "",
-                "summary": "",
+                # "summary": "",
             }, config=config)
             
             results_message = self.agent_usecase.extract_ai_content(result.get('messages', []))

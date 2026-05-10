@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,8 @@ const (
 	LOAD_DOCUMENT_PATH     string = "/load-document"
 	defaultDocumentRootDir string = "uploads/documents"
 	brainVectorTimeout            = 360 * time.Second
+
+	TOOL_BUILDER_PATH string = "/tool-builder"
 )
 
 var (
@@ -44,6 +47,7 @@ type SetupRoute struct {
 }
 
 type vectorStoreIngestRequest struct {
+	Agent      string   `json:"agent"`
 	FolderPath string   `json:"folder_path,omitempty"`
 	URLs       []string `json:"urls,omitempty"`
 	FilePaths  []string `json:"file_paths,omitempty"`
@@ -51,6 +55,7 @@ type vectorStoreIngestRequest struct {
 }
 
 type vectorStoreURLIngestRequest struct {
+	Agent    string   `json:"agent"`
 	URLs     []string `json:"urls" binding:"required"`
 	Category string   `json:"category"`
 }
@@ -68,6 +73,13 @@ var supportedVectorDocumentExtensions = map[string]struct{}{
 	".docx": {},
 	".xlsx": {},
 	".pptx": {},
+}
+
+var supportedToolBuilderAgents = map[string]struct{}{
+	"main-agent":     {},
+	"code-agent":     {},
+	"research-agent": {},
+	"reply-agent":    {},
 }
 
 func brainBaseURL() string {
@@ -165,6 +177,58 @@ func normalizeVectorCategory(rawCategory string) string {
 	return category
 }
 
+func normalizeVectorAgent(rawAgent string) string {
+	return strings.TrimSpace(rawAgent)
+}
+
+func requireVectorAgent(rawAgent string) (string, error) {
+	agent := normalizeVectorAgent(rawAgent)
+	if agent == "" {
+		return "", fmt.Errorf("agent is required")
+	}
+	return agent, nil
+}
+
+func requireToolBuilderAgent(rawAgent string) (string, error) {
+	agent := strings.TrimSpace(rawAgent)
+	if agent == "" {
+		return "", fmt.Errorf("agent is required")
+	}
+	if _, ok := supportedToolBuilderAgents[agent]; !ok {
+		return "", fmt.Errorf("unsupported agent: %s", agent)
+	}
+	return agent, nil
+}
+
+func toolBuilderRequestToDomain(req ToolBuilderRequest) ports.ToolBuilderData {
+	tool := ports.ToolBuilderData{
+		Name:        req.Name,
+		Description: req.Description,
+		AgentType:   req.AgentType,
+		Information: req.Information,
+	}
+	if req.Code != nil {
+		tool.Code = &ports.ToolDataCode{
+			Package: req.Code.Package,
+			Code:    req.Code.Code,
+		}
+	}
+	return tool
+}
+
+func toolBuilderErrorHTTPResp(c *gin.Context, err error, defaultMessage string) {
+	switch {
+	case errors.Is(err, ports.ErrInvalidToolBuilderData):
+		ErrorHTTPResp(c, http.StatusBadRequest, "name, description, agent_type, and one of information or code are required")
+	case errors.Is(err, ports.ErrToolBuilderAlreadyExists):
+		ErrorHTTPResp(c, http.StatusConflict, "tool builder already exists for this agent")
+	case errors.Is(err, ports.ErrToolBuilderNotFound):
+		ErrorHTTPResp(c, http.StatusNotFound, "tool builder not found")
+	default:
+		ErrorHTTPResp(c, http.StatusInternalServerError, defaultMessage)
+	}
+}
+
 func validateVectorDocumentName(fileName string) (string, error) {
 	sanitizedName, err := normalizePlaygroundNodeName(path.Base(strings.ReplaceAll(fileName, "\\", "/")))
 	if err != nil {
@@ -209,6 +273,11 @@ func resolveStoredDocumentPath(rawPath string) (string, error) {
 
 func ingestVectorDocuments(ctx context.Context, ingestRequest vectorStoreIngestRequest) (any, error) {
 	ingestRequest.Category = normalizeVectorCategory(ingestRequest.Category)
+	agent, err := requireVectorAgent(ingestRequest.Agent)
+	if err != nil {
+		return nil, err
+	}
+	ingestRequest.Agent = agent
 	return requestBrainJSON(ctx, http.MethodPost, "/vector-store/ingest-document", nil, ingestRequest)
 }
 
@@ -430,13 +499,33 @@ func markInboxMessageAsReadHandler(manager ports.Manager) gin.HandlerFunc {
 
 func getVectorDocumentsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, "/vector-store/documents", nil, nil)
+		agent, err := requireVectorAgent(c.Query("agent"))
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		query := url.Values{}
+		query.Set("agent", agent)
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, "/vector-store/documents", query, nil)
 		if err != nil {
 			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get vector documents: "+err.Error())
 			return
 		}
 
 		SuccessHTTPResp(c, http.StatusOK, "vector documents retrieved successfully", payload)
+	}
+}
+
+func getSupportedAgentForVectorDataHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, "/vector-store/supported-agent", nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get supported agent for vector data: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "supported agent for vector data retrieved successfully", payload)
 	}
 }
 
@@ -457,6 +546,12 @@ func uploadVectorDocumentsHandler() gin.HandlerFunc {
 		form, err := c.MultipartForm()
 		if err != nil {
 			ErrorHTTPResp(c, http.StatusBadRequest, "invalid multipart form")
+			return
+		}
+
+		agent, err := requireVectorAgent(c.PostForm("agent"))
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -519,6 +614,7 @@ func uploadVectorDocumentsHandler() gin.HandlerFunc {
 		}
 
 		ingestPayload, ingestErr := ingestVectorDocuments(c.Request.Context(), vectorStoreIngestRequest{
+			Agent:     agent,
 			FilePaths: savedFiles,
 			Category:  c.PostForm("category"),
 		})
@@ -556,7 +652,14 @@ func ingestVectorURLsHandler() gin.HandlerFunc {
 			return
 		}
 
+		agent, err := requireVectorAgent(req.Agent)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
 		payload, err := ingestVectorDocuments(c.Request.Context(), vectorStoreIngestRequest{
+			Agent:    agent,
 			URLs:     urls,
 			Category: req.Category,
 		})
@@ -604,8 +707,14 @@ func deleteVectorDocumentHandler() gin.HandlerFunc {
 			ErrorHTTPResp(c, http.StatusBadRequest, "source query parameter is required")
 			return
 		}
+		agent, err := requireVectorAgent(c.Query("agent"))
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
 
 		query := url.Values{}
+		query.Set("agent", agent)
 		query.Set("source", source)
 		payload, err := requestBrainJSON(c.Request.Context(), http.MethodDelete, "/vector-store/documents", query, nil)
 		if err != nil {
@@ -614,6 +723,100 @@ func deleteVectorDocumentHandler() gin.HandlerFunc {
 		}
 
 		SuccessHTTPResp(c, http.StatusOK, "vector document deleted successfully", payload)
+	}
+}
+
+func getToolsBuilderListHandler(manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		agent, err := requireToolBuilderAgent(c.Query("agent"))
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		tools, err := handler.GetToolsBuilderList(manager, agent)
+		if err != nil {
+			toolBuilderErrorHTTPResp(c, err, "failed to get tool builder list")
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "tool builder list retrieved successfully", tools)
+	}
+}
+
+func addToolBuilderHandler(manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ToolBuilderRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		agent, err := requireToolBuilderAgent(req.AgentType)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.AgentType = agent
+
+		if err := handler.AddToolBuilder(manager, toolBuilderRequestToDomain(req)); err != nil {
+			toolBuilderErrorHTTPResp(c, err, "failed to add tool builder")
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusCreated, "tool builder added successfully", nil)
+	}
+}
+
+func updateToolBuilderHandler(manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ToolBuilderRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		agent, err := requireToolBuilderAgent(req.AgentType)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		originalName := strings.TrimSpace(req.OriginalName)
+		if originalName == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "original_name is required")
+			return
+		}
+		req.AgentType = agent
+
+		if err := handler.UpdateToolBuilder(manager, agent, originalName, toolBuilderRequestToDomain(req)); err != nil {
+			toolBuilderErrorHTTPResp(c, err, "failed to update tool builder")
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "tool builder updated successfully", nil)
+	}
+}
+
+func deleteToolBuilderHandler(manager ports.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req DeleteToolBuilderRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		agent, err := requireToolBuilderAgent(req.AgentType)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if err := handler.DeleteToolBuilder(manager, agent, req.Name); err != nil {
+			toolBuilderErrorHTTPResp(c, err, "failed to delete tool builder")
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "tool builder deleted successfully", nil)
 	}
 }
 
@@ -638,6 +841,7 @@ func ManagerRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, waC
 
 		load_doc_to_vector := r.Group(LOAD_DOCUMENT_PATH)
 		{
+			load_doc_to_vector.GET("/supported-agent", getSupportedAgentForVectorDataHandler())
 			load_doc_to_vector.GET("/documents", getVectorDocumentsHandler())
 			load_doc_to_vector.GET("/supported-document-type", getSupportedVectorDocumentTypeHandler())
 			load_doc_to_vector.GET("/file", viewVectorDocumentHandler())
@@ -661,6 +865,14 @@ func ManagerRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, waC
 				inbox.PUT("/address", setInboxAddressHandler(manager))
 				inbox.DELETE("/address", deleteInboxAddressHandler(manager))
 			}
+		}
+
+		toolBuilder := r.Group(TOOL_BUILDER_PATH)
+		{
+			toolBuilder.GET("/tools", getToolsBuilderListHandler(manager))
+			toolBuilder.POST("/tools", addToolBuilderHandler(manager))
+			toolBuilder.PUT("/tools", updateToolBuilderHandler(manager))
+			toolBuilder.DELETE("/tools", deleteToolBuilderHandler(manager))
 		}
 
 	}

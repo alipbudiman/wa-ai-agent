@@ -624,6 +624,12 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 		})
 	})
 
+	router.GET("/toolsbuilder", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "toolsbuilder.gohtml", gin.H{
+			"ToolBuilderBaseURL": fmt.Sprintf("%s%s", API_BASE_PATH, TOOL_BUILDER_PATH),
+		})
+	})
+
 	router.GET("/reports", func(c *gin.Context) {
 		runs, err := handler.GetLangSmithRuns(c.Request.Context(), chatCompleter)
 		if err != nil {

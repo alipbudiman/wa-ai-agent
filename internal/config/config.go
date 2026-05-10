@@ -65,6 +65,7 @@ func Load() Config {
 				LogSystemCollectionName:    cfg_struct.LOG_SYSTEM_COLLECTION_NAME,
 				InboxCollectionName:        cfg_struct.INBOX_COLLECTION_NAME,
 				InputHistoryCollectionName: cfg_struct.INPUT_HISTORY_COLLECTION_NAME,
+				ToolsBuilderCollectionName: cfg_struct.TOOLS_BUILDER_COLLECTION_NAME,
 			},
 			AIReply: cfg_struct.AIReplyConfig{
 				Enable: func() bool {

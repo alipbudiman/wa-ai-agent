@@ -25,6 +25,7 @@ type ManagerConfig struct {
 	LogSystemCollectionName    string
 	InboxCollectionName        string
 	InputHistoryCollectionName string
+	ToolsBuilderCollectionName string
 }
 
 type DynamicManagerConfig struct {

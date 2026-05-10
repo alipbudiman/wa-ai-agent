@@ -1,6 +1,7 @@
 /sessions
 /playground
 .github/
+.codex/
 .vscode/
 .venv
 

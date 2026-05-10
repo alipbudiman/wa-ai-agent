@@ -69,6 +69,22 @@ func MarkInboxMessageAsRead(manager ports.Manager, msg_id string) error {
 	return manager.MarkInboxMessageAsRead(msg_id)
 }
 
+func GetToolsBuilderList(manager ports.Manager, agentType string) ([]ports.ToolBuilderData, error) {
+	return manager.GetToolsBuilderList(agentType)
+}
+
+func AddToolBuilder(manager ports.Manager, tool ports.ToolBuilderData) error {
+	return manager.AddToolBuilder(tool)
+}
+
+func UpdateToolBuilder(manager ports.Manager, agentType string, originalName string, tool ports.ToolBuilderData) error {
+	return manager.UpdateToolBuilder(agentType, originalName, tool)
+}
+
+func DeleteToolBuilder(manager ports.Manager, agentType string, name string) error {
+	return manager.DeleteToolBuilder(agentType, name)
+}
+
 func GetAllCommands(manager ports.Manager) ([]string, error) {
 	register := rulebase.RegisteredCommands()
 	var commandStr []string

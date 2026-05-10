@@ -74,3 +74,22 @@ type DeleteMessageRequest struct {
 type DeleteInboxMessageRequest struct {
 	JID string `json:"jid" binding:"required"`
 }
+
+type ToolDataCodeRequest struct {
+	Package []string `json:"package"`
+	Code    string   `json:"code"`
+}
+
+type ToolBuilderRequest struct {
+	Name         string               `json:"name" binding:"required"`
+	Description  string               `json:"description" binding:"required"`
+	AgentType    string               `json:"agent_type" binding:"required"`
+	Information  string               `json:"information,omitempty"`
+	Code         *ToolDataCodeRequest `json:"code"`
+	OriginalName string               `json:"original_name,omitempty"`
+}
+
+type DeleteToolBuilderRequest struct {
+	AgentType string `json:"agent_type" binding:"required"`
+	Name      string `json:"name" binding:"required"`
+}

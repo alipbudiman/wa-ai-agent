@@ -12,6 +12,7 @@ const (
 	LOG_SYSTEM_COLLECTION_NAME    string = "log_system"
 	INBOX_COLLECTION_NAME         string = "inbox"
 	INPUT_HISTORY_COLLECTION_NAME string = "input_history"
+	TOOLS_BUILDER_COLLECTION_NAME string = "tools_builder"
 )
 
 func BoolEnv(key string, defaultVal bool) bool {

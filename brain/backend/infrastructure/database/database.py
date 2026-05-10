@@ -15,6 +15,7 @@ class MongoDB:
     MONGO_TEMPLATE_MSG_COLLECTION = 'tmp_messages'
     MONGO_LOG_SYSTEM_COLLECTION = 'log_system'
     MONGO_USER_INPUT_HISTORY_COLLECTION = 'input_history'
+    TOOLS_BUILDER_COLLECTION = "tools_builder"
     
     @classmethod
     def get_client(cls) -> MongoClient:

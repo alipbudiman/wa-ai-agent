@@ -2,8 +2,10 @@ import logging
 import traceback
 import sys
 import os
+import uuid
 
 from langchain.messages import HumanMessage, RemoveMessage, AIMessage, SystemMessage
+from langchain_community.tools import StructuredTool
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.types import Send
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -16,11 +18,11 @@ from backend.application.ai.ai import AI
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.models import LevelSystem
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
-from backend.application.ai.agents import ChatAgentUseCase
 
-from backend.application.ai.instruction import Instruction
 from backend.application.ai.tools.time import TimeTool
 from backend.application.ai.tools.websearch import WebSearchTool
+from backend.application.ingestion.loader import DocumentLoader
+from backend.application.ai.models import REASEARCH_AGENT
 from config.config import Config
 from typing import Annotated
 import operator
@@ -56,6 +58,8 @@ def _merge_string_list(left: Any, right: Any) -> list[str]:
 class State(MessagesState):
     summary: str = ""
     sender: str = ""
+    rag_context: str = ""
+    rag_query: str = ""
     topic: str
     question: str
     answer: Any
@@ -89,19 +93,41 @@ class WebSearchState(TypedDict):
 class WebSearchResult(BaseModel):
     context: str
 
+class AgentResearchInput(BaseModel):
+    messages: str = Field(
+        description=(
+            "The input messages that provide context for the research. "
+            "This can include the user's question, any relevant conversation history, and additional instructions or information to guide the research process."
+        )
+    )
+    question: str = Field(
+        description=(
+            "The specific question or topic that the research agent should focus on. "
+            "This is the main query that the agent will use to perform web searches and gather information to generate an answer."
+        )
+    )
+    topic: str = Field(
+        description=(
+            "The broader topic or category related to the question. "
+            "This can help the research agent contextualize the question and perform more targeted web searches."
+        )
+    )
+
 
 class ResearchAgentUsecase:
+    RAG_TOP_K = 5
+    RAG_SCORE_THRESHOLD = 0.6
+
     def __init__(self):
         self.llm = AI()
-        self.instruction = Instruction()        
         self.checkpointer = MongoDB.get_checkpointer()
-        self.react_graph = self.__agent_logic()
+        self._process_diagram_mermaid = ""
         self.wa_integration_tool = WhatsAppIntegration()
-        self.agent_usecase = ChatAgentUseCase()
         self.time_tool = TimeTool()
         self.config = Config()
         self.web_search_tool = WebSearchTool()
-        self._process_diagram_mermaid = ""
+        self.doc_loader = DocumentLoader(collection_name=REASEARCH_AGENT)
+        self.react_graph = self.__agent_logic()
         self.access_knowledge = [
             KnowlageFunction(name=self.web_search_tool.websearch_tool.__name__, description=self.web_search_tool.websearch_tool.__doc__).model_dump(),
             KnowlageFunction(name=self.web_search_tool.search_wikipedia.__name__, description=self.web_search_tool.search_wikipedia.__doc__).model_dump(),
@@ -159,6 +185,34 @@ class ResearchAgentUsecase:
             return ""
         return str(content).strip()
 
+    def __extract_ai_content(self, messages: list) -> str:
+        """
+        Extract the latest non-empty assistant text from the research graph.
+
+        The research graph can append intermediate messages before the final
+        answer. Only messages after the latest human input are considered so a
+        previous checkpoint cannot leak into the current tool result.
+        """
+        if not messages:
+            return ""
+
+        latest_human_index = -1
+        for index in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[index], HumanMessage):
+                latest_human_index = index
+                break
+
+        current_turn_messages = messages[latest_human_index + 1:] if latest_human_index >= 0 else messages
+        for message in reversed(current_turn_messages):
+            if not isinstance(message, AIMessage):
+                continue
+
+            text = self.__content_to_text(message)
+            if text:
+                return text
+
+        return ""
+
     def __extract_latest_human_message(self, state: State) -> str:
         for message in reversed(state.get("messages", [])):
             if not isinstance(message, HumanMessage):
@@ -167,6 +221,52 @@ class ResearchAgentUsecase:
             if content:
                 return content
         return ""
+
+    def __retrieve(self, state: State):
+        """
+        Retrieve uploaded document context for the research agent.
+
+        This augments web/Wikipedia research with the research-agent vector
+        collection while preserving the existing web-first workflow when no
+        relevant documents are available.
+        """
+        try:
+            query = str(
+                state.get("rag_query")
+                or state.get("question")
+                or state.get("topic")
+                or ""
+            ).strip()
+            if not query:
+                query = self.__extract_latest_human_message(state)
+
+            if not query:
+                return {"rag_context": ""}
+
+            docs_with_scores = self.doc_loader.similarity_search_with_relevance_scores(
+                query=query,
+                k=self.RAG_TOP_K,
+                score_threshold=self.RAG_SCORE_THRESHOLD,
+            )
+
+            if not docs_with_scores:
+                logger.info("Research agent RAG: no relevant documents passed the threshold")
+                return {"rag_context": ""}
+
+            context_parts = [
+                (
+                    f"[source: {doc.metadata.get('source', '?')} | "
+                    f"chunk: {doc.metadata.get('chunk_index', doc.metadata.get('chunk_id', '?'))} | "
+                    f"score: {score:.3f}]\n{doc.page_content}"
+                )
+                for doc, score in docs_with_scores
+            ]
+            logger.info("Research agent RAG: %d relevant documents found", len(docs_with_scores))
+            return {"rag_context": "\n\n".join(context_parts)}
+
+        except Exception as err:
+            logger.error("Research agent RAG retrieve error: %s", err)
+            return {"rag_context": ""}
 
     def __generate_query_search_prompt(self, state: State) -> dict[str, list[dict[str, str]]]:
         topic = (state.get("topic") or state.get("question") or self.__extract_latest_human_message(state)).strip()
@@ -209,7 +309,7 @@ class ResearchAgentUsecase:
     def __continue_to_web_search(self, state: State):
         subjects = state.get("subjects", [])
         if not subjects:
-            return "summarize_search_results"
+            return "collect_search_results"
 
         sends: list[Send] = []
         for subject in subjects:
@@ -229,7 +329,7 @@ class ResearchAgentUsecase:
             sends.append(Send("web_search", payload))
 
         if not sends:
-            return "summarize_search_results"
+            return "collect_search_results"
         return sends
 
     def __conversation(self, state: State):
@@ -388,16 +488,20 @@ class ResearchAgentUsecase:
         search_context = search_summary or "\n\n".join(raw_search_results)
         wiki_context_items = [item for item in state.get("context", []) if isinstance(item, str) and item.strip()]
         wiki_context = "\n\n".join(wiki_context_items)
+        rag_context = str(state.get("rag_context") or "").strip()
 
         # Template
         answer_template = (
             "Answer the following question accurately, in detail, and based on data.\n"
+            "If Document Context is relevant, prioritize it over general knowledge and use web/Wikipedia to complement or verify it.\n"
             "Question: {question}\n\n"
+            "Document Context:\n{document_context}\n\n"
             "Web Search Context:\n{web_context}\n\n"
             "Wikipedia Context:\n{wiki_context}\n"
         )
         answer_instructions = answer_template.format(
             question=question or "Topic not available",
+            document_context=rag_context or "No relevant uploaded document context available.",
             web_context=search_context or "No relevant web search results available.",
             wiki_context=wiki_context or "No relevant Wikipedia data available."
         )
@@ -441,6 +545,7 @@ class ResearchAgentUsecase:
 
     def __agent_logic(self):
         builder = StateGraph(State)
+        builder.add_node("retrieve", self.__retrieve)
         builder.add_node("generate_query_search_prompt", self.__generate_query_search_prompt)
         builder.add_node("web_search", self.__search_web)
         builder.add_node("collect_search_results", self.__collect_search_results)  # barrier
@@ -448,6 +553,7 @@ class ResearchAgentUsecase:
         builder.add_node("search_wikipedia", self.search_wikipedia)
         builder.add_node("generate_answer", self.generate_answer)
 
+        builder.add_edge(START, "retrieve")
         builder.add_edge(START, "generate_query_search_prompt")
         builder.add_edge(START, "search_wikipedia")
         builder.add_conditional_edges(
@@ -459,7 +565,7 @@ class ResearchAgentUsecase:
         builder.add_edge("web_search", "collect_search_results")
         # Barrier fan-out: wait for all searches + wikipedia, then summarize
         builder.add_edge("collect_search_results", "summarize_search_results")
-        builder.add_edge(["summarize_search_results", "search_wikipedia"], "generate_answer")
+        builder.add_edge(["summarize_search_results", "search_wikipedia", "retrieve"], "generate_answer")
         builder.add_edge("generate_answer", END)
         # Lazy initialize checkpointer only when needed
        
@@ -467,6 +573,41 @@ class ResearchAgentUsecase:
         self.__save_process_diagram(react_graph)
         return react_graph
     
+    def make_agent_reaserch_tool(self, sender: str):
+        """ Factory - creates a callable that can be used to invoke the research agent logic. """
+
+        async def reaserch(messages: str, question: str, topic: str):
+            config = {"configurable": {"thread_id": f"research-tool:{sender}:{uuid.uuid4()}"}}
+            result = await self.react_graph.ainvoke({
+                "messages": [HumanMessage(content=f"Current Time: {self.time_tool.current_time()}\nMessage:\n{messages}")],
+                "sender": sender,
+                "question": question,
+                "topic": topic,
+                "rag_query": question or topic or messages,
+                "rag_context": "",
+            }, config=config)
+            results_message = self.__extract_ai_content(result.get('messages', []))
+            if not results_message:
+                results_message = self.__content_to_text(result.get("answer", ""))
+            if not results_message:
+                results_message = "I could not generate a valid answer from the research process."
+            return results_message
+
+        def reaserch_sync(*args, **kwargs) -> str:
+            return "[ERROR] Research agent tool must be called asynchronously."
+
+        return StructuredTool.from_function(
+            func=reaserch_sync,
+            coroutine=reaserch,
+            name="research_agent_tool",
+            description=(
+                "A tool to research and answer questions based on a given message, question, and topic. "
+                "The input is a string message, a string question, and a string topic. "
+                "The output is a string answer generated by the research agent after performing reaserch, return the complete results. DONT SUMMARIZE OR SIMPLIFY THE ANSWER, JUST RETURN THE COMPLETE ANSWER. "
+            ),
+            args_schema=AgentResearchInput,  # No structured args schema since we're using a custom input format
+        )
+
     async def ResearchAgent(
             self, 
             messages: str,
@@ -492,9 +633,11 @@ class ResearchAgentUsecase:
                 "sender": group_id if group_id else number,
                 "question": messages,
                 "topic": messages,
+                "rag_query": messages,
+                "rag_context": "",
             }, config=config)
             
-            results_message = self.agent_usecase.extract_ai_content(result.get('messages', []))
+            results_message = self.__extract_ai_content(result.get('messages', []))
             if not results_message:
                 results_message = self.__content_to_text(result.get("answer", ""))
             if not results_message:
