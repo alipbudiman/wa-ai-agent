@@ -4,11 +4,12 @@ import sys
 import os
 import uuid
 
-from langchain.messages import HumanMessage, RemoveMessage, AIMessage, SystemMessage
+from langchain.messages import HumanMessage, RemoveMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_community.tools import StructuredTool
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.types import Send
 from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode
 from typing import Any, List, Literal, Optional
 from typing_extensions import TypedDict
 
@@ -20,6 +21,7 @@ from backend.application.ai.tools.models import LevelSystem
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 
 from backend.application.ai.tools.time import TimeTool
+from backend.application.ai.tools.tools_builder import ToolsBuilder
 from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import REASEARCH_AGENT
@@ -126,6 +128,7 @@ class ResearchAgentUsecase:
         self.time_tool = TimeTool()
         self.config = Config()
         self.web_search_tool = WebSearchTool()
+        self.tools_builder = ToolsBuilder()
         self.doc_loader = DocumentLoader(collection_name=REASEARCH_AGENT)
         self.react_graph = self.__agent_logic()
         self.access_knowledge = [
@@ -221,6 +224,70 @@ class ResearchAgentUsecase:
             if content:
                 return content
         return ""
+
+    def __get_tools(self, state: State) -> list:
+        if not self.tools_builder.get_tools_builder_list(agent_type=REASEARCH_AGENT):
+            return []
+
+        sender = str(state.get("sender", "") or "").strip()
+        return [
+            self.tools_builder.find_relevant_tools_builder(agent_type=REASEARCH_AGENT),
+            self.tools_builder.execute_tools_builder(agent_type=REASEARCH_AGENT, sender=sender),
+        ]
+
+    @staticmethod
+    def __has_pending_tool_calls(state: State) -> bool:
+        for message in reversed(state.get("messages", [])):
+            if not isinstance(message, AIMessage):
+                continue
+
+            if getattr(message, "tool_calls", None):
+                return True
+
+            additional_kwargs = getattr(message, "additional_kwargs", {}) or {}
+            if additional_kwargs.get("tool_calls"):
+                return True
+
+            return False
+
+        return False
+
+    async def __tool_node(self, state: State):
+        tools = self.__get_tools(state)
+        if not tools:
+            return {
+                "messages": [
+                    AIMessage(content="No custom database tools are configured for the research agent.")
+                ]
+            }
+
+        return await ToolNode(tools).ainvoke(state)
+
+    def __route_after_generate_answer(self, state: State) -> Literal["tools", "end"]:
+        if self.__has_pending_tool_calls(state):
+            return "tools"
+        return "end"
+
+    def __custom_tool_context(self, state: State) -> str:
+        latest_human_index = -1
+        messages = state.get("messages", [])
+        for index in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[index], HumanMessage):
+                latest_human_index = index
+                break
+
+        current_turn_messages = messages[latest_human_index + 1:] if latest_human_index >= 0 else messages
+        tool_context_parts: list[str] = []
+        for message in current_turn_messages:
+            if not isinstance(message, ToolMessage):
+                continue
+
+            tool_name = str(getattr(message, "name", "") or "custom_tool").strip()
+            tool_text = self.__content_to_text(getattr(message, "content", ""))
+            if tool_text:
+                tool_context_parts.append(f"[tool: {tool_name}]\n{tool_text}")
+
+        return "\n\n".join(tool_context_parts).strip()
 
     def __retrieve(self, state: State):
         """
@@ -489,6 +556,7 @@ class ResearchAgentUsecase:
         wiki_context_items = [item for item in state.get("context", []) if isinstance(item, str) and item.strip()]
         wiki_context = "\n\n".join(wiki_context_items)
         rag_context = str(state.get("rag_context") or "").strip()
+        custom_tool_context = self.__custom_tool_context(state)
 
         # Template
         answer_template = (
@@ -497,19 +565,42 @@ class ResearchAgentUsecase:
             "Question: {question}\n\n"
             "Document Context:\n{document_context}\n\n"
             "Web Search Context:\n{web_context}\n\n"
-            "Wikipedia Context:\n{wiki_context}\n"
+            "Wikipedia Context:\n{wiki_context}\n\n"
+            "Custom Tool Context:\n{custom_tool_context}\n"
         )
         answer_instructions = answer_template.format(
             question=question or "Topic not available",
             document_context=rag_context or "No relevant uploaded document context available.",
             web_context=search_context or "No relevant web search results available.",
-            wiki_context=wiki_context or "No relevant Wikipedia data available."
+            wiki_context=wiki_context or "No relevant Wikipedia data available.",
+            custom_tool_context=custom_tool_context or "No custom tool output available."
         )
+
+        system_content = "You are MR.Senku, a helpful research assistant."
+        custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=REASEARCH_AGENT)
+        if custom_tools_catalog and not custom_tool_context:
+            system_content += (
+                "\n\nCUSTOM DATABASE TOOL ACCESS:\n"
+                f"{custom_tools_catalog}\n\n"
+                "CUSTOM TOOL USAGE:\n"
+                "- You have exactly two custom-tool gateway functions: "
+                "`find_relevant_custom_tools` and `execute_custom_tool`.\n"
+                "- First call `find_relevant_custom_tools` when the research question may match a custom tool.\n"
+                "- Then call `execute_custom_tool` with the matching original_name or callable_tool_name.\n"
+                "- Treat callable_tool_name values as identifiers for `execute_custom_tool`, not as directly callable functions.\n"
+                "- Do not call `access_tools_builder`; it is not available in this agent.\n"
+                "- Use custom tool output as authoritative research context in the final answer."
+            )
         
         # Answer
-        answer = self.__llm().invoke(
+        llm = self.__llm()
+        tools = self.__get_tools(state)
+        if tools and not custom_tool_context:
+            llm = llm.bind_tools(tools)
+
+        answer = llm.invoke(
             [
-                SystemMessage(content="You are MR.Senku, a helpful research assistant."),
+                SystemMessage(content=system_content),
                 HumanMessage(content=answer_instructions),
             ]
         )
@@ -552,6 +643,7 @@ class ResearchAgentUsecase:
         builder.add_node("summarize_search_results", self.__summarize_search_results)
         builder.add_node("search_wikipedia", self.search_wikipedia)
         builder.add_node("generate_answer", self.generate_answer)
+        builder.add_node("tools", self.__tool_node)
 
         builder.add_edge(START, "retrieve")
         builder.add_edge(START, "generate_query_search_prompt")
@@ -566,7 +658,15 @@ class ResearchAgentUsecase:
         # Barrier fan-out: wait for all searches + wikipedia, then summarize
         builder.add_edge("collect_search_results", "summarize_search_results")
         builder.add_edge(["summarize_search_results", "search_wikipedia", "retrieve"], "generate_answer")
-        builder.add_edge("generate_answer", END)
+        builder.add_conditional_edges(
+            "generate_answer",
+            self.__route_after_generate_answer,
+            {
+                "tools": "tools",
+                "end": END,
+            },
+        )
+        builder.add_edge("tools", "generate_answer")
         # Lazy initialize checkpointer only when needed
        
         react_graph = builder.compile(checkpointer=self.checkpointer)

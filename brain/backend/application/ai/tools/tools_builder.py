@@ -18,6 +18,8 @@ from backend.application.ai.tools.models import (
     ToolDataReturn,
 )
 from backend.infrastructure.database.database import MongoDB
+from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
+from backend.application.ai.models import REPLY_AGENT
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -34,6 +36,19 @@ class CustomToolInput(BaseModel):
     )
 
 
+class ToolFindRequest(BaseModel):
+    query: str = Field(
+        description=(
+            "User request or search phrase used to find relevant custom database tools. "
+            "Include key nouns, desired action, and any target domain."
+        )
+    )
+    limit: int = Field(
+        default=5,
+        description="Maximum number of matching tools to return. Defaults to 5.",
+    )
+
+
 class ToolsBuilder:
     CODE_EXEC_TIMEOUT_SECONDS = 300
     PIP_INSTALL_TIMEOUT_SECONDS = 3600
@@ -42,6 +57,7 @@ class ToolsBuilder:
 
     def __init__(self):
         self.db = MongoDB()
+        self.wa_bot = WhatsAppIntegration()
         self.tools_builder_collection = MongoDB.TOOLS_BUILDER_COLLECTION
 
     @staticmethod
@@ -209,6 +225,92 @@ class ToolsBuilder:
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _tool_search_tokens(text: str) -> set[str]:
+        tokens = re.findall(r"[a-zA-Z0-9_+-]{2,}", str(text or "").lower())
+        stopwords = {
+            "the", "and", "for", "with", "from", "that", "this", "tool",
+            "tools", "user", "request", "data", "info", "show", "get",
+            "use", "using", "yang", "dan", "untuk", "dari", "dengan",
+            "buat", "cari", "ambil",
+        }
+        return {token for token in tokens if token not in stopwords}
+
+    def find_relevant_tools(
+        self,
+        *,
+        agent_type: str,
+        query: str,
+        limit: int = 5,
+    ) -> list[ToolData]:
+        tools = self._load_tools(agent_type)
+        if not tools:
+            return []
+
+        clean_query = str(query or "").strip()
+        if not clean_query:
+            return tools[: max(1, int(limit or 5))]
+
+        query_tokens = self._tool_search_tokens(clean_query)
+        scored_tools: list[tuple[int, ToolData]] = []
+        lowered_query = clean_query.lower()
+
+        for tool in tools:
+            searchable_text = " ".join(
+                [
+                    tool.name,
+                    self.safe_tool_name(tool.name),
+                    tool.description,
+                    tool.information or "",
+                ]
+            )
+            lowered_text = searchable_text.lower()
+            text_tokens = self._tool_search_tokens(searchable_text)
+            overlap = len(query_tokens & text_tokens)
+            score = overlap
+
+            if tool.name.lower() in lowered_query or lowered_query in tool.name.lower():
+                score += 8
+            if self.safe_tool_name(tool.name).lower() in lowered_query:
+                score += 6
+            if lowered_query and lowered_query in lowered_text:
+                score += 4
+
+            if score > 0:
+                scored_tools.append((score, tool))
+
+        if not scored_tools:
+            return []
+
+        scored_tools.sort(key=lambda item: (-item[0], item[1].name.lower()))
+        safe_limit = max(1, min(20, int(limit or 5)))
+        return [tool for _, tool in scored_tools[:safe_limit]]
+
+    def relevant_tools_catalog(self, *, agent_type: str, query: str, limit: int = 5) -> str:
+        all_tools = self._load_tools(agent_type)
+        if not all_tools:
+            return "No custom database tools are configured for this agent."
+
+        relevant_tools = self.find_relevant_tools(agent_type=agent_type, query=query, limit=limit)
+        if not relevant_tools:
+            available = ", ".join(tool.name for tool in all_tools)
+            return (
+                "No clearly relevant custom database tools were found for the query.\n"
+                f"Available custom tools: {available}"
+            )
+
+        lines = [
+            "RELEVANT CUSTOM DATABASE TOOLS:",
+            "Use `execute_custom_tool` with original_name or callable_tool_name when one of these tools matches the task.",
+        ]
+        for tool in relevant_tools:
+            lines.append(
+                f"- original_name: {tool.name}\n"
+                f"  callable_tool_name: {self.safe_tool_name(tool.name)}\n"
+                f"  description: {self._compact_text(tool.description)}"
+            )
+        return "\n".join(lines)
+
     def _find_tool(self, agent_type: str, tool_name: str) -> ToolData | None:
         requested = str(tool_name or "").strip()
         if not requested:
@@ -343,6 +445,7 @@ class ToolsBuilder:
         agent_type: str,
         tool_name: str,
         tool_input: str | None = None,
+        sender: str | None = None,
     ) -> str:
         tool = self._find_tool(agent_type=agent_type, tool_name=tool_name)
         if not tool:
@@ -351,6 +454,15 @@ class ToolsBuilder:
                 f"Custom tool '{tool_name}' was not found for agent_type='{agent_type}'.\n"
                 f"Available custom tools: {available_names}"
             )
+        if agent_type != REPLY_AGENT:
+        
+            self.wa_bot.request_send_message(
+                sender,
+                f"🔧 Tool call: {tool.name}\n",
+                sender
+            )
+        else:
+            logger.info("Tool call for REPLY_AGENT: %s", tool.name)
 
         response_parts = [
             f"Custom tool: {tool.name}",
@@ -376,7 +488,6 @@ class ToolsBuilder:
             except Exception as exc:
                 logger.exception("Error executing custom tool '%s'", tool.name)
                 result = f"Error executing custom tool '{tool.name}': {type(exc).__name__}: {exc}"
-
             response_parts.append(f"Execution result:\n{result}")
         elif not tool.information:
             response_parts.append("No information or executable code is configured for this custom tool.")
@@ -396,12 +507,13 @@ class ToolsBuilder:
             ),
         )
 
-    def access_tools_builder(self, agent_type: str) -> StructuredTool:
+    def access_tools_builder(self, agent_type: str, sender: str) -> StructuredTool:
         def _get(tool_name: str, tool_input: str | None = None) -> str:
             return self.run_custom_tool(
                 agent_type=agent_type,
                 tool_name=tool_name,
                 tool_input=tool_input,
+                sender=sender,
             )
 
         return StructuredTool.from_function(
@@ -417,16 +529,55 @@ class ToolsBuilder:
             args_schema=ToolAccess,
         )
 
+    def find_relevant_tools_builder(self, agent_type: str) -> StructuredTool:
+        def _find(query: str, limit: int = 5) -> str:
+            return self.relevant_tools_catalog(
+                agent_type=agent_type,
+                query=query,
+                limit=limit,
+            )
+
+        return StructuredTool.from_function(
+            func=_find,
+            name="find_relevant_custom_tools",
+            description=(
+                "Find relevant custom database tools for this agent from the user's request. "
+                "Call this before execute_custom_tool when you are unsure which custom tool should be used."
+            ),
+            args_schema=ToolFindRequest,
+        )
+
+    def execute_tools_builder(self, agent_type: str, sender: str) -> StructuredTool:
+        def _execute(tool_name: str, tool_input: str | None = None) -> str:
+            return self.run_custom_tool(
+                agent_type=agent_type,
+                tool_name=tool_name,
+                tool_input=tool_input,
+                sender=sender,
+            )
+
+        return StructuredTool.from_function(
+            func=_execute,
+            name="execute_custom_tool",
+            description=(
+                "Execute one custom database tool by original_name or callable_tool_name. "
+                "Use this after find_relevant_custom_tools identifies the matching tool. "
+                "For information-only tools, pass only tool_name. For code-backed tools, pass tool_input as plain text or JSON string when needed."
+            ),
+            args_schema=ToolAccess,
+        )
+
     def make_custom_database_tools(
         self,
         *,
         agent_type: str,
+        sender: str,
         reserved_names: set[str] | None = None,
     ) -> list[StructuredTool]:
         reserved = set(reserved_names or set())
         tools: list[StructuredTool] = [
             self.list_tools_builder(agent_type=agent_type),
-            self.access_tools_builder(agent_type=agent_type),
+            self.access_tools_builder(agent_type=agent_type, sender=sender),
         ]
         reserved.update(tool.name for tool in tools)
 
@@ -444,6 +595,7 @@ class ToolsBuilder:
                     agent_type=agent_type,
                     tool_name=_tool_name,
                     tool_input=tool_input,
+                    sender=sender,
                 )
 
             description = (

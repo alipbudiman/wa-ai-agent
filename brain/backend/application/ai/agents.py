@@ -1207,6 +1207,7 @@ class ChatAgentUseCase:
                 self.tools_builder.make_custom_database_tools(
                     agent_type=MAIN_AGENT,
                     reserved_names=reserved_names,
+                    sender=sender
                 )
             )
         

@@ -38,6 +38,7 @@ from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ai.tools.models import InputHistory, WorkerTaskInput
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 from backend.application.ai.tools.dbaccess import DBAcess
+from backend.application.ai.tools.tools_builder import ToolsBuilder
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.terimnalx import TerminalX
 from backend.application.ingestion.loader import DocumentLoader
@@ -136,6 +137,7 @@ class AgentCodeUsecase:
         self.web_search_tool = WebSearchTool()
         self.config = Config()
         self.db_access = DBAcess()
+        self.tools_builder = ToolsBuilder()
         self.time_tool = TimeTool()
         self.checkpointer = MongoDB.get_checkpointer()
         self.doc_loader = DocumentLoader(collection_name=CODE_AGENT)
@@ -248,10 +250,95 @@ class AgentCodeUsecase:
                 prompts = raw_response.prompts
 
             return await asyncio.to_thread(self.filex_tool.request_generate_images, prompts, folder_path, sender)
+
+        @tool(
+            "find_relevant_custom_tools",
+            (
+                "Find relevant custom database tools configured for the code agent. "
+                "Use this before execute_custom_tool when the task may match a custom tool."
+            ),
+            {"query": str, "limit": int},
+        )
+        async def find_relevant_custom_tools(args: dict[str, Any]) -> dict[str, Any]:
+            query_text = str(args.get("query", "")).strip()
+            raw_limit = args.get("limit", 5)
+
+            try:
+                limit = int(raw_limit or 5)
+            except (TypeError, ValueError):
+                limit = 5
+            limit = max(1, min(10, limit))
+
+            if not query_text:
+                return {
+                    "content": [{"type": "text", "text": "Missing required field: query."}],
+                    "is_error": True,
+                }
+
+            try:
+                result = await asyncio.to_thread(
+                    self.tools_builder.relevant_tools_catalog,
+                    agent_type=CODE_AGENT,
+                    query=query_text,
+                    limit=limit,
+                )
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                logger.exception("[Worker:%s] find_relevant_custom_tools failed: %s", sender, e)
+                return {
+                    "content": [{"type": "text", "text": f"Custom tool search failed: {type(e).__name__}: {e}"}],
+                    "is_error": True,
+                }
+
+        @tool(
+            "execute_custom_tool",
+            (
+                "Execute one custom database tool configured for the code agent by original_name "
+                "or callable_tool_name returned by find_relevant_custom_tools."
+            ),
+            {"tool_name": str, "tool_input": str},
+        )
+        async def execute_custom_tool(args: dict[str, Any]) -> dict[str, Any]:
+            tool_name = str(args.get("tool_name", "")).strip()
+            tool_input = args.get("tool_input")
+
+            if not tool_name:
+                return {
+                    "content": [{"type": "text", "text": "Missing required field: tool_name."}],
+                    "is_error": True,
+                }
+
+            try:
+                result = await asyncio.to_thread(
+                    self.tools_builder.run_custom_tool,
+                    agent_type=CODE_AGENT,
+                    tool_name=tool_name,
+                    tool_input=None if tool_input is None else str(tool_input),
+                    sender=sender,
+                )
+                return {"content": [{"type": "text", "text": result}]}
+            except Exception as e:
+                logger.exception("[Worker:%s] execute_custom_tool failed for %s: %s", sender, tool_name, e)
+                return {
+                    "content": [{"type": "text", "text": f"Custom tool execution failed: {type(e).__name__}: {e}"}],
+                    "is_error": True,
+                }
         
-        avail_tools = [websearch_tool, get_screen_commands, generate_images_tool]
+        avail_tools = [
+            websearch_tool,
+            get_screen_commands,
+            generate_images_tool,
+            find_relevant_custom_tools,
+            execute_custom_tool,
+        ]
         server = create_sdk_mcp_server(name="agent_tools", tools=avail_tools)
-        return avail_tools, server, ["websearch", "get_screen_commands", "generate_images"]
+        return avail_tools, server, [
+            "websearch",
+            "get_screen_commands",
+            "generate_images",
+            "find_relevant_custom_tools",
+            "execute_custom_tool",
+        ]
 
     # ------------------------------------------------------------------
     # Workspace / path helpers
@@ -1125,10 +1212,96 @@ class AgentCodeUsecase:
     def get_all_code_session_logs(self, state: AgentState | None = None):
         return self.__select_session_id(state or {})
 
+    @staticmethod
+    def __is_explicit_session_history_request(context: str) -> bool:
+        text = " ".join(str(context or "").lower().split())
+        if not text:
+            return False
+
+        # Resuming a known session means execute work, not print history.
+        if re.search(r"\b(continue|resume|lanjut|lanjutkan)\b", text) and re.search(r"\bsession(?:_id)?\b|\bsesi\b", text):
+            return False
+
+        explicit_phrases = {
+            "list sessions",
+            "list session",
+            "show sessions",
+            "show session",
+            "view sessions",
+            "view session",
+            "session list",
+            "session history",
+            "worker sessions",
+            "code worker sessions",
+            "work history",
+            "daftar session",
+            "daftar sesi",
+            "tampilkan session",
+            "tampilkan sesi",
+            "lihat session",
+            "lihat sesi",
+            "riwayat session",
+            "riwayat sesi",
+            "riwayat worker",
+            "riwayat pekerjaan",
+        }
+        if any(phrase in text for phrase in explicit_phrases):
+            return True
+
+        session_terms = {
+            "session",
+            "sessions",
+            "session_id",
+            "session id",
+            "sesi",
+            "riwayat",
+            "history",
+            "past work",
+            "previous work",
+            "worker log",
+            "session log",
+        }
+        action_terms = {
+            "list",
+            "show",
+            "view",
+            "inspect",
+            "check",
+            "query",
+            "lihat",
+            "tampilkan",
+            "daftar",
+            "cek",
+        }
+        has_session_term = any(term in text for term in session_terms)
+        has_action_term = any(re.search(rf"\b{re.escape(term)}\b", text) for term in action_terms)
+        return has_session_term and has_action_term
+
+    @staticmethod
+    def __normalize_route_label(content: Any) -> str:
+        label = str(content or "").strip().lower()
+        label = label.strip("`'\" \t\r\n.:;")
+
+        if label in {"list_sessions", "run_worker"}:
+            return label
+
+        prefixed_match = re.search(r"\b(?:label|route|decision)\s*[:=]\s*(list_sessions|run_worker)\b", label)
+        if prefixed_match:
+            return prefixed_match.group(1)
+
+        first_token = re.split(r"\s+", label, maxsplit=1)[0].strip("`'\".,:;")
+        if first_token in {"list_sessions", "run_worker"}:
+            return first_token
+
+        return ""
+
     def __route_code_request(self, state: AgentState) -> str:
         context = (state.get("context") or "").strip()
         if not context:
             return "run_worker"
+
+        if self.__is_explicit_session_history_request(context):
+            return "list_sessions"
 
         # Attach recent conversation history if available in state
         history_text = ""
@@ -1191,8 +1364,35 @@ class AgentCodeUsecase:
             "\n"
             "Return exactly one label: list_sessions or run_worker. Do not explain."
         )
+        prompt = (
+            "Classify the latest user request for the CodeChatAgent workflow.\n"
+            "Return exactly one label: list_sessions or run_worker.\n\n"
+            "Classify only the LATEST USER REQUEST. Previous history and recent sessions are context only.\n"
+            "Do not choose list_sessions merely because recent session records are included.\n\n"
+            "list_sessions means: the user explicitly asks to show saved code-worker sessions, "
+            "session IDs, worker history, past work, or session logs. The session/history/riwayat/sesi "
+            "must be the object being viewed or listed.\n\n"
+            "run_worker means: the user asks the worker to create, edit, debug, continue, run, explain, "
+            "generate, check, list, query, count, inspect, or analyze code/files/data/apps.\n\n"
+            "Rules:\n"
+            "1. If user explicitly wants saved worker session/history records -> list_sessions.\n"
+            "2. If user wants the worker to do anything else -> run_worker.\n"
+            "3. Ambiguous requests -> run_worker.\n"
+            "4. Words like list/check/show/query alone are not enough for list_sessions.\n\n"
+            "Examples:\n"
+            "- list files -> run_worker\n"
+            "- check ada berapa banyak karyawan -> run_worker\n"
+            "- show database tables -> run_worker\n"
+            "- list sessions -> list_sessions\n"
+            "- lihat riwayat sesi -> list_sessions"
+        )
         # Build combined content for the LLM: include latest context plus optional history and session list
-        combined_content = context + (history_text or "") + (sessions_text or "")
+        combined_content = (
+            "LATEST USER REQUEST:\n"
+            f"{context}"
+            f"{history_text or ''}"
+            f"{sessions_text or ''}"
+        )
         try:
             response = self.__llm(reasoning=False).invoke([
                 LangChainSystemMessage(content=prompt),
@@ -1203,9 +1403,14 @@ class AgentCodeUsecase:
             logger.warning("Failed to classify code agent request; defaulting to run_worker. detail=%s", err)
             return "run_worker"
 
-        label = self.__content_to_text(getattr(response, "content", response)).lower()
-        if "list_sessions" in label:
+        label = self.__normalize_route_label(self.__content_to_text(getattr(response, "content", response)))
+        if label == "list_sessions" and self.__is_explicit_session_history_request(context):
             return "list_sessions"
+        if label == "list_sessions":
+            logger.info(
+                "Ignoring list_sessions classification because latest request has no explicit session-history intent: %s",
+                context[:200],
+            )
         return "run_worker"
 
     def __format_session_list(self, sessions: list[InputHistory]) -> str:
