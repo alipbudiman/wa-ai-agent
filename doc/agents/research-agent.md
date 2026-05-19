@@ -1,19 +1,20 @@
 ---
-title: "Research Agent"
+title: "Research Agent (MR.Senku)"
 category: "agent"
 last_analyzed: "2026-05-03"
 ---
 
-# Research Agent
+# Research Agent (MR.Senku)
 
 ## Overview
-The **Research Agent** (implemented as `ResearchAgentUsecase`) is a specialized analyst designed to answer complex factual questions by gathering and synthesizing information from multiple web sources. It uses a **Parallel Fan-out/Fan-in** strategy to maximize speed and coverage.
+The **Research Agent** (implemented as `ResearchAgentUsecase`), known as **MR.Senku**, is a specialized analyst designed to answer complex factual questions by gathering and synthesizing information from multiple web sources, databases, and relevant vector context. It uses a **Parallel Fan-out/Fan-in** strategy to maximize speed and coverage.
 
 ## Workflow
 
 <!-- Research Agent execution sequence -->
 ```mermaid
 graph TD
+    START --> Retrieve[RAG Document Context]
     START --> Wiki[Search Wikipedia]
     START --> GenQuery[Generate Search Queries]
     
@@ -26,26 +27,35 @@ graph TD
     Web3 --> Barrier
     
     Barrier --> Summarize[Summarize Web Data]
-    Wiki --> Answer[Generate Final Answer]
+    Retrieve --> Answer[Generate Final Answer]
+    Wiki --> Answer
     Summarize --> Answer
     
-    Answer --> END
+    Answer --> Tools{Need Custom DB Tool?}
+    Tools -- Yes --> Answer
+    Tools -- No --> END
 ```
 
 ## Step-by-Step Workflow
-1. **Trigger**: Handled via the `/api/v1/chat-agent/research` endpoint.
-2. **Decomposition**: `generate_query_search_prompt` breaks the user's question into 3-5 distinct search queries.
+1. **Trigger**: Handled via the `research_agent_tool` invoked by the Chat Agent, or endpoint requests.
+2. **Decomposition & Parallel Retrieval**:
+    - **`generate_query_search_prompt`**: Breaks the user's question into 3-5 distinct search queries.
+    - **`retrieve`**: Checks `DocumentLoader`'s `REASEARCH_AGENT` collection for direct RAG context.
+    - **`search_wikipedia`**: Searches Wikipedia for broad contextual background.
 3. **Parallel Execution**:
-    - **Wikipedia**: Searches for broad contextual background.
-    - **Web Search**: Dispatches multiple parallel `Send` requests to fetch real-time data for each query.
+    - Dispatches multiple parallel `Send` requests to fetch real-time data for each web query.
 4. **Synthesis (Fan-in)**:
     - `collect_search_results` act as a barrier node, waiting for all parallel web searches to finish.
     - `summarize_search_results` condenses the raw web data into a structured research briefing.
-5. **Final Generation**: `generate_answer` combines the Wikipedia context and the Web research summary to produce a data-driven, comprehensive response.
+5. **Final Generation & Tools**: 
+    - `generate_answer` combines the Wikipedia context, RAG output, Custom Tool Database output, and the Web research summary to produce a data-driven response.
+    - If `execute_custom_tool` or `find_relevant_custom_tools` is requested internally, the answer cycles to `tools` and back to gather further proprietary DB details.
 
 ## Tool Access
 - **`WebSearchTool`**: Performs the actual web and Wikipedia searches.
 - **`TimeTool`**: Ensures search queries and answers are contextually relevant to the current time.
+- **`ToolsBuilder`**: Executes bespoke external databases / DB lookup queries.
+- **`DocumentLoader`**: Specialized vector db retrieval (`REASEARCH_AGENT` collection).
 - **`WhatsAppIntegration`**: Final delivery of the research report to the user.
 
 ## Technical Advantages

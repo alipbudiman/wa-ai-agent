@@ -34,23 +34,24 @@ sequenceDiagram
 
 ## Step-by-Step Workflow
 1. **Trigger**: Triggered by an HTTP POST request from the Go runtime to `/api/v1/chat-agent`.
-2. **Intent Analysis**: `route_query` determines if the message is a simple chat or requires advanced tools.
-3. **Context Loading**: Retrieves the latest summary and recent messages from MongoDB.
+2. **Intent Analysis**: `route_query` determines if the message is `direct_chat` (no tools) or requires the `assistant` mode (tools enabled).
+3. **Context Loading**: Retrieves the latest summary, recent messages from MongoDB, and RAG context (using `MAIN_AGENT` collection vector search).
 4. **Reasoning**:
     - If a task is engineering-focused, it calls the `run_worker` tool (dispatching to **Code Agent**).
-    - If it's a deep research request, it may route internally or use `websearch`.
+    - If it's a deep research request, it calls the `research_agent_tool`.
 5. **Tool Execution**: Executes system-level tools (Bash, File management, etc.) as requested by the model.
-6. **Safety Check**: If a tool is marked as sensitive, the flow enters the `human_feedback` state.
+6. **Safety Check**: If a tool is marked as sensitive (e.g. `delete_file_dir`), the flow enters the `human_feedback` state.
 7. **Synthesis**: Combines tool results into a coherent final answer.
 
 ## Tool Access
 The Chat Agent has access to the most extensive toolset in the system:
 - **`TimeTool`**: Current date/time awareness.
 - **`WebSearchTool`**: Wikipedia and web searching.
-- **`FileX`**: Compression, deletion, and file management.
+- **`FileX` & `FileManagementToolkit`**: Compression, deletion, and file management sandboxed in `playground/`.
 - **`TerminalX`**: Command execution (simple and screened).
-- **`WhatsAppIntegration`**: Sending messages/files and broadcast management.
-- **`AgentCode`**: Specialized engineering sub-agent.
+- **`WhatsAppIntegration`**: Sending messages/files, parsing identifiers, and broadcast management.
+- **`AgentCode`**: Specialized engineering sub-agent (`run_worker`).
+- **`ResearchAgent`**: Specialized deep reasoning sub-agent (`research_agent_tool`).
 
 ## Technical Advantages
 - **Tool Coercion**: Features a custom parser (`__extract_textual_tool_calls`) that allows the agent to work with models that don't support native tool-calling (via XML or custom markup).

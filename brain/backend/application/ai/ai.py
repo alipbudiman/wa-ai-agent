@@ -119,11 +119,14 @@ class AI:
                 minimax_config = self.config.get_minimax_config()
                 if not minimax_config.api_key:
                     raise ValueError("Minimax API key is required. Please set it in the configuration. if you in bot, type `/minimax-config` to set it.")
-                llm = MiniMaxChat(
-                    api_key=minimax_config.api_key,
-                    model=model if model else minimax_config.model,
-                    temperature=temperature,
-                )
+                minimax_kwargs = {
+                    "api_key": minimax_config.api_key,
+                    "model": model if model else minimax_config.model,
+                }
+                if temperature is not None:
+                    minimax_kwargs["temperature"] = temperature
+
+                llm = MiniMaxChat(**minimax_kwargs)
                 if structured_output:
                     llm = llm.with_structured_output(structured_output)
                 return llm
