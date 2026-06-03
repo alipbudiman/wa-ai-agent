@@ -7,7 +7,6 @@ from langchain_core.tools import StructuredTool
 
 from backend.application.ai.tools.models import InputHistory, LogSystemEntry
 from backend.application.ai.tools.time import TimeTool
-from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -19,8 +18,8 @@ class DBAcess:
         self.tmp_msg_collection = MongoDB.MONGO_TEMPLATE_MSG_COLLECTION
         self.log_system_collection = MongoDB.MONGO_LOG_SYSTEM_COLLECTION
         self.input_history_collection = MongoDB.MONGO_USER_INPUT_HISTORY_COLLECTION
+        self.manager_bot_config = MongoDB.MONGO_MANAGER_BOT_CONFIG_COLLECTION
         self.time_tool = TimeTool()
-        self.wa_bot = WhatsAppIntegration()
         self.redis_db = RedisDB()
         self.redis_client = self.redis_db.get_client()
         self._session_ttl = int(getattr(self.redis_db, "REDIS_SESSION_EXPIRE_SECONDS", self.redis_db.REDIS_TTL))
@@ -262,3 +261,17 @@ Session Resume (IMPORTANT):
                 "This is reserved for future use and currently returns all historical pending messages as a string."
             ) 
         )
+    
+    def get_admins_data(self) -> list:
+        """Get the list of admin users from the database."""
+        collection = self.db.get_collection(self.manager_bot_config)
+        results = collection.find_one({
+            "parameter": "admins"
+        })
+        if results is None:
+            collection.insert_one({
+                "parameter": "admins",
+                "numbers": []
+            })
+            return []
+        return results.get("numbers", [])

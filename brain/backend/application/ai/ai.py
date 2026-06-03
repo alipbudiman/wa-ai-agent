@@ -7,7 +7,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_openrouter import ChatOpenRouter
 from langchain_ollama import ChatOllama
-from langchain_community.chat_models import MiniMaxChat
 from langchain_anthropic import ChatAnthropic
 from langgraph.graph import END, START, StateGraph, MessagesState
 
@@ -119,14 +118,21 @@ class AI:
                 minimax_config = self.config.get_minimax_config()
                 if not minimax_config.api_key:
                     raise ValueError("Minimax API key is required. Please set it in the configuration. if you in bot, type `/minimax-config` to set it.")
+                if not minimax_config.group_id:
+                    raise ValueError("Minimax Group ID is required. Please set it in the configuration. if you in bot, type `/minimax-config group-id [group_id]` to set it.")
+
                 minimax_kwargs = {
                     "api_key": minimax_config.api_key,
                     "model": model if model else minimax_config.model,
+                    "base_url": "https://api.minimax.io/v1",
+                    "extra_body": {"reasoning_split": True} if reasoning else None,
                 }
-                if temperature is not None:
+                if temperature is not None and 0 < temperature <= 1:
                     minimax_kwargs["temperature"] = temperature
+                elif temperature is not None:
+                    logger.warning("Ignoring invalid MiniMax temperature=%s; valid range is 0 < temperature <= 1.", temperature)
 
-                llm = MiniMaxChat(**minimax_kwargs)
+                llm = ChatOpenAI(**minimax_kwargs)
                 if structured_output:
                     llm = llm.with_structured_output(structured_output)
                 return llm

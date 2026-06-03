@@ -33,6 +33,7 @@ class GoogleConfig(BaseModel):
 class MinimaxConfig(BaseModel):
     config_name: str = "minimax"  # MongoDB document identifier
     api_key: str
+    group_id: str
     img_model: str
     model: str
 
@@ -145,6 +146,7 @@ class AIModelConfigManager:
             config = MinimaxConfig(
                 config_name="minimax",
                 api_key='',
+                group_id='',
                 img_model='image-01',
                 model='MiniMax-M2.7'
             ).model_dump()
@@ -152,6 +154,7 @@ class AIModelConfigManager:
         return MinimaxConfig(
             config_name=config.get("config_name", "minimax"),
             api_key=config.get("api_key", ""),
+            group_id=config.get("group_id", ""),
             img_model=config.get("img_model", "image-01"),
             model=config.get("model", "MiniMax-M2.7"),
         )

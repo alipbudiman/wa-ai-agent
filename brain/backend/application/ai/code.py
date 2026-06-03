@@ -39,6 +39,7 @@ from backend.application.ai.tools.models import InputHistory, WorkerTaskInput
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
 from backend.application.ai.tools.dbaccess import DBAcess
 from backend.application.ai.tools.tools_builder import ToolsBuilder
+from backend.application.ai.helper import minimax_helper
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.terimnalx import TerminalX
 from backend.application.ingestion.loader import DocumentLoader
@@ -886,6 +887,18 @@ class AgentCodeUsecase:
         
         await self._send_worker_progress(sender, 0, "Initializing", f"Continuing Session: {session_id if session_id else None}")
 
+        # system prompt build
+        system_prompt_parts = [skill_system_prompt, list_tools_string]
+        if session_id is None:
+            # add caveman skills for coding
+            caveman_skill_md = (self._agent_skills_root / "skills" / "caveman" / "SKILL.md").resolve(strict=False)
+            system_prompt_parts.append(
+                "For new worker sessions, when the USER TASK requires coding, debugging, "
+                "or repository exploration, read and follow caveman skill guidance at: "
+                f"{caveman_skill_md}. "
+            )
+        worker_system_prompt = "\n".join(part for part in system_prompt_parts if part)
+
         options = ClaudeAgentOptions(
             resume=session_id if session_id else None,
             model=worker_model,
@@ -934,7 +947,8 @@ class AgentCodeUsecase:
             cwd=safe_work_dir,
             add_dirs=skill_add_dirs,
             stderr=_capture_sdk_stderr,
-            system_prompt= skill_system_prompt +"\n"+ list_tools_string,
+            system_prompt=worker_system_prompt,
+            skills=["all"],
         )
 
         # Extra debug logging to help diagnose SDK init failures
@@ -1691,6 +1705,7 @@ class AgentCodeUsecase:
                 result_message = str(result.get("message") or "").strip()
             else:
                 result_message = str(result).strip()
+            result_message = minimax_helper.strip_think(result_message)
             if not result_message:
                 result_message = "(No output produced)"
             await asyncio.to_thread(

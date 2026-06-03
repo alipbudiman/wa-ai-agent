@@ -25,6 +25,7 @@ ENV DOCUMENT_STORAGE_DIR=/app/uploads/documents
 RUN mkdir -p /app/.agents && ln -sf /app/.agents /root/.agents
 
 RUN npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -g -a universal -y \
+    && npx --yes skills add https://github.com/juliusbrussee/caveman --skill caveman -g -a universal -y \
     && npx --yes skills list -g --json > /dev/null \
     && skills --version > /dev/null \
     && curl -L -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \

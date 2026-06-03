@@ -25,6 +25,7 @@ from backend.application.ai.tools.tools_builder import ToolsBuilder
 from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import REASEARCH_AGENT
+from backend.application.ai.helper import minimax_helper
 from config.config import Config
 from typing import Annotated
 import operator
@@ -165,6 +166,12 @@ class ResearchAgentUsecase:
                 return self.llm.LLM(reasoning=self._reasoning, retry_count=retry_count + 1, set_default_on_error=True)
             raise e
 
+    def __active_research_provider(self) -> str:
+        return minimax_helper.selected_provider(self.config, "research_model")
+
+    def __uses_textual_tool_calls(self) -> bool:
+        return self.__active_research_provider() == "minimax"
+
     @staticmethod
     def __content_to_text(content: Any) -> str:
         if isinstance(content, str):
@@ -206,15 +213,26 @@ class ResearchAgentUsecase:
                 break
 
         current_turn_messages = messages[latest_human_index + 1:] if latest_human_index >= 0 else messages
+        tool_fallback = ""
+        for message in reversed(current_turn_messages):
+            if not isinstance(message, ToolMessage):
+                continue
+            tool_text = self.__content_to_text(getattr(message, "content", ""))
+            if tool_text:
+                tool_fallback = tool_text
+                break
+
         for message in reversed(current_turn_messages):
             if not isinstance(message, AIMessage):
                 continue
 
             text = self.__content_to_text(message)
+            if self.__looks_like_textual_tool_call(text):
+                continue
             if text:
                 return text
 
-        return ""
+        return tool_fallback
 
     def __extract_latest_human_message(self, state: State) -> str:
         for message in reversed(state.get("messages", [])):
@@ -234,6 +252,30 @@ class ResearchAgentUsecase:
             self.tools_builder.find_relevant_tools_builder(agent_type=REASEARCH_AGENT),
             self.tools_builder.execute_tools_builder(agent_type=REASEARCH_AGENT, sender=sender),
         ]
+
+    @staticmethod
+    def __tool_object_name(tool: Any) -> str:
+        return minimax_helper.tool_object_name(tool)
+
+    @staticmethod
+    def __looks_like_textual_tool_call(text: str) -> bool:
+        return minimax_helper.looks_like_textual_tool_call(text)
+
+    def __extract_textual_tool_calls(self, text: str, tools: list) -> list[dict]:
+        return minimax_helper.extract_textual_tool_calls(text, tools, id_prefix="research-minimax")
+
+    def __coerce_textual_tool_response(self, response: Any, tools: list) -> Any:
+        return minimax_helper.coerce_textual_tool_response(response, tools, logger=logger, id_prefix="research-minimax")
+
+    def __tool_args_schema_text(self, tool: Any) -> str:
+        return minimax_helper.tool_args_schema_text(tool)
+
+    def __textual_tool_instruction(self, tools: list) -> str:
+        return minimax_helper.textual_tool_instruction(
+            tools,
+            prefer_find_first=True,
+            result_rule="- If no custom tool is needed, answer normally.",
+        )
 
     @staticmethod
     def __has_pending_tool_calls(state: State) -> bool:
@@ -596,7 +638,10 @@ class ResearchAgentUsecase:
         llm = self.__llm()
         tools = self.__get_tools(state)
         if tools and not custom_tool_context:
-            llm = llm.bind_tools(tools)
+            if self.__uses_textual_tool_calls():
+                system_content += "\n\n" + self.__textual_tool_instruction(tools)
+            else:
+                llm = llm.bind_tools(tools)
 
         answer = llm.invoke(
             [
@@ -607,6 +652,8 @@ class ResearchAgentUsecase:
 
         if not isinstance(answer, AIMessage):
             answer = AIMessage(content=self.__content_to_text(answer))
+        if tools and not custom_tool_context and self.__uses_textual_tool_calls():
+            answer = self.__coerce_textual_tool_response(answer, tools)
         
         # Append it to state
         return {"answer": answer, "messages": [answer]}
@@ -742,6 +789,11 @@ class ResearchAgentUsecase:
                 results_message = self.__content_to_text(result.get("answer", ""))
             if not results_message:
                 results_message = "I could not generate a valid answer from the research process."
+
+            results_message = minimax_helper.strip_think(results_message)
+            if not results_message:
+                results_message = "I could not generate a valid answer from the research process."
+
             logger.info(f"Detail contact information for {number}: {contact_info}")
             self.wa_integration_tool.store_ai_message_to_inbox(results_message, number)
             self.wa_integration_tool.request_send_message(send_to, results_message, send_to)

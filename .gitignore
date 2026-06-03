@@ -4,6 +4,10 @@
 .codex/
 .vscode/
 .venv
+plugins/
+.agents/
+.augment/
+.claude
 
 .env
 use.env.file

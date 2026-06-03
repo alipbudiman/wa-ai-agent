@@ -24,6 +24,7 @@ from backend.application.ai.reaserch import ResearchAgentUsecase
 from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import MAIN_AGENT
 from backend.application.ai.tools.tools_builder import ToolsBuilder
+from backend.application.ai.helper import minimax_helper
 from config.config import Config, BASE_DIR
 
 from langgraph.graph import StateGraph, START, END # pyright: ignore[reportMissingTypeStubs]
@@ -318,6 +319,15 @@ class ChatAgentUseCase:
         agent_model_config = ai_config.agent_model if ai_config.agent_model.agent_provider != "default" else None
         return self.llm.LLM(reasoning=reasoning, providers=agent_model_config, structured_output=structured_output)
 
+    def __active_agent_provider(self) -> str:
+        return minimax_helper.selected_provider(self.config, "agent_model")
+
+    def __uses_textual_tool_calls(self) -> bool:
+        return self.__active_agent_provider() == "minimax"
+
+    def __uses_minimax_provider(self) -> bool:
+        return self.__active_agent_provider() == "minimax"
+
     def __content_to_text(self, content) -> str:
         """
         Normalize message/model content into plain text.
@@ -352,7 +362,11 @@ class ChatAgentUseCase:
             return False
 
         lowered = normalized.lower()
-        return lowered.startswith("system execution log:") or lowered.startswith("[systemevent]")
+        return (
+            lowered.startswith("system execution log:")
+            or lowered.startswith("[systemevent]")
+            or minimax_helper.is_executed_tools_log(lowered)
+        )
 
     def __latest_user_text(self, state: State, max_messages: int = 5) -> str:
         """
@@ -482,106 +496,31 @@ class ChatAgentUseCase:
 
     @staticmethod
     def __looks_like_textual_tool_call(text: str) -> bool:
-        normalized = (text or "").strip().upper()
-        if "[TOOL_CALL]" in normalized and "[/TOOL_CALL]" in normalized:
-            return True
-        if "<MINIMAX:TOOL_CALL>" in normalized and "</MINIMAX:TOOL_CALL>" in normalized:
-            return True
-        return False
+        return minimax_helper.looks_like_textual_tool_call(text)
 
     def __extract_textual_tool_calls(self, text: str) -> list[dict]:
-        """
-        Parse textual tool-call markup emitted by non-native tool-call models.
-
-        Supported formats:
-        1. [TOOL_CALL]{tool => "name", args => {...}}[/TOOL_CALL]
-        2. <minimax:tool_call><invoke name="name"><parameter name="p">val</parameter></invoke></minimax:tool_call>
-        """
-        source = (text or "").strip()
-        if not self.__looks_like_textual_tool_call(source):
-            return []
-
-        parsed_calls: list[dict] = []
-
-        # 1. Handle Minimax / XML tag style
-        minimax_blocks = re.findall(r"<minimax:tool_call>(.*?)</minimax:tool_call>", source, flags=re.IGNORECASE | re.DOTALL)
-        for block in minimax_blocks:
-            invokes = re.findall(r"<invoke name=\"(.*?)\">(.*?)</invoke>", block, flags=re.IGNORECASE | re.DOTALL)
-            for tool_name, params_block in invokes:
-                args = {}
-                params = re.findall(r"<parameter name=\"(.*?)\">(.*?)</parameter>", params_block, flags=re.IGNORECASE | re.DOTALL)
-                for p_name, p_val in params:
-                    args[p_name] = p_val.strip()
-                
-                parsed_calls.append({
-                    "name": tool_name.strip(),
-                    "args": args,
-                    "id": f"minimax-{uuid.uuid4().hex[:12]}",
-                    "type": "tool_call",
-                })
-
-        # 2. Handle [TOOL_CALL] custom pseudo-map style
-        blocks = re.findall(r"\[TOOL_CALL\](.*?)\[/TOOL_CALL\]", source, flags=re.IGNORECASE | re.DOTALL)
-        for block in blocks:
-            tool_match = re.search(r"tool\s*=>\s*[\"']?([a-zA-Z0-9_.:-]+)", block, flags=re.IGNORECASE)
-            if not tool_match:
-                continue
-
-            tool_name = tool_match.group(1).strip()
-            args: dict[str, any] = {}
-
-            # Extract common quoted key/value pairs first.
-            for key in ("command", "file_path", "format", "base_name", "task", "work_dir", "number", "message", "sender"):
-                value_match = re.search(
-                    rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"',
-                    block,
-                    flags=re.IGNORECASE | re.DOTALL,
-                )
-                if value_match:
-                    args[key] = value_match.group(1)
-
-            # Fallback attempt: convert pseudo-map syntax into JSON-like dict.
-            if not args:
-                args_match = re.search(r"args\s*=>\s*\{(.*)\}", block, flags=re.IGNORECASE | re.DOTALL)
-                if args_match:
-                    raw_args = args_match.group(1)
-                    raw_args = re.sub(r"--[a-zA-Z0-9_-]+--", "", raw_args)
-                    json_like = "{" + raw_args + "}"
-                    json_like = json_like.replace("=>", ":")
-                    try:
-                        maybe_args = json.loads(json_like)
-                        if isinstance(maybe_args, dict):
-                            args = maybe_args
-                    except json.JSONDecodeError:
-                        args = {}
-
-            parsed_calls.append(
-                {
-                    "name": tool_name,
-                    "args": args,
-                    "id": f"toolcall-{uuid.uuid4().hex[:12]}",
-                    "type": "tool_call",
-                }
-            )
-
-        return parsed_calls
+        return minimax_helper.extract_textual_tool_calls(text, id_prefix="minimax")
 
     def __coerce_textual_tool_response(self, response: any):
-        """Convert textual [TOOL_CALL] responses into structured tool calls."""
-        if not isinstance(response, AIMessage):
-            return response
+        return minimax_helper.coerce_textual_tool_response(response, [], logger=logger, id_prefix="minimax")
 
-        native_calls = getattr(response, "tool_calls", None) or []
-        if native_calls:
-            return response
+    def __coerce_textual_tool_response_for_tools(self, response: any, tools: list):
+        return minimax_helper.coerce_textual_tool_response(response, tools, logger=logger, id_prefix="minimax")
 
-        text_content = self.__content_to_text(response.content)
-        parsed_calls = self.__extract_textual_tool_calls(text_content)
-        if not parsed_calls:
-            return response
+    def __textual_tool_instruction(self, tools: list) -> SystemMessage:
+        return SystemMessage(content=minimax_helper.textual_tool_instruction(tools))
 
-        logger.warning("Assistant returned textual tool-call markup; coercing to structured tool call.")
-        return AIMessage(content="", tool_calls=parsed_calls)
+    def __textual_tool_payload(self, state: State, tools: list) -> list:
+        payload = self.__message_guard_payload(state, use_tools=False)
+        if payload and isinstance(payload[0], SystemMessage):
+            payload[0] = self.__system_rule(use_tools=True)
+        else:
+            payload.insert(0, self.__system_rule(use_tools=True))
+
+        payload.insert(1, self.__textual_tool_instruction(tools))
+        if self.__uses_minimax_provider():
+            return self.__minimax_safe_payload(payload)
+        return payload
 
     @staticmethod
     def __coerce_bool(value: any) -> bool | None:
@@ -654,6 +593,9 @@ class ChatAgentUseCase:
             return message
 
         return (tool_text or "").strip()
+
+    def __format_generic_tool_feedback(self, tool_name: str, tool_text: str) -> str:
+        return minimax_helper.format_generic_tool_feedback(tool_name, tool_text)
 
     def __send_tool_outcome_kind(self, tool_text: str) -> str:
         """Classify send tool outcome to enforce deterministic user messaging."""
@@ -902,24 +844,11 @@ class ChatAgentUseCase:
             # Scrub tool calls and convert ToolMessages for plain-text LLMs.
             # Many providers (like Ollama) drop history or fail if tool_calls are
             # present but no tools are bound to the request.
-            scrubbed_messages = []
-            for msg in assistant_messages:
-                if isinstance(msg, AIMessage):
-                    tool_calls = getattr(msg, "tool_calls", [])
-                    if tool_calls:
-                        tool_names = [call.get("name", "unknown") for call in tool_calls]
-                        content = self.__content_to_text(getattr(msg, "content", ""))
-                        text = f"{content}\n[Executed tools: {', '.join(tool_names)}]" if content else f"[Executed tools: {', '.join(tool_names)}]"
-                        scrubbed_messages.append(AIMessage(content=text.strip()))
-                    else:
-                        scrubbed_messages.append(msg)
-                elif isinstance(msg, ToolMessage):
-                    tool_name = getattr(msg, "name", "unknown")
-                    content = self.__content_to_text(getattr(msg, "content", ""))
-                    scrubbed_messages.append(SystemMessage(content=f"Tool '{tool_name}' result: {content}"))
-                else:
-                    scrubbed_messages.append(msg)
-            assistant_messages = scrubbed_messages
+            assistant_messages = minimax_helper.scrub_tool_history_for_plain_llm(
+                assistant_messages,
+                minimax_provider=self.__uses_minimax_provider(),
+                content_to_text_func=self.__content_to_text,
+            )
 
         if not self.__has_non_system_message(assistant_messages):
             # Prefer latest human input to keep fallback context aligned
@@ -944,7 +873,17 @@ class ChatAgentUseCase:
                 f"{rag_context}"
             )))
 
-        return payload + assistant_messages
+        payload = payload + assistant_messages
+        if self.__uses_minimax_provider():
+            return self.__minimax_safe_payload(payload)
+        return payload
+
+    def __minimax_safe_payload(self, messages: list) -> list:
+        return minimax_helper.minimax_safe_payload(
+            messages,
+            is_internal_log=self.__is_internal_system_log_text,
+            content_to_text_func=self.__content_to_text,
+        )
         
     def __save_process_diagram(self, react_graph) -> None:
         """
@@ -998,11 +937,33 @@ class ChatAgentUseCase:
 
         if self._pending_sensitive_tool_calls.get(sender):
             decision_text = self.__latest_user_text(state, max_messages=1)
-            decision = self.__llm(reasoning=True,structured_output=FeedBackType).invoke(f"analyze the following user input ```{decision_text}```. return are in this inout, user agree or not, if agree return is_approved='approve', else return is_approved='cancel' ")
+            decision = ""
+            try:
+                if self.__uses_minimax_provider():
+                    decision_response = self.__llm(reasoning=False).invoke([
+                        SystemMessage(content=(
+                            "Classify the user's latest confirmation response. "
+                            "Return exactly one word: approve or cancel."
+                        )),
+                        HumanMessage(content=decision_text),
+                    ])
+                    decision = minimax_helper.parse_approval_decision(
+                        self.__content_to_text(getattr(decision_response, "content", decision_response))
+                    )
+                else:
+                    structured_decision = self.__llm(reasoning=True, structured_output=FeedBackType).invoke(
+                        "Analyze the following user input and classify whether the user approves or cancels. "
+                        "Return JSON that matches this schema exactly: {\"is_approved\":\"approve\"} or {\"is_approved\":\"cancel\"}.\n\n"
+                        f"User input: ```{decision_text}```"
+                    )
+                    decision = minimax_helper.parse_approval_decision(getattr(structured_decision, "is_approved", ""))
+            except Exception as err:
+                logger.warning("Sensitive action feedback classification failed for %s: %s", sender, err)
+                decision = minimax_helper.parse_approval_decision(decision_text)
 
-            if decision.is_approved == "approve":
+            if decision == "approve":
                 return "confirm_sensitive_tools"
-            if decision.is_approved == "cancel":
+            if decision == "cancel":
                 return "cancel_sensitive_tools"
             return "human_feedback"
 
@@ -1231,10 +1192,35 @@ class ChatAgentUseCase:
         """
         sender = state.get("sender", "")
         cache_key = self.__tool_cache_key(state)
+        tools = self.__get_tools(state)
+
+        if self.__uses_textual_tool_calls():
+            payload = self.__textual_tool_payload(state, tools)
+
+            if not self.__has_non_system_message(payload):
+                logger.warning("Assistant payload is system-only for %s; returning safe fallback response.", sender)
+                return {"messages": [AIMessage(content="Sorry, conversation context is empty. Please resend your message.")]}
+
+            try:
+                response = self.__llm(reasoning=self._reasoning).invoke(payload)
+                response = self.__coerce_textual_tool_response_for_tools(response, tools)
+            except Exception as err:
+                if err.__class__.__name__ != "ResponseError":
+                    raise
+
+                logger.warning(
+                    "Assistant textual-tool invoke failed with ResponseError for %s; retrying with reasoning=%s. detail=%s",
+                    sender,
+                    self._reasoning,
+                    err,
+                )
+                response = self.__llm(reasoning=self._reasoning).invoke(payload)
+                response = self.__coerce_textual_tool_response_for_tools(response, tools)
+
+            return {"messages": [response]}
     
         # ambil dari cache, kalau belum ada baru bind
         if cache_key not in self._llm_cache:
-            tools = self.__get_tools(state)
             self._llm_cache[cache_key] = self.__llm(reasoning=self._reasoning).bind_tools(tools)
         
         llm_with_tools = self._llm_cache[cache_key]
@@ -1484,6 +1470,7 @@ class ChatAgentUseCase:
         run_worker_tool_fallback = ""
         send_tool_fallback = ""
         send_tool_outcome = "unknown"
+        generic_tool_fallback = ""
         for tool_message in reversed(current_turn_messages):
             if not isinstance(tool_message, ToolMessage):
                 continue
@@ -1496,8 +1483,11 @@ class ChatAgentUseCase:
             if tool_name in {"send_file", "send_message", "broadcast_message"} and not send_tool_fallback:
                 send_tool_fallback = self.__format_send_tool_feedback(tool_name, tool_text)
                 send_tool_outcome = self.__send_tool_outcome_kind(tool_text)
+                continue
 
             if tool_name != "run_worker":
+                if not generic_tool_fallback:
+                    generic_tool_fallback = self.__format_generic_tool_feedback(tool_name or "tool", tool_text)
                 continue
 
             if "dispatched in the background" in tool_text.lower():
@@ -1513,6 +1503,8 @@ class ChatAgentUseCase:
                 return run_worker_tool_fallback
             if send_tool_fallback:
                 return send_tool_fallback
+            if generic_tool_fallback:
+                return generic_tool_fallback
             return ''
 
         # Preserve true delivery state from tool output when request is not sent yet.
@@ -1565,6 +1557,9 @@ class ChatAgentUseCase:
 
         if send_tool_fallback:
             return send_tool_fallback
+
+        if generic_tool_fallback:
+            return generic_tool_fallback
 
         return ''
 
@@ -1707,6 +1702,9 @@ class ChatAgentUseCase:
                         message=f"Message processed for {number} failed to generate response"
                     ))
                 
+                results = minimax_helper.strip_think(results)
+                if not results:
+                    results = "Sorry, I couldn't generate a response yet. Please resend your question."
                 self.wa_integration_tool.request_send_message(send_to, results, send_to)
                 return
 

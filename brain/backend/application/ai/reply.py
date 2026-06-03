@@ -16,6 +16,7 @@ from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegratio
 from backend.application.ai.instruction import Instruction
 from backend.application.ai.tools.time import TimeTool
 from backend.application.ai.tools.tools_builder import ToolsBuilder
+from backend.application.ai.helper import minimax_helper
 from config.config import Config
 from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import REPLY_AGENT
@@ -232,6 +233,8 @@ class ReplyAgentUsecase:
                 continue
 
             text = self.__strip_raw_tool_output(self.__content_to_text(message.content))
+            if minimax_helper.looks_like_textual_tool_call(text):
+                continue
             if text:
                 return text
 
@@ -292,12 +295,31 @@ class ReplyAgentUsecase:
                 "- Send only the final natural-language AI answer."
             )
 
+        minimax_provider = minimax_helper.is_minimax_provider(self.config, "reply_model")
         messages = [SystemMessage(content=system_content)] + state["messages"]
         llm = self.__llm()
         tools = self.__get_tools(state)
         if tools:
-            llm = llm.bind_tools(tools)
+            if minimax_provider:
+                messages = [
+                    SystemMessage(
+                        content=system_content + "\n\n" + minimax_helper.textual_tool_instruction(
+                            tools,
+                            prefer_find_first=True,
+                            result_rule="- If no custom tool is needed, answer normally.",
+                        )
+                    )
+                ] + state["messages"]
+            else:
+                llm = llm.bind_tools(tools)
+        if minimax_provider:
+            messages = minimax_helper.minimax_safe_payload(
+                messages,
+                content_to_text_func=self.__content_to_text,
+            )
         response = llm.invoke(messages)
+        if tools and minimax_provider:
+            response = minimax_helper.coerce_textual_tool_response(response, tools, logger=logger, id_prefix="reply-minimax")
         return {"messages": [response]}
     
     def should_continue(self, state: State, max_chat_to_summarize: int = 10) -> Literal["summarize_conversation", "__end__"]:
@@ -410,6 +432,11 @@ class ReplyAgentUsecase:
             results_message = self.__extract_reply_ai_content(result.get('messages', []))
             if not results_message:
                 results_message = "Maaf, saya belum bisa membuat jawaban akhir dari hasil proses tadi."
+
+            results_message = minimax_helper.strip_think(results_message)
+            if not results_message:
+                results_message = "Maaf, saya belum bisa membuat jawaban akhir dari hasil proses tadi."
+
             logger.info(f"Detail contact information for {number}: {contact_info}")
             self.wa_integration_tool.store_ai_message_to_inbox(results_message, number)
             self.wa_integration_tool.request_send_message(send_to, results_message, send_to)

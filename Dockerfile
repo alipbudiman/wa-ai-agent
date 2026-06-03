@@ -34,6 +34,10 @@ RUN npx --yes skills add https://github.com/vercel-labs/skills --skill find-skil
     && npx --yes skills list -g --json > /dev/null \
     && skills --version > /dev/null
 
+RUN npx --yes skills add https://github.com/juliusbrussee/caveman --skill caveman -g -a universal -y \
+    && npx --yes skills list -g --json > /dev/null \
+    && skills --version > /dev/null
+
 COPY go.mod go.sum ./
 RUN go mod download
 

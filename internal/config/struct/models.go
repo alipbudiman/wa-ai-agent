@@ -2,6 +2,8 @@ package cfg_struct
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/alipbudiman/wa-ai-agent.git/internal/infrastructure/databases"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -14,6 +16,7 @@ const (
 	ANTHROPIC_CONFIG_NAME  = "anthropic"
 	GOOGLE_CONFIG_NAME     = "google"
 	MINIMAX_CONFIG_NAME    = "minimax"
+	OPEN_AI_CONFIG_NAME    = "openai"
 )
 
 type OllamaConfig struct {
@@ -52,6 +55,7 @@ type GoogleConfig struct {
 type MinimaxConfig struct {
 	ConfigName string `bson:"config_name" json:"config_name"`
 	APIKey     string `bson:"api_key" json:"api_key"`
+	GroupID    string `bson:"group_id" json:"group_id"`
 	ImgModel   string `bson:"img_model" json:"img_model"`
 	Model      string `bson:"model" json:"model"`
 }
@@ -62,9 +66,143 @@ type OpenAIConfig struct {
 	Model      string `bson:"model" json:"model"`
 }
 
-func GetOllamaConfig() OllamaConfig {
-	var config OllamaConfig
+func rawBSONMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case bson.M:
+		return map[string]any(typed), true
+	case *bson.M:
+		if typed == nil {
+			return nil, false
+		}
+		return map[string]any(*typed), true
+	case map[string]any:
+		return typed, true
+	case *map[string]any:
+		if typed == nil {
+			return nil, false
+		}
+		return *typed, true
+	default:
+		return nil, false
+	}
+}
 
+func KeyUpdate(formDB any, formDefault any) *bson.M {
+	dbFields, ok := rawBSONMap(formDB)
+	if !ok {
+		return nil
+	}
+
+	defaultValue := reflect.Indirect(reflect.ValueOf(formDefault))
+	if !defaultValue.IsValid() {
+		return nil
+	}
+
+	if defaultValue.Kind() != reflect.Struct {
+		return nil
+	}
+
+	updateSet := bson.M{}
+	defaultType := defaultValue.Type()
+
+	for i := 0; i < defaultValue.NumField(); i++ {
+		field := defaultType.Field(i)
+		tag := field.Tag.Get("bson")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		// Handle kalau ada opsi seperti `bson:"name,omitempty"`
+		key := strings.Split(tag, ",")[0]
+		if key == "" || key == "-" || key == "config_name" {
+			continue
+		}
+
+		if _, exists := dbFields[key]; exists {
+			continue
+		}
+
+		defaultField := defaultValue.Field(i)
+		if !defaultField.CanInterface() {
+			continue
+		}
+
+		switch defaultField.Kind() {
+		case reflect.Func, reflect.Chan, reflect.UnsafePointer:
+			continue
+		}
+
+		updateSet[key] = defaultField.Interface()
+	}
+
+	if len(updateSet) == 0 {
+		return nil
+	}
+
+	update := bson.M{"$set": updateSet}
+	return &update
+}
+
+func decodeRawConfig[T any](rawConfig bson.M, fallback T) T {
+	data, err := bson.Marshal(rawConfig)
+	if err != nil {
+		return fallback
+	}
+
+	var config T
+	if err := bson.Unmarshal(data, &config); err != nil {
+		return fallback
+	}
+
+	return config
+}
+
+func FindConfigWithDefaults[T any](filter bson.M, defaultConfig T, label string) T {
+	var rawConfig bson.M
+	err := databases.MongoManager.FindOne(
+		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+		BOT_CONFIG_COLLECTION_NAME,
+		filter,
+		&rawConfig,
+	)
+	if err != nil {
+		if err == databases.ErrDocumentNotFound {
+			res, insertErr := databases.MongoManager.InsertOne(
+				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+				BOT_CONFIG_COLLECTION_NAME,
+				defaultConfig,
+			)
+			if insertErr != nil || res.InsertedID == nil {
+				return defaultConfig
+			}
+		}
+		return defaultConfig
+	}
+
+	update := KeyUpdate(rawConfig, defaultConfig)
+	if update != nil {
+		_, err = databases.MongoManager.UpdateOne(
+			Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
+			Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
+			BOT_CONFIG_COLLECTION_NAME,
+			filter,
+			*update,
+		)
+		if err != nil {
+			fmt.Printf("Error updating %s config with default values: %v\n", label, err)
+		} else if updateSet, ok := (*update)["$set"].(bson.M); ok {
+			for key, value := range updateSet {
+				rawConfig[key] = value
+			}
+		}
+	}
+
+	return decodeRawConfig(rawConfig, defaultConfig)
+}
+
+func GetOllamaConfig() OllamaConfig {
 	default_config := OllamaConfig{
 		ConfigName: OLLAMA_CONFIG_NAME,
 		BaseURL:    Env("OLLAMA_BASE_URL", "http://localhost:11434"),
@@ -72,34 +210,7 @@ func GetOllamaConfig() OllamaConfig {
 	}
 
 	filter := bson.M{"config_name": OLLAMA_CONFIG_NAME}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	return FindConfigWithDefaults(filter, default_config, "Ollama")
 }
 
 func UpdateOllamaConfig(config OllamaConfig) error {
@@ -136,7 +247,6 @@ func UpdateOllamaConfig(config OllamaConfig) error {
 }
 
 func GetOpenRouterConfig() OpenRouterConfig {
-	var config OpenRouterConfig
 	default_config := OpenRouterConfig{
 		ConfigName: OPENROUTER_CONFIG_NAME,
 		APIKey:     Env("OPENROUTER_API_KEY", ""),
@@ -144,33 +254,7 @@ func GetOpenRouterConfig() OpenRouterConfig {
 	}
 
 	filter := bson.M{"config_name": OPENROUTER_CONFIG_NAME}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	return FindConfigWithDefaults(filter, default_config, "OpenRouter")
 }
 
 func UpdateOpenRouterConfig(config OpenRouterConfig) error {
@@ -209,7 +293,6 @@ func UpdateOpenRouterConfig(config OpenRouterConfig) error {
 }
 
 func GetNvidiaConfig() NvidiaConfig {
-	var config NvidiaConfig
 	default_config := NvidiaConfig{
 		ConfigName: "nvidia",
 		APIKey:     Env("NVIDIA_API_KEY", ""),
@@ -217,33 +300,7 @@ func GetNvidiaConfig() NvidiaConfig {
 	}
 
 	filter := bson.M{"config_name": NVIDIA_CONFIG_NAME}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	return FindConfigWithDefaults(filter, default_config, "Nvidia")
 }
 
 func UpdateNvidiaConfig(config NvidiaConfig) error {
@@ -283,7 +340,6 @@ func UpdateNvidiaConfig(config NvidiaConfig) error {
 }
 
 func GetAnthropicConfig() AnthropicConfig {
-	var config AnthropicConfig
 	default_config := AnthropicConfig{
 		ConfigName: "anthropic",
 		BaseURL:    Env("ANTHROPIC_BASE_URL", "http://localhost:11434"),
@@ -293,33 +349,7 @@ func GetAnthropicConfig() AnthropicConfig {
 	}
 
 	filter := bson.M{"config_name": ANTHROPIC_CONFIG_NAME}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	return FindConfigWithDefaults(filter, default_config, "Anthropic")
 }
 
 func UpdateAnthropicConfig(config AnthropicConfig) error {
@@ -365,7 +395,6 @@ func UpdateAnthropicConfig(config AnthropicConfig) error {
 }
 
 func GetGoogleConfig() GoogleConfig {
-	var config GoogleConfig
 	default_config := GoogleConfig{
 		ConfigName: GOOGLE_CONFIG_NAME,
 		APIKey:     Env("GOOGLE_API_KEY", ""),
@@ -374,33 +403,7 @@ func GetGoogleConfig() GoogleConfig {
 	}
 
 	filter := bson.M{"config_name": GOOGLE_CONFIG_NAME}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	return FindConfigWithDefaults(filter, default_config, "Google")
 }
 
 func UpdateGoogleConfig(config GoogleConfig) error {
@@ -441,42 +444,16 @@ func UpdateGoogleConfig(config GoogleConfig) error {
 }
 
 func GetMinimaxConfig() MinimaxConfig {
-	var config MinimaxConfig
 	default_config := MinimaxConfig{
 		ConfigName: MINIMAX_CONFIG_NAME,
 		APIKey:     Env("MINIMAX_API_KEY", ""),
+		GroupID:    Env("MINIMAX_GROUP_ID", ""),
 		ImgModel:   Env("MINIMAX_IMG_MODEL", "image-01"),
 		Model:      Env("MINIMAX_MODEL", "MiniMax-M2.7"),
 	}
 
 	filter := bson.M{"config_name": MINIMAX_CONFIG_NAME}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	return FindConfigWithDefaults(filter, default_config, "Minimax")
 }
 
 func UpdateMinimaxConfig(config MinimaxConfig) error {
@@ -489,6 +466,11 @@ func UpdateMinimaxConfig(config MinimaxConfig) error {
 		data_config["$set"].(bson.M)["api_key"] = ""
 	} else if config.APIKey != "" {
 		data_config["$set"].(bson.M)["api_key"] = config.APIKey
+	}
+	if config.GroupID == "-DELETE-" {
+		data_config["$set"].(bson.M)["group_id"] = ""
+	} else if config.GroupID != "" {
+		data_config["$set"].(bson.M)["group_id"] = config.GroupID
 	}
 	if config.Model != "" {
 		data_config["$set"].(bson.M)["model"] = config.Model
@@ -517,42 +499,14 @@ func UpdateMinimaxConfig(config MinimaxConfig) error {
 }
 
 func GetOpenAIConfig() OpenAIConfig {
-	var config OpenAIConfig
 	default_config := OpenAIConfig{
-		ConfigName: "openai",
+		ConfigName: OPEN_AI_CONFIG_NAME,
 		APIKey:     Env("OPENAI_API_KEY", ""),
 		Model:      Env("OPENAI_MODEL", "gpt-5"),
 	}
 
-	filter := bson.M{"config_name": "openai"}
-	err := databases.MongoManager.FindOne(
-		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-		BOT_CONFIG_COLLECTION_NAME,
-		filter,
-		&config,
-	)
-	if err != nil {
-		if err == databases.ErrDocumentNotFound {
-			res, err := databases.MongoManager.InsertOne(
-				Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
-				Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
-				BOT_CONFIG_COLLECTION_NAME,
-				default_config,
-			)
-			if err != nil {
-				return default_config
-			}
-
-			if res.InsertedID == nil {
-				return default_config
-			}
-
-			return default_config
-		}
-		return default_config
-	}
-	return config
+	filter := bson.M{"config_name": OPEN_AI_CONFIG_NAME}
+	return FindConfigWithDefaults(filter, default_config, "OpenAI")
 }
 
 func UpdateOpenAIConfig(config OpenAIConfig) error {
@@ -574,7 +528,7 @@ func UpdateOpenAIConfig(config OpenAIConfig) error {
 		Env("MONGODB_DB_ALIAS", "wa_ai_agent"),
 		Env("MONGODB_DB_NAME", "wa_ai_agent_db"),
 		BOT_CONFIG_COLLECTION_NAME,
-		bson.M{"config_name": "openai"},
+		bson.M{"config_name": OPEN_AI_CONFIG_NAME},
 		data_config,
 	)
 	if err != nil {

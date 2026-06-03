@@ -13,6 +13,7 @@ from backend.application.ai.tools.models import (
     SendMessageResponse
 )
 from backend.application.ai.tools.parse import ParseTool
+from backend.application.ai.tools.dbaccess import DBAcess
 from config.config import Config, BASE_DIR
 
 from langchain_core.tools import StructuredTool
@@ -31,6 +32,7 @@ class WhatsAppIntegration:
         self.parse_tool = ParseTool()
         self.db = MongoDB()
         self.tmp_msg_collection = self.db.MONGO_TEMPLATE_MSG_COLLECTION
+        self.access_db = DBAcess()
         
     def __get_self_url(self) -> str:
         """Get the base URL for the Gin server, which serves as the integration point for WhatsApp interactions."""
@@ -491,3 +493,65 @@ class WhatsAppIntegration:
             logger.error(f"Error storing AI message to inbox for number '{sender_identifier}': {e}")
             return {"success": False, "message": f"failed to store AI message to inbox: {e}", "data": None}
             
+    
+    def requests_broadcast_to_admins(self, client_number: str, message: str):
+        """Broadcast a message to all admin contacts."""
+        message = (message or "").strip()
+        
+        admins = self.access_db.get_admins_data()
+        if not admins:
+            logger.warning("No admin contacts found for broadcasting.")
+            return SendMessageResponse(
+                success=False,
+                message="No admin contacts found for broadcasting.",
+                data=None,
+                status="failed",
+                on_hold=False,
+            )
+        
+        for admin in admins:
+            notification_result = self.request_send_message(
+                admin,
+                message=f"📢 Broadcast from {client_number}:\n\n{message}",
+                sender=admin,
+            )
+            if not notification_result.success:
+                logger.warning(
+                    "Failed to send on-hold notification to '%s': %s",
+                    admin,
+                    notification_result.message,
+                )
+        if not message:
+            return SendMessageResponse(
+                success=False,
+                message="message is a required field, ask the user to provide it",
+                data=None,
+                status="failed",
+                on_hold=False,
+            )        
+    
+    def broadcast_to_admins(self, client_number: str):
+        """Broadcast a message to all admin contacts."""
+        def _broadcast(message: str) -> SendMessageResponse:
+            self.requests_broadcast_to_admins(client_number, message)
+            return SendMessageResponse(
+                success=True,
+                message="Broadcast request sent to admins.",
+                data=None,
+                status="sent",
+                on_hold=False,
+             )
+        
+        return StructuredTool.from_function(
+            func=_broadcast,
+            name="broadcast_to_admins",
+            description=(
+                "Broadcast a message to all admin contacts. This is for one-way announcements from users to admins. "
+                 "Only call this tool when the announcement message is available. If the message is missing, ask for it first and do not execute this tool. "
+                 "The client_number parameter is used to identify the sender in the broadcast message to admins, but it does not affect the tool's ability to execute. "
+                 "Admins will receive the broadcast with the client_number included in the message content."
+             ),
+             args_schema=SendMessageInput
+         )
+    
+        

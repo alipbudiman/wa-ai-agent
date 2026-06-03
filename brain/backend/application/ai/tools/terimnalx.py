@@ -123,14 +123,11 @@ class TerminalX:
                 env=env,
             )
 
-            output_lines: list[str] = []
-            stdout_stream = process.stdout
-            if stdout_stream is not None:
-                for line in stdout_stream:
-                    line = line.rstrip()
-                    output_lines.append(line)
-
-            process.wait(timeout=timeout)
+            output, _ = process.communicate(timeout=timeout)
+            output_lines = [
+                line.rstrip()
+                for line in (output or "").splitlines()
+            ]
             compact_output = self.__compact_exec_output(output_lines)
 
             if process.returncode != 0:
