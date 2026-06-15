@@ -95,22 +95,26 @@ class Config(AIModelConfigManager):
         """Fetch Gin server configuration from MongoDB, with fallback to default if not present."""
         env_host = (os.getenv("GIN_SERVER_HOST") or "").strip()
         env_port = (os.getenv("GIN_SERVER_PORT") or "").strip()
+        env_app_mod = (os.getenv("APP_MODE") or "").strip()
         default_host = env_host or "localhost"
         default_port = env_port or "8001"
+        default_app_mod = env_app_mod or "debug"
 
         config = self.collection.find_one({"config_name": "gin_server"})
         if config is None:
             config = GinServerConfig(
                 config_name="gin_server",
                 port=default_port,
-                host=default_host
+                host=default_host,
+                app_mod=default_app_mod
             ).model_dump()
             self.collection.insert_one(config)
 
         return GinServerConfig(
             config_name=config.get("config_name", "gin_server"),
             port=(str(config.get("port", "")).strip() or default_port),
-            host=(str(config.get("host", "")).strip() or default_host)
+            host=(str(config.get("host", "")).strip() or default_host),
+            app_mod=(str(config.get("app_mod", "")).strip() or default_app_mod)
         )
     
 

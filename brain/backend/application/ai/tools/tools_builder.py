@@ -217,9 +217,15 @@ class ToolsBuilder:
         for tool in tools:
             safe_name = self.safe_tool_name(tool.name)
             description = self._compact_text(tool.description)
+            source_types = []
+            if tool.information and tool.information.strip():
+                source_types.append("information")
+            if tool.code and tool.code.code.strip():
+                source_types.append("code")
             lines.append(
                 f"- original_name: {tool.name}\n"
                 f"  callable_tool_name: {safe_name}\n"
+                f"  source_type: {', '.join(source_types) if source_types else 'not configured'}\n"
                 f"  description: {description}"
             )
 
@@ -304,9 +310,15 @@ class ToolsBuilder:
             "Use `execute_custom_tool` with original_name or callable_tool_name when one of these tools matches the task.",
         ]
         for tool in relevant_tools:
+            source_types = []
+            if tool.information and tool.information.strip():
+                source_types.append("information")
+            if tool.code and tool.code.code.strip():
+                source_types.append("code")
             lines.append(
                 f"- original_name: {tool.name}\n"
                 f"  callable_tool_name: {self.safe_tool_name(tool.name)}\n"
+                f"  source_type: {', '.join(source_types) if source_types else 'not configured'}\n"
                 f"  description: {self._compact_text(tool.description)}"
             )
         return "\n".join(lines)

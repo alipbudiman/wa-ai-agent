@@ -65,6 +65,8 @@ class AgentState(TypedDict, total=False):
     work_dir: str
     rag_context: str
     rag_query: str
+    custom_tool_context: str
+    custom_tool_query: str
 
 class AgentCodeInput(TypedDict):
     task: str
@@ -129,6 +131,8 @@ class AgentCodeUsecase:
     PROGRESS_SEND_TIMEOUT = 10   # 10-second cap for each progress notification
     RAG_TOP_K = 5
     RAG_SCORE_THRESHOLD = 0.6
+    CUSTOM_TOOL_TOP_K = 5
+    MAX_CUSTOM_TOOL_INFORMATION_CHARS = 4000
 
     def __init__(self):
         self.llm = AI()
@@ -470,23 +474,103 @@ class AgentCodeUsecase:
             logger.error("Code agent RAG retrieve error: %s", err)
             return ""
 
+    @staticmethod
+    def __compact_text(text: str | None, max_chars: int) -> str:
+        compact = str(text or "").strip()
+        if len(compact) <= max_chars:
+            return compact
+        return compact[: max_chars - 3].rstrip() + "..."
+
+    def __custom_tool_context(self, query: str) -> str:
+        """
+        Load current Tools Builder context for the code worker prompt.
+
+        This does not execute custom code automatically. It surfaces relevant
+        information-only tool data and identifies code-backed tools the worker
+        can call via MCP when the task needs current mutable/custom data.
+        """
+        try:
+            clean_query = (query or "").strip()
+            if not clean_query:
+                return ""
+
+            relevant_tools = self.tools_builder.find_relevant_tools(
+                agent_type=CODE_AGENT,
+                query=clean_query,
+                limit=self.CUSTOM_TOOL_TOP_K,
+            )
+            if not relevant_tools:
+                logger.info("Code tools: no relevant custom tools found for current task")
+                return ""
+
+            context_parts: list[str] = []
+            for tool_data in relevant_tools:
+                safe_name = self.tools_builder.safe_tool_name(tool_data.name)
+                has_code = bool(tool_data.code and tool_data.code.code and tool_data.code.code.strip())
+                information = self.__compact_text(
+                    tool_data.information,
+                    self.MAX_CUSTOM_TOOL_INFORMATION_CHARS,
+                )
+                tool_parts = [
+                    f"[custom_tool: {tool_data.name} | callable: {safe_name} | code: {'available' if has_code else 'not configured'}]",
+                    f"Description: {tool_data.description}",
+                ]
+                if information:
+                    tool_parts.append(f"Information:\n{information}")
+                elif has_code:
+                    tool_parts.append(
+                        "Information: no static information is configured; call execute_custom_tool when current output is needed."
+                    )
+                else:
+                    tool_parts.append("Information: no source data is configured for this tool.")
+
+                context_parts.append("\n".join(tool_parts))
+
+            logger.info("Code tools: %d relevant custom tools found", len(relevant_tools))
+            return "\n\n".join(context_parts)
+
+        except Exception as err:
+            logger.error("Code custom tool context error: %s", err)
+            return ""
+
     def __retrieve(self, state: AgentState) -> AgentState:
         query = str(state.get("rag_query") or state.get("context") or "").strip()
-        return {"rag_context": self.__retrieve_context(query)}
+        return {
+            "rag_context": self.__retrieve_context(query),
+            "custom_tool_context": self.__custom_tool_context(
+                str(state.get("custom_tool_query") or query).strip()
+            ),
+        }
 
     # ------------------------------------------------------------------
     # Prompt building
     # ------------------------------------------------------------------
 
-    def build_worker_prompt(self, task: str, work_dir: str, rag_context: str = "") -> str:
+    def build_worker_prompt(
+        self,
+        task: str,
+        work_dir: str,
+        rag_context: str = "",
+        custom_tool_context: str = "",
+    ) -> str:
         clean_task = (task or "").strip()
         clean_rag_context = (rag_context or "").strip()
+        clean_custom_tool_context = (custom_tool_context or "").strip()
+        custom_tool_context_block = ""
+        if clean_custom_tool_context:
+            custom_tool_context_block = (
+                "\nCURRENT CUSTOM TOOL CONTEXT (TOOLS BUILDER):\n"
+                "Use this current Tools Builder context as source-of-truth when it is relevant to the coding task. "
+                "For code-backed custom tools, call `find_relevant_custom_tools` and `execute_custom_tool` from the worker tools when current output is needed.\n"
+                f"{clean_custom_tool_context}\n\n"
+            )
+
         document_context_block = ""
         if clean_rag_context:
             document_context_block = (
-                "\nDOCUMENT CONTEXT (RAG):\n"
+                "\nCURRENT DOCUMENT CONTEXT (RAG):\n"
                 "Use this uploaded document context when it is relevant to the coding task. "
-                "Prefer it over assumptions, and ignore it if unrelated.\n"
+                "Prefer it over assumptions and prior session history, and ignore it if unrelated.\n"
                 f"{clean_rag_context}\n\n"
             )
 
@@ -495,9 +579,13 @@ class AgentCodeUsecase:
             f"- Active workspace: {work_dir}\n"
             f"- Shared playground root: {self._playground_root}\n"
             "- Treat USER TASK below as canonical user intent; do not replace it with unrelated diagnostic/test tasks.\n"
+            "- Source-of-truth order: current custom tool output/context, current RAG document context, latest user task, then prior worker/session history only for continuity.\n"
+            "- If current RAG/tools conflict with prior conversation or session history, current RAG/tools win.\n"
+            "- If an internal, uploaded, business, or mutable claim is not supported by current RAG/tools, state that current source data is unavailable instead of reusing stale history.\n"
             "- Save all generated files inside the active workspace unless user explicitly requests another location.\n"
             "- After creating or editing files, verify persistence by running LS and reading the saved file(s).\n"
             "- In final output, list concrete saved file paths.\n\n"
+            f"{custom_tool_context_block}"
             f"{document_context_block}"
             "USER TASK:\n"
             f"{clean_task}"
@@ -1112,7 +1200,13 @@ class AgentCodeUsecase:
 
             safe_work_dir = self.safe_worker_dir(task=task, work_dir=work_dir)
             rag_context = self.__retrieve_context(task)
-            worker_prompt = self.build_worker_prompt(task=task, work_dir=safe_work_dir, rag_context=rag_context)
+            custom_tool_context = self.__custom_tool_context(task)
+            worker_prompt = self.build_worker_prompt(
+                task=task,
+                work_dir=safe_work_dir,
+                rag_context=rag_context,
+                custom_tool_context=custom_tool_context,
+            )
 
             # Log resume status
             resume_label = f"resume={session_id}" if session_id else "new session"
@@ -1535,6 +1629,7 @@ class AgentCodeUsecase:
             task=context,
             work_dir=safe_work_dir,
             rag_context=state.get("rag_context", ""),
+            custom_tool_context=state.get("custom_tool_context", ""),
         )
         result = await self.async_agent(sender, worker_prompt, safe_work_dir, session_id=session_id)
 
@@ -1638,6 +1733,8 @@ class AgentCodeUsecase:
                     "work_dir": work_dir,
                     "rag_query": context,
                     "rag_context": "",
+                    "custom_tool_query": context,
+                    "custom_tool_context": "",
                 }
             )
             if isinstance(result, dict):
@@ -1697,6 +1794,8 @@ class AgentCodeUsecase:
                     "work_dir": "playground/",
                     "rag_query": context,
                     "rag_context": "",
+                    "custom_tool_query": context,
+                    "custom_tool_context": "",
                 },
                 config=config,
             )

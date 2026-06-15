@@ -191,6 +191,17 @@ func storeAIMessageHandler(manager ports.Manager) gin.HandlerFunc {
 	}
 }
 
+func showAllContactsHandler(waClient ports.WhatsAppClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		contacts, err := handler.GetAllContacts(waClient)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to get contacts")
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "contacts retrieved successfully", contacts)
+	}
+}
+
 func injectAIConversationHandler(waClient ports.WhatsAppClient, chatCompleter ports.ChatCompleter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req StoreAIMessageRequest
@@ -230,6 +241,7 @@ func RouterV1(waClient ports.WhatsAppClient, manager ports.Manager, chatComplete
 		v1.POST("/message/send-file", sendFileHandler(waClient, manager))
 		v1.GET("/commands", getAllCommandsHandler(manager))
 		v1.POST("/store-ai-message", storeAIMessageHandler(manager))
+		v1.GET("/show-contacts", showAllContactsHandler(waClient))
 		v1.POST("/inject-conversation", injectAIConversationHandler(waClient, chatCompleter))
 	}
 

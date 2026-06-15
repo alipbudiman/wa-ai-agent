@@ -43,6 +43,14 @@ func (c *BotClient) GetContact(ctx context.Context, number string) (types.Contac
 	return ch, nil
 }
 
+func (c *BotClient) GetAllContacts(ctx context.Context) (map[types.JID]types.ContactInfo, error) {
+	contacts, err := c.client.Store.Contacts.GetAllContacts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all contacts: %w", err)
+	}
+	return contacts, nil
+}
+
 func (c *BotClient) GetSelfJID(ctx context.Context) (types.JID, error) {
 	jid := c.client.Store.GetJID()
 	if jid.IsEmpty() {

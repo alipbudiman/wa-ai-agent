@@ -989,7 +989,7 @@
 								</div>
 								<div>
 									<label class="form-label" for="descriptionInput">Description</label>
-									<input class="form-control" id="descriptionInput" placeholder="When should the agent call this tool?" required />
+									<input class="form-control" id="descriptionInput" placeholder="When should the agent use this as source-of-truth?" required />
 								</div>
 							</div>
 
@@ -1021,9 +1021,9 @@
 								<div class="editor-panel editor-pane">
 									<div class="panel-titlebar">
 										<span>Information</span>
-										<span>required if code is empty</span>
+										<span>source of truth</span>
 									</div>
-									<textarea class="form-control editor-textarea" id="informationInput" placeholder="Static knowledge, constraints, usage notes, or reference data."></textarea>
+									<textarea class="form-control editor-textarea" id="informationInput" placeholder="Current source-of-truth knowledge, constraints, usage notes, or reference data. Reply agent prioritizes this over chat history."></textarea>
 								</div>
 							</div>
 						</form>

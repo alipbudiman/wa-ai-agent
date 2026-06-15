@@ -60,6 +60,46 @@ func (h *Agents) throwToAgent(args CommandArgs, Command string) (bool, error) {
 	return false, nil
 }
 
+func (h *Agents) recordAgentHistory(ctx context.Context, jid types.JID, groupID string, content string) (string, error) {
+	threadID := jid.ToNonAD().String()
+	if groupID != "" {
+		threadID = groupID
+	}
+
+	if h.chatCompleter != nil {
+		success, err := h.chatCompleter.InjectAIConversation(ctx, content, threadID)
+		if err != nil {
+			return "", err
+		}
+		if success {
+			return ai_providers_api.SUCCESS, nil
+		}
+
+		return "", ErrFailToProcessMessage
+	}
+
+	return h.responder.Reply(
+		ctx,
+		[]openai.ChatCompletionMessage{
+			{
+				Role:    groupID,
+				Content: content,
+			},
+		},
+		true,
+		ports.HISTORY,
+		jid,
+	)
+}
+
+func recipientThreadGroupID(jid types.JID) string {
+	if jid.Server == types.GroupServer {
+		return jid.String()
+	}
+
+	return ""
+}
+
 func (h *Agents) isFromGroup(v *events.Message) string {
 	sender := v.Info.Chat.Server
 	if sender == types.GroupServer {

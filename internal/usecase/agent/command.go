@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,6 +197,30 @@ func RegisteredCommands() CommandCollection {
 			Command:     "/openai-config",
 			Function:    (*Agents).OpenAIConfig,
 		},
+		TavilyConfig: CommandInfo{
+			Name:        "Tavily Config",
+			Description: "Configure Tavily web search settings.",
+			Command:     "/tavily-config",
+			Function:    (*Agents).TavilyConfig,
+		},
+		LangSmithConfig: CommandInfo{
+			Name:        "LangSmith Config",
+			Description: "Configure LangSmith tracing settings.",
+			Command:     "/langsmith-config",
+			Function:    (*Agents).LangSmithConfig,
+		},
+		GinServerConfig: CommandInfo{
+			Name:        "Gin Server Config",
+			Description: "Configure Gin server integration settings.",
+			Command:     "/gin-server-config",
+			Function:    (*Agents).GinServerConfig,
+		},
+		ShowAllContacts: CommandInfo{
+			Name:        "Show All Contacts",
+			Description: "Displays a list of all contacts.",
+			Command:     "/show-contacts",
+			Function:    (*Agents).ShowAllContacts,
+		},
 	}
 }
 
@@ -225,6 +250,10 @@ func (c CommandCollection) All() []CommandInfo {
 		c.GoogleConfig,
 		c.MinimaxConfig,
 		c.OpenAIConfig,
+		c.TavilyConfig,
+		c.LangSmithConfig,
+		c.GinServerConfig,
+		c.ShowAllContacts,
 	}
 }
 
@@ -442,21 +471,28 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 		}
 	}
 
-	replyStatus, err := h.responder.Reply(
+	senderHistoryMessage := fmt.Sprintf(
+		"SYSTEM EVENT: The pending WhatsApp message to %s (%s) has been confirmed with /send and sent successfully.\nSent message:\n%s",
+		name,
+		pending_msg.PendingNumber,
+		pending_msg.Message,
+	)
+
+	recipientHistoryMessage := fmt.Sprintf(
+		"SYSTEM EVENT: The AI agent sent this WhatsApp message to this thread on behalf of %s.\nSent message:\n%s",
+		args.Evt.Info.Sender.String(),
+		pending_msg.Message,
+	)
+
+	senderReplyStatus, err := h.recordAgentHistory(
 		context.Background(),
-		[]openai.ChatCompletionMessage{
-			{
-				Role:    h.isFromGroup(args.Evt),
-				Content: fmt.Sprintf("Send Message to %s has been sent.", name),
-			},
-		},
-		true,
-		ports.HISTORY,
 		args.Evt.Info.Sender,
+		h.isFromGroup(args.Evt),
+		senderHistoryMessage,
 	)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String(fmt.Sprintf("Failed to send confirmation message: %v", err)),
+			Conversation: proto.String(fmt.Sprintf("Message was sent, but failed to notify sender agent history: %v", err)),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 			return
@@ -464,7 +500,23 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 		return
 	}
 
-	if replyStatus == ai_providers_api.SUCCESS {
+	recipientReplyStatus, err := h.recordAgentHistory(
+		context.Background(),
+		new_jid,
+		recipientThreadGroupID(new_jid),
+		recipientHistoryMessage,
+	)
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Message was sent, but failed to notify recipient agent history: %v", err)),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+			return
+		}
+		return
+	}
+
+	if senderReplyStatus == ai_providers_api.SUCCESS && recipientReplyStatus == ai_providers_api.SUCCESS {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String("⚙️ Message has been sent by the agent"),
 		}); err != nil {
@@ -473,7 +525,7 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 		}
 	} else {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-			Conversation: proto.String("Failed to notify agent about sent pending message."),
+			Conversation: proto.String("Message was sent, but failed to update all agent histories."),
 		}); err != nil {
 			log.Printf("failed to send reply message: %v", err)
 			return
@@ -751,21 +803,30 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 			}
 		}
 
-		replyStatus, err := h.responder.Reply(
+		senderHistoryMessage := fmt.Sprintf(
+			"SYSTEM EVENT: The pending WhatsApp file to %s (%s) has been confirmed with /file-send and sent successfully.\nFile: %s\nCaption: %s",
+			name,
+			pending_file.PendingNumber,
+			pending_file.PendingFile,
+			pending_file.PendingCaption,
+		)
+
+		recipientHistoryMessage := fmt.Sprintf(
+			"SYSTEM EVENT: The AI agent sent a WhatsApp file to this thread on behalf of %s.\nFile: %s\nCaption: %s",
+			args.Evt.Info.Sender.String(),
+			pending_file.PendingFile,
+			pending_file.PendingCaption,
+		)
+
+		senderReplyStatus, err := h.recordAgentHistory(
 			context.Background(),
-			[]openai.ChatCompletionMessage{
-				{
-					Role:    h.isFromGroup(args.Evt),
-					Content: fmt.Sprintf("Send File to %s has been sent.", name),
-				},
-			},
-			true,
-			ports.HISTORY,
 			args.Evt.Info.Sender,
+			h.isFromGroup(args.Evt),
+			senderHistoryMessage,
 		)
 		if err != nil {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-				Conversation: proto.String(fmt.Sprintf("Failed to send confirmation message: %v", err)),
+				Conversation: proto.String(fmt.Sprintf("File was sent, but failed to notify sender agent history: %v", err)),
 			}); err != nil {
 				log.Printf("failed to send reply message: %v", err)
 				return
@@ -773,7 +834,23 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 			return
 		}
 
-		if replyStatus == ai_providers_api.SUCCESS {
+		recipientReplyStatus, err := h.recordAgentHistory(
+			context.Background(),
+			new_jid,
+			recipientThreadGroupID(new_jid),
+			recipientHistoryMessage,
+		)
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("File was sent, but failed to notify recipient agent history: %v", err)),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+				return
+			}
+			return
+		}
+
+		if senderReplyStatus == ai_providers_api.SUCCESS && recipientReplyStatus == ai_providers_api.SUCCESS {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 				Conversation: proto.String("⚙️ File has been sent by the agent"),
 			}); err != nil {
@@ -782,7 +859,7 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 			}
 		} else {
 			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
-				Conversation: proto.String("Failed to notify agent about sent pending file."),
+				Conversation: proto.String("File was sent, but failed to update all agent histories."),
 			}); err != nil {
 				log.Printf("failed to send reply message: %v", err)
 				return
@@ -1829,10 +1906,14 @@ func (h *Agents) OpenAIConfig(args CommandArgs) {
 			"To set API Key: `/openai-config api-key [api_key]`\n" +
 			"To delete API Key: `/openai-config api-key delete`\n" +
 			"To set Model: `/openai-config model [model]`\n" +
-			"Example: `/openai-config model gpt-4-0613`\n\n" +
+			"To set Image Model: `/openai-config img-model [img_model]`\n" +
+			"To set Image Quality: `/openai-config img-quality [low|medium|high|auto]`\n" +
+			"Example: `/openai-config model gpt-5`\n\n" +
 			"*Current OpenAI Config:*\n" +
 			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(openai_config_info.APIKey, 4, 4)) +
-			fmt.Sprintf("- Model: %s\n", openai_config_info.Model)
+			fmt.Sprintf("- Model: %s\n", openai_config_info.Model) +
+			fmt.Sprintf("- Image Model: %s\n", openai_config_info.ImgModel) +
+			fmt.Sprintf("- Image Quality: %s\n", openai_config_info.ImgQuality)
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 			Conversation: proto.String(config_help),
 		}); err != nil {
@@ -1909,11 +1990,389 @@ func (h *Agents) OpenAIConfig(args CommandArgs) {
 		return
 	}
 
+	if after, ok := strings.CutPrefix(configText, "img-model "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/openai-config img-model [img_model]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		img_model := configArgs[0]
+		err := cfg_struct.UpdateOpenAIConfig(cfg_struct.OpenAIConfig{
+			ImgModel: img_model,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update OpenAI config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("OpenAI config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "img-quality "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/openai-config img-quality [low|medium|high|auto]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		img_quality := strings.ToLower(configArgs[0])
+		switch img_quality {
+		case "low", "medium", "high", "auto":
+		default:
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid image quality. Use one of: low, medium, high, auto."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		err := cfg_struct.UpdateOpenAIConfig(cfg_struct.OpenAIConfig{
+			ImgQuality: img_quality,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update OpenAI config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("OpenAI config has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
 	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
 		Conversation: proto.String("Invalid OpenAI config command. Usage:\n" +
 			"To set API Key: `/openai-config api-key [api_key]`\n" +
 			"To delete API Key: `/openai-config api-key delete`\n" +
-			"To set Model: `/openai-config model [model]`"),
+			"To set Model: `/openai-config model [model]`\n" +
+			"To set Image Model: `/openai-config img-model [img_model]`\n" +
+			"To set Image Quality: `/openai-config img-quality [low|medium|high|auto]`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) TavilyConfig(args CommandArgs) {
+	cmd := RegisteredCommands().TavilyConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		tavilyConfigInfo := cfg_struct.GetTavilyConfig()
+		configHelp := "Tavily Config Command Usage:\n" +
+			"To set API Key: `/tavily-config api-key [api_key]`\n" +
+			"To delete API Key: `/tavily-config api-key delete`\n" +
+			"Example: `/tavily-config api-key tvly-xxxxxx`\n\n" +
+			"*Current Tavily Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(tavilyConfigInfo.APIKey, 4, 4))
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(configHelp),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/tavily-config api-key [api_key]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		apiKey := configArgs[0]
+		if strings.ToLower(apiKey) == "delete" {
+			apiKey = "-DELETE-"
+		}
+
+		err := cfg_struct.UpdateTavilyConfig(cfg_struct.TavilyConfigDB{
+			APIKey: apiKey,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update Tavily config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		successMsg := "Tavily config has been updated."
+		if apiKey == "-DELETE-" {
+			successMsg = "Tavily API Key has been deleted."
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(successMsg),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid Tavily config command. Usage:\n" +
+			"To set API Key: `/tavily-config api-key [api_key]`\n" +
+			"To delete API Key: `/tavily-config api-key delete`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) LangSmithConfig(args CommandArgs) {
+	cmd := RegisteredCommands().LangSmithConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		langSmithConfigInfo := cfg_struct.LangSmithConfig{}.GetLangSmithConfig()
+		configHelp := "LangSmith Config Command Usage:\n" +
+			"To set API Key: `/langsmith-config api-key [api_key]`\n" +
+			"To delete API Key: `/langsmith-config api-key delete`\n" +
+			"To set project name: `/langsmith-config project-name [project_name]`\n" +
+			"Example: `/langsmith-config project-name wa_bot_ai_trace`\n\n" +
+			"*Current LangSmith Config:*\n" +
+			fmt.Sprintf("- API Key: %s\n", pkg.MaskString(langSmithConfigInfo.APIKey(), 4, 4)) +
+			fmt.Sprintf("- Project Name: %s\n", langSmithConfigInfo.ProjectName())
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(configHelp),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "api-key "); ok {
+		configArgs := strings.Fields(after)
+		if len(configArgs) != 1 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/langsmith-config api-key [api_key]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		apiKey := configArgs[0]
+		if strings.ToLower(apiKey) == "delete" {
+			apiKey = "-DELETE-"
+		}
+
+		err := cfg_struct.UpdateLangSmithConfig(cfg_struct.LangSmithConfigDB{
+			APIKey: apiKey,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update LangSmith config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		successMsg := "LangSmith config has been updated."
+		if apiKey == "-DELETE-" {
+			successMsg = "LangSmith API Key has been deleted."
+		}
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(successMsg),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "project-name "); ok {
+		projectName := strings.TrimSpace(after)
+		if projectName == "" {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/langsmith-config project-name [project_name]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		err := cfg_struct.UpdateLangSmithConfig(cfg_struct.LangSmithConfigDB{
+			ProjectName: projectName,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update LangSmith config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("LangSmith project name has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid LangSmith config command. Usage:\n" +
+			"To set API Key: `/langsmith-config api-key [api_key]`\n" +
+			"To delete API Key: `/langsmith-config api-key delete`\n" +
+			"To set project name: `/langsmith-config project-name [project_name]`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) GinServerConfig(args CommandArgs) {
+	cmd := RegisteredCommands().GinServerConfig
+	configText := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	if configText == "" {
+		ginConfigInfo := cfg_struct.GinServerConfig{}.GetGinConfig()
+		configHelp := "Gin Server Config Command Usage:\n" +
+			"To set host: `/gin-server-config host [host]`\n" +
+			"To set port: `/gin-server-config port [port]`\n" +
+			"To set app mode: `/gin-server-config app-mode [debug|release|test]`\n" +
+			"Example: `/gin-server-config host localhost`\n\n" +
+			"*Current Gin Server Config:*\n" +
+			fmt.Sprintf("- Host: %s\n", ginConfigInfo.Host) +
+			fmt.Sprintf("- Port: %s\n", ginConfigInfo.Port) +
+			fmt.Sprintf("- App Mode: %s\n", ginConfigInfo.AppMod)
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(configHelp),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "host "); ok {
+		host := strings.TrimSpace(after)
+		if host == "" {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid command format. Usage: `/gin-server-config host [host]`"),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		err := cfg_struct.UpdateGinServerConfig(cfg_struct.GinServerConfig{
+			Host: host,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update Gin server config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Gin server host has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "port "); ok {
+		port := strings.TrimSpace(after)
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber <= 0 || portNumber > 65535 {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid port. Use a number between 1 and 65535."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		err = cfg_struct.UpdateGinServerConfig(cfg_struct.GinServerConfig{
+			Port: port,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update Gin server config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Gin server port has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if after, ok := strings.CutPrefix(configText, "app-mode "); ok {
+		appMode := cfg_struct.GinMod(strings.ToLower(strings.TrimSpace(after)))
+		switch appMode {
+		case cfg_struct.DebugMode, cfg_struct.ReleaseMode, cfg_struct.TestMode:
+		default:
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String("Invalid app mode. Use one of: debug, release, test."),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		err := cfg_struct.UpdateGinServerConfig(cfg_struct.GinServerConfig{
+			AppMod: appMode,
+		})
+		if err != nil {
+			if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("Failed to update Gin server config. Error Detail: %s", err.Error())),
+			}); err != nil {
+				log.Printf("failed to send reply message: %v", err)
+			}
+			return
+		}
+
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("Gin server app mode has been updated."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String("Invalid Gin server config command. Usage:\n" +
+			"To set host: `/gin-server-config host [host]`\n" +
+			"To set port: `/gin-server-config port [port]`\n" +
+			"To set app mode: `/gin-server-config app-mode [debug|release|test]`"),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
@@ -2272,6 +2731,48 @@ func (h *Agents) AgentModelUpdateConfig(args CommandArgs) {
 			"To set research agent model: `/agent-model-config research [provider] [model]`\n" +
 			"To set reply agent model: `/agent-model-config reply [provider] [model]`\n" +
 			"Example: `/agent-model-config main ollama llama3`"),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+func (h *Agents) ShowAllContacts(args CommandArgs) {
+	cmd := RegisteredCommands().ShowAllContacts
+	_ = strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+
+	contacts, err := h.waclient.GetAllContacts(context.Background())
+	if err != nil {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String(fmt.Sprintf("Failed to get contacts. Error Detail: %s", err.Error())),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	if len(contacts) == 0 {
+		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+			Conversation: proto.String("No contacts found."),
+		}); err != nil {
+			log.Printf("failed to send reply message: %v", err)
+		}
+		return
+	}
+
+	var contactListBuilder strings.Builder
+	contactListBuilder.WriteString("Contact List:\n")
+	for jid, contact := range contacts {
+		if contact.Found {
+			fmt.Fprintf(&contactListBuilder, "  - First Name: %s\n", contact.FirstName)
+			fmt.Fprintf(&contactListBuilder, "  - Full Name: %s\n", contact.FullName)
+			fmt.Fprintf(&contactListBuilder, "  - Push Name: %s\n", contact.PushName)
+			fmt.Fprintf(&contactListBuilder, "  - JID/ID/Number: %s\n", jid)
+			contactListBuilder.WriteString("\n---\n")
+		}
+	}
+
+	if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
+		Conversation: proto.String(contactListBuilder.String()),
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}

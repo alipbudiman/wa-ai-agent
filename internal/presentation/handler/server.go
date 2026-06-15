@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
@@ -54,7 +56,6 @@ func SendMessage(waClient ports.WhatsAppClient, manager ports.Manager, number st
 		return err
 	}
 
-
 	if store {
 		err = manager.StoreInboxMessage(ports.InboxMessage{
 			JID:        new_jid,
@@ -99,4 +100,29 @@ func BroadcastMessage(waClient ports.WhatsAppClient, message string) error {
 	}
 	log.Printf("message broadcast successfully")
 	return nil
+}
+
+func GetAllContacts(waClient ports.WhatsAppClient) (string, error) {
+	contacts, err := waClient.GetAllContacts(context.Background())
+	if err != nil {
+		log.Printf("failed to get all contacts: %v", err)
+		return "", err
+	}
+
+	if len(contacts) == 0 {
+		return "No contacts found. ask user to send contact", nil
+	}
+
+	var contactListBuilder strings.Builder
+	contactListBuilder.WriteString("Contact List:\n")
+	for jid, contact := range contacts {
+		if contact.Found {
+			fmt.Fprintf(&contactListBuilder, "  - First Name: %s\n", contact.FirstName)
+			fmt.Fprintf(&contactListBuilder, "  - Full Name: %s\n", contact.FullName)
+			fmt.Fprintf(&contactListBuilder, "  - Push Name: %s\n", contact.PushName)
+			fmt.Fprintf(&contactListBuilder, "  - JID/ID/Number: %s\n", jid)
+			contactListBuilder.WriteString("\n---\n")
+		}
+	}
+	return contactListBuilder.String(), nil
 }

@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app/brain
 ENV DISABLE_TELEMETRY=1
 ENV DOCUMENT_STORAGE_DIR=/app/uploads/documents
+ENV MONGODB_URI=mongodb://host.docker.internal:27017
 
 # Symlink global skills dir to volume-backed path so skills persist across restarts
 RUN mkdir -p /app/.agents && ln -sf /app/.agents /root/.agents

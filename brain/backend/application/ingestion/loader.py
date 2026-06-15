@@ -7,6 +7,7 @@ import shutil
 from typing import List
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_community.document_loaders import (
     CSVLoader,
     JSONLoader,
@@ -25,6 +26,22 @@ from backend.infrastructure.database.database import MongoDB
 from config.config import Config
 
 from backend.application.ai.models import MAIN_AGENT, CODE_AGENT, REASEARCH_AGENT, REPLY_AGENT
+
+
+class MissingEmbeddingsConfig(Embeddings):
+    """Keeps the API online while vector features wait for an API key."""
+
+    def _raise_missing_key(self):
+        raise RuntimeError(
+            "OpenAI embeddings are not configured. Set OPENAI_API_KEY or save an OpenAI API key "
+            "in manager_bot_config before using RAG, ingestion, or vector search features."
+        )
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self._raise_missing_key()
+
+    def embed_query(self, text: str) -> list[float]:
+        self._raise_missing_key()
 
 
 class DocumentInfo(BaseModel):
@@ -131,11 +148,15 @@ class DocumentLoader:
 
         return clean_collection_name
 
-    def create_embeddings(self) -> OpenAIEmbeddings:
+    def create_embeddings(self) -> Embeddings:
         self.open_ai_config = self.config.get_openai_config()
+        api_key = (self.open_ai_config.api_key or os.getenv("OPENAI_API_KEY") or "").strip()
+        if not api_key:
+            return MissingEmbeddingsConfig()
+
         return OpenAIEmbeddings(
             model=self.EMBEDDING_MODEL,
-            api_key=self.open_ai_config.api_key,
+            api_key=api_key,
         )
 
     def refresh_vector_store(self):

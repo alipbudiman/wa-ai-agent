@@ -130,12 +130,11 @@ class WebSearchTool:
             func=_web,
             name="websearch",
             description=(
-                "Use this tool when the available information is insufficient or outdated. If the current"
-                "knowledge base does not contain enough information to answer the user's query, invoke"
-                "websearch to retrieve the missing or additional information needed to provide a"
-                "comprehensive response."
+                "Use this tool for simple external or up-to-date lookups that need one direct web search. "
+                "Do not use this as the main tool when the user explicitly asks for research/riset, "
+                "deep research, multi-source analysis, comparison, trends, market/news/background research, "
+                "or detailed sourced synthesis; use research_agent_tool instead. "
                 "Search the web and summarize findings for the current chat request. "
-                "Use this when the user needs external/up-to-date information. "
                 "`sender` is injected by system runtime from active chat context; "
                 "do not ask user for sender and do not include sender in tool args."
             ),
@@ -166,6 +165,5 @@ class WebSearchTool:
         )
 
         return formatted_search_docs or "No relevant Wikipedia data available."
-    
 
-    
+

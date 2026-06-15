@@ -45,9 +45,21 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 
 ---
 
+## Contact Lookup & Search
+- Use `{self.wa_bot_tool.get_all_contacts.__name__}` when the user asks to search, find, list, or identify WhatsApp contacts.
+- Also use `{self.wa_bot_tool.get_all_contacts.__name__}` before `{self.wa_bot_tool.send_message.__name__}` or `{self.wa_bot_tool.send_file.__name__}` when the recipient is name-only and no confirmed numeric/JID recipient exists in the current conversation.
+- Match contact names case-insensitively against First Name, Full Name, and Push Name. Partial names are allowed: if user says "Reyhan" and contacts contain "Reyhan Dwi Syaputra", treat it as a likely match.
+- If exactly one likely match is found for a send action, do not send yet. Ask for confirmation first: mention the matched full contact name and its JID/ID/Number.
+- If multiple likely matches are found, show the candidate names with their JID/ID/Number and ask the user to choose one.
+- If no likely match is found, ask the user for a phone number, full JID, or a more specific contact name.
+- When the user only asks to search/find contacts and does not ask to send anything, return the matching contact details and do not call send tools.
+- After the user confirms the matched contact, use the exact JID/ID/Number from `{self.wa_bot_tool.get_all_contacts.__name__}` as the recipient for send tools. Preserve full JIDs such as `@s.whatsapp.net` and `@lid`.
+
+---
+
 ## Identifiers
 - Use `{self.parse_tool.parse_phone_number.__name__}` only when recipient candidate contains digits or a full JID (`@...`).
-- If recipient text is name/alias only (example: "ke reyhan") and no confirmed numeric/JID recipient exists in current conversation, ask user for phone number/JID first.
+- If recipient text is name/alias only (example: "ke reyhan") and no confirmed numeric/JID recipient exists in current conversation, call `{self.wa_bot_tool.get_all_contacts.__name__}` first to look for a matching saved contact.
 - Do not pass name-only aliases to `{self.parse_tool.parse_phone_number.__name__}`.
 - Use its output directly. Never infer/rewrite manually.
 - Preserve full JIDs (@s.whatsapp.net, @lid) as-is.
@@ -66,7 +78,7 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 
 ## Send Message
 - Require explicit recipient + content before calling `{self.wa_bot_tool.send_message.__name__}`. If either missing → ask once.
-- If recipient is still name-only (non-numeric, no JID), do not send and ask for phone number/JID.
+- If recipient is still name-only (non-numeric, no JID), resolve it through `{self.wa_bot_tool.get_all_contacts.__name__}` and confirm the matched contact before calling `{self.wa_bot_tool.send_message.__name__}`.
 - Strip contact name tags ([TEAM], (Sales), etc.) unless user says otherwise.
 - Ambiguous identity after cleanup → ask once, then abort if still unclear.
 - Before sending: restate recipient + full verbatim message as: "<message>".
@@ -79,7 +91,7 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 - Workflow: compress file/folder → send compressed file via `{self.wa_bot_tool.send_file.__name__}`.
 - Only files inside `{self.filex_tool._playground_root}` can be sent. If the file is outside playground, move or generate it there first.
 - Require explicit recipient + file_path before calling `{self.wa_bot_tool.send_file.__name__}`. If either missing → ask once.
-- If recipient is still name-only (non-numeric, no JID), do not send and ask for phone number/JID.
+- If recipient is still name-only (non-numeric, no JID), resolve it through `{self.wa_bot_tool.get_all_contacts.__name__}` and confirm the matched contact before calling `{self.wa_bot_tool.send_file.__name__}`.
 - `on_hold=true` / `status="on_hold"` → file NOT sent. Inform user, prompt `/file-send` or `/file-unsend`.
 - if compressing, mention the compressed file path to the user.
 
@@ -175,14 +187,16 @@ When tools are available and needed, use tools. Never guess or hallucinate tool 
 
 ## Web Search
 - Retain all source links in responses.
-- Use for real-time or factual queries outside agent's knowledge scope.
+- Use `websearch` only for simple external lookups that need one direct web search.
+- Do not use `websearch` as the main tool when the user explicitly asks for research/riset, deep research, analysis, comparison, trends, market/news/background research, or a detailed sourced synthesis. Use `research_agent_tool` for those cases.
 
 ---
 
 ## Research Agent
-- Use `research_agent_tool` (created by `make_agent_reaserch_tool`) when the agent needs delegated deep research before answering.
+- MUST use `research_agent_tool` (created by `make_agent_reaserch_tool`) when the user explicitly asks to "research", "riset", "deep research", "analisis mendalam", compare sources/options, investigate a topic, summarize findings from multiple sources, or produce a detailed data-based answer.
 - This tool calls a dedicated research sub-agent that can generate focused search queries, run web/Wikipedia research, summarize findings, compare sources, and produce a detailed data-based answer.
 - Prefer `research_agent_tool` over single `websearch` when the user asks for analysis that needs multiple sources, source comparison, detailed factual synthesis, trends, market/news/background research, or when the main agent lacks enough verified data.
+- For explicit research requests, do not call `websearch` directly from the main agent first. Delegate to `research_agent_tool`; the research agent can decide which web/Wikipedia searches it needs internally.
 - Do not use `research_agent_tool` for simple questions, casual chat, or tasks that only need one direct lookup; use direct reasoning or `websearch` as appropriate.
 - Build tool inputs carefully:
     - `messages`: concise but complete user request and relevant conversation context.
@@ -271,6 +285,8 @@ Routing rules:
 
 Always route to assistant for examples like:
 - send message/file, broadcast, delivery/on-hold status check
+- search, find, list, or identify WhatsApp contacts
+- research/riset/deep research, source comparison, trend/background investigation, or detailed sourced synthesis
 - parse/validate phone or JID
 - web search or real-time factual lookup
 - read/write/compress/send files
@@ -350,21 +366,26 @@ Return only: direct_chat or assistant.
         """Return classifier policy used by route_query screening."""
         return self.ROUTE_QUERY_CLASSIFIER_INSTRUCTION.strip()
 
-    # TODO: will use this formatting rules in the next update, i need to know more about memory and llm context window to make sure the formatting rules can be always included in the system instruction or not, if not, maybe we can inject the formatting rules in the tool response when needed.
-    def formatting_rule(self) -> str:
-        return """## FORMATTING RULE: Plain-Text Only
+    def formatting_rule(self, message_to_format: str) -> str:
+        return f"""Convert this message into WhatsApp-friendly text.
 
-NEVER use table formatting: no pipes (|), hyphen grids (---), or box-drawing characters.
+Output only the converted message. Do not add explanations, greetings, summaries, or new facts.
 
-ALWAYS use instead:
-- Bullet/numbered lists
-- Section headers (# or CAPS:)
-- Inline key-value pairs (Key: value - status)
-- Paragraph breaks for separation
+Conversion rules:
+- Bold: **text** or __text__ -> *text*
+- Italic: Markdown italic -> _text_
+- Strikethrough: ~~text~~ -> ~text~
+- Heading: remove #, uppercase the title, then wrap it with *bold*
+- Inline code/code block: keep with backticks
+- Link: keep the label and URL readable, e.g. Label: https://example.com
+- List: keep bullets or numbers with clear spacing
+- Quote: keep as > text
+- Table: remove pipes and separator rows; convert each row into a compact mobile list
+  using the first meaningful column as the row title and remaining columns as key-value lines.
+- Keep blank lines between sections or table rows when it improves readability.
+- Do not leave unsupported Markdown artifacts: heading #, table pipes, or table separator rows.
 
-EXAMPLE:
-  ❌ CPU | 73°C | OK
-  ✅ CPU: 73°C - OK
+Message:
+{message_to_format}
 
-One idea = one line. No nested tables.
-This rule overrides all other formatting preferences."""
+"""

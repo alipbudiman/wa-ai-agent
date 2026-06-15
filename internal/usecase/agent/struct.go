@@ -58,6 +58,10 @@ type CommandCollection struct {
 	GoogleConfig             CommandInfo
 	MinimaxConfig            CommandInfo
 	OpenAIConfig             CommandInfo
+	TavilyConfig             CommandInfo
+	LangSmithConfig          CommandInfo
+	GinServerConfig          CommandInfo
+	ShowAllContacts          CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

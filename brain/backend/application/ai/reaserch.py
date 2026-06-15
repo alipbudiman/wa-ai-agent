@@ -63,6 +63,8 @@ class State(MessagesState):
     sender: str = ""
     rag_context: str = ""
     rag_query: str = ""
+    custom_tool_context: str = ""
+    custom_tool_query: str = ""
     topic: str
     question: str
     answer: Any
@@ -120,6 +122,8 @@ class AgentResearchInput(BaseModel):
 class ResearchAgentUsecase:
     RAG_TOP_K = 5
     RAG_SCORE_THRESHOLD = 0.6
+    CUSTOM_TOOL_TOP_K = 5
+    MAX_CUSTOM_TOOL_INFORMATION_CHARS = 4000
 
     def __init__(self):
         self.llm = AI()
@@ -194,6 +198,13 @@ class ResearchAgentUsecase:
         if content is None:
             return ""
         return str(content).strip()
+
+    @staticmethod
+    def __compact_text(text: str | None, max_chars: int) -> str:
+        compact = str(text or "").strip()
+        if len(compact) <= max_chars:
+            return compact
+        return compact[: max_chars - 3].rstrip() + "..."
 
     def __extract_ai_content(self, messages: list) -> str:
         """
@@ -274,7 +285,11 @@ class ResearchAgentUsecase:
         return minimax_helper.textual_tool_instruction(
             tools,
             prefer_find_first=True,
-            result_rule="- If no custom tool is needed, answer normally.",
+            result_rule=(
+                "- If current custom tool context already answers the research question, answer from it. "
+                "If a code-backed custom tool is needed for mutable/current custom data, call execute_custom_tool. "
+                "If no current source supports an internal or mutable claim, say the current source data is unavailable."
+            ),
         )
 
     @staticmethod
@@ -330,6 +345,67 @@ class ResearchAgentUsecase:
                 tool_context_parts.append(f"[tool: {tool_name}]\n{tool_text}")
 
         return "\n\n".join(tool_context_parts).strip()
+
+    def __load_custom_tool_context(self, state: State):
+        """
+        Load current-turn Tools Builder context before answer generation.
+
+        This preloads information-only tool data as research source context and
+        flags code-backed tools so the LLM can execute them when mutable custom
+        data is required.
+        """
+        try:
+            query = str(
+                state.get("custom_tool_query")
+                or state.get("rag_query")
+                or state.get("question")
+                or state.get("topic")
+                or ""
+            ).strip()
+            if not query:
+                query = self.__extract_latest_human_message(state)
+
+            if not query:
+                return {"custom_tool_context": ""}
+
+            relevant_tools = self.tools_builder.find_relevant_tools(
+                agent_type=REASEARCH_AGENT,
+                query=query,
+                limit=self.CUSTOM_TOOL_TOP_K,
+            )
+            if not relevant_tools:
+                logger.info("Research tools: no relevant custom tools found for current turn")
+                return {"custom_tool_context": ""}
+
+            context_parts: list[str] = []
+            for tool in relevant_tools:
+                safe_name = self.tools_builder.safe_tool_name(tool.name)
+                has_code = bool(tool.code and tool.code.code and tool.code.code.strip())
+                information = self.__compact_text(
+                    tool.information,
+                    self.MAX_CUSTOM_TOOL_INFORMATION_CHARS,
+                )
+                tool_parts = [
+                    f"[custom_tool: {tool.name} | callable: {safe_name} | code: {'available' if has_code else 'not configured'}]",
+                    f"Description: {tool.description}",
+                ]
+                if information:
+                    tool_parts.append(f"Information:\n{information}")
+                elif has_code:
+                    tool_parts.append(
+                        "Information: no static information is configured; execute this tool when current output is needed."
+                    )
+                else:
+                    tool_parts.append("Information: no source data is configured for this tool.")
+
+                context_parts.append("\n".join(tool_parts))
+
+            logger.info("Research tools: %d relevant custom tools found", len(relevant_tools))
+            return {"custom_tool_context": "\n\n".join(context_parts)}
+
+        except Exception as err:
+            logger.error("Research custom tool context error: %s", err)
+            return {"custom_tool_context": ""}
 
     def __retrieve(self, state: State):
         """
@@ -470,9 +546,19 @@ class ResearchAgentUsecase:
                 f"This is summary of the conversation to date: {summary}\n\n"
                 "Extend the summary by taking into account the new messages above:"
             )
-            
+            summary_message += (
+                "\n\nImportant: conversation history is not a source of truth for mutable facts. "
+                "Summarize it only for continuity, mark facts from previous turns as historical unless they were verified by current tool/RAG/web context, "
+                "and do not copy raw custom tool outputs into the summary."
+            )
+
         else:
-            summary_message = "Create a summary of the conversation above:"
+            summary_message = (
+                "Create a summary of the conversation above.\n\n"
+                "Important: conversation history is not a source of truth for mutable facts. "
+                "Summarize it only for continuity, mark facts from previous turns as historical unless they were verified by current tool/RAG/web context, "
+                "and do not copy raw custom tool outputs into the summary."
+            )
 
         # Add prompt to our history
         messages = state["messages"] + [HumanMessage(content=summary_message)]
@@ -598,12 +684,25 @@ class ResearchAgentUsecase:
         wiki_context_items = [item for item in state.get("context", []) if isinstance(item, str) and item.strip()]
         wiki_context = "\n\n".join(wiki_context_items)
         rag_context = str(state.get("rag_context") or "").strip()
-        custom_tool_context = self.__custom_tool_context(state)
+        executed_custom_tool_context = self.__custom_tool_context(state)
+        preload_custom_tool_context = str(state.get("custom_tool_context") or "").strip()
+        custom_tool_context = "\n\n".join(
+            part for part in [executed_custom_tool_context, preload_custom_tool_context] if part
+        )
 
         # Template
         answer_template = (
             "Answer the following question accurately, in detail, and based on data.\n"
-            "If Document Context is relevant, prioritize it over general knowledge and use web/Wikipedia to complement or verify it.\n"
+            "SOURCE-OF-TRUTH ORDER FOR THIS TURN:\n"
+            "1. Current-turn custom database tool output and Tools Builder context.\n"
+            "2. Current-turn uploaded document context from RAG.\n"
+            "3. Current-turn web search and Wikipedia context.\n"
+            "4. The latest user question/topic.\n"
+            "5. Conversation history only as continuity context; do not use it as authority for mutable facts.\n\n"
+            "Rules:\n"
+            "- If current sources conflict with older conversation history, current tool/RAG/web context wins.\n"
+            "- If a mutable internal/business claim is unsupported by current sources, say the current source data is unavailable.\n"
+            "- If the request is general research and internal sources are unrelated, use web/Wikipedia and general knowledge with clear caveats.\n\n"
             "Question: {question}\n\n"
             "Document Context:\n{document_context}\n\n"
             "Web Search Context:\n{web_context}\n\n"
@@ -618,17 +717,21 @@ class ResearchAgentUsecase:
             custom_tool_context=custom_tool_context or "No custom tool output available."
         )
 
-        system_content = "You are MR.Senku, a helpful research assistant."
+        system_content = (
+            "You are MR.Senku, a helpful research assistant. "
+            "Use current-turn source context before conversation history."
+        )
         custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=REASEARCH_AGENT)
-        if custom_tools_catalog and not custom_tool_context:
+        if custom_tools_catalog and not executed_custom_tool_context:
             system_content += (
                 "\n\nCUSTOM DATABASE TOOL ACCESS:\n"
                 f"{custom_tools_catalog}\n\n"
                 "CUSTOM TOOL USAGE:\n"
                 "- You have exactly two custom-tool gateway functions: "
                 "`find_relevant_custom_tools` and `execute_custom_tool`.\n"
-                "- First call `find_relevant_custom_tools` when the research question may match a custom tool.\n"
-                "- Then call `execute_custom_tool` with the matching original_name or callable_tool_name.\n"
+                "- The current-turn custom tool context is the first relevance scan.\n"
+                "- If that context lists a matching code-backed tool, call `execute_custom_tool` with the matching original_name or callable_tool_name when mutable/current custom data is required.\n"
+                "- If no matching context is listed but the question may still match a custom tool, call `find_relevant_custom_tools` first.\n"
                 "- Treat callable_tool_name values as identifiers for `execute_custom_tool`, not as directly callable functions.\n"
                 "- Do not call `access_tools_builder`; it is not available in this agent.\n"
                 "- Use custom tool output as authoritative research context in the final answer."
@@ -637,7 +740,7 @@ class ResearchAgentUsecase:
         # Answer
         llm = self.__llm()
         tools = self.__get_tools(state)
-        if tools and not custom_tool_context:
+        if tools and not executed_custom_tool_context:
             if self.__uses_textual_tool_calls():
                 system_content += "\n\n" + self.__textual_tool_instruction(tools)
             else:
@@ -652,7 +755,7 @@ class ResearchAgentUsecase:
 
         if not isinstance(answer, AIMessage):
             answer = AIMessage(content=self.__content_to_text(answer))
-        if tools and not custom_tool_context and self.__uses_textual_tool_calls():
+        if tools and not executed_custom_tool_context and self.__uses_textual_tool_calls():
             answer = self.__coerce_textual_tool_response(answer, tools)
         
         # Append it to state
@@ -684,6 +787,7 @@ class ResearchAgentUsecase:
     def __agent_logic(self):
         builder = StateGraph(State)
         builder.add_node("retrieve", self.__retrieve)
+        builder.add_node("load_custom_tool_context", self.__load_custom_tool_context)
         builder.add_node("generate_query_search_prompt", self.__generate_query_search_prompt)
         builder.add_node("web_search", self.__search_web)
         builder.add_node("collect_search_results", self.__collect_search_results)  # barrier
@@ -693,6 +797,7 @@ class ResearchAgentUsecase:
         builder.add_node("tools", self.__tool_node)
 
         builder.add_edge(START, "retrieve")
+        builder.add_edge(START, "load_custom_tool_context")
         builder.add_edge(START, "generate_query_search_prompt")
         builder.add_edge(START, "search_wikipedia")
         builder.add_conditional_edges(
@@ -704,7 +809,7 @@ class ResearchAgentUsecase:
         builder.add_edge("web_search", "collect_search_results")
         # Barrier fan-out: wait for all searches + wikipedia, then summarize
         builder.add_edge("collect_search_results", "summarize_search_results")
-        builder.add_edge(["summarize_search_results", "search_wikipedia", "retrieve"], "generate_answer")
+        builder.add_edge(["summarize_search_results", "search_wikipedia", "retrieve", "load_custom_tool_context"], "generate_answer")
         builder.add_conditional_edges(
             "generate_answer",
             self.__route_after_generate_answer,
@@ -732,6 +837,8 @@ class ResearchAgentUsecase:
                 "topic": topic,
                 "rag_query": question or topic or messages,
                 "rag_context": "",
+                "custom_tool_query": question or topic or messages,
+                "custom_tool_context": "",
             }, config=config)
             results_message = self.__extract_ai_content(result.get('messages', []))
             if not results_message:
@@ -748,6 +855,9 @@ class ResearchAgentUsecase:
             coroutine=reaserch,
             name="research_agent_tool",
             description=(
+                "Primary tool for explicit research/riset requests. Use this when the user asks to research, "
+                "riset, investigate, compare sources/options, analyze trends, market/news/background context, "
+                "or produce a detailed sourced synthesis. "
                 "A tool to research and answer questions based on a given message, question, and topic. "
                 "The input is a string message, a string question, and a string topic. "
                 "The output is a string answer generated by the research agent after performing reaserch, return the complete results. DONT SUMMARIZE OR SIMPLIFY THE ANSWER, JUST RETURN THE COMPLETE ANSWER. "
@@ -782,6 +892,8 @@ class ResearchAgentUsecase:
                 "topic": messages,
                 "rag_query": messages,
                 "rag_context": "",
+                "custom_tool_query": messages,
+                "custom_tool_context": "",
             }, config=config)
             
             results_message = self.__extract_ai_content(result.get('messages', []))

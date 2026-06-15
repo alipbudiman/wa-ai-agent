@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
 	"go.mau.fi/whatsmeow"
@@ -28,6 +29,7 @@ func (s *BotClient) SendText(ctx context.Context, to string, message *waE2E.Mess
 		if err != nil {
 			return fmt.Errorf("send message chunk: %w", err)
 		}
+		time.Sleep(500 * time.Millisecond) // Optional: Add a small delay between chunks to avoid flooding
 	}
 
 	return nil

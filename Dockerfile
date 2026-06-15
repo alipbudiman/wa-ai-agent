@@ -27,6 +27,7 @@ RUN wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz \
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV DISABLE_TELEMETRY=1
 ENV DOCUMENT_STORAGE_DIR=/app/uploads/documents
+ENV MONGODB_URI=mongodb://host.docker.internal:27017
 
 WORKDIR /app
 

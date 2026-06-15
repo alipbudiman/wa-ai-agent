@@ -47,6 +47,7 @@ services:
       context: .
       dockerfile: brain/Dockerfile
     container_name: wa-agent-brain
+    command: ["sh", "-c", "mkdir -p /app/playground/runSubagent && uvicorn app:app --host 0.0.0.0 --port 8000"]
     restart: unless-stopped
     env_file:
       - .env
@@ -62,9 +63,12 @@ services:
       - RUN_SUBAGENT_DIR=/app/playground/runSubagent
       - DOCUMENT_STORAGE_DIR=/app/uploads/documents
     depends_on:
-      - mongo
-      - redis
-      - ollama
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
     ports:
       - "8000:8000"
     volumes:
@@ -72,8 +76,6 @@ services:
       - claude_data:/app/.claude
       - playground_data:/app/playground
       - document_data:/app/uploads/documents
-      - ./playground/runSubagent:/app/playground/runSubagent
-      - ./brain:/app/brain
 
   wa-agent:
     build:
@@ -94,9 +96,12 @@ services:
       - ANTHROPIC_BASE_URL=http://ollama:11434
       - DOCUMENT_STORAGE_DIR=/app/uploads/documents
     depends_on:
-      - brain
-      - mongo
-      - ollama
+      brain:
+        condition: service_started
+      mongo:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     ports:
       - "8001:8001"
     volumes:
@@ -105,7 +110,6 @@ services:
       - wa_session_data:/app/data
       - playground_data:/app/playground
       - document_data:/app/uploads/documents
-      - ./playground/runSubagent:/app/playground/runSubagent
 
 volumes:
   atlas_data:

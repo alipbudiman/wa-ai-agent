@@ -45,6 +45,8 @@ class State(MessagesState):
     sender: str
     rag_context: str = ""
     rag_query: str = ""
+    custom_tool_context: str = ""
+    custom_tool_query: str = ""
 
 class FeedBackType(BaseModel):
     is_approved: str
@@ -53,6 +55,8 @@ class ChatAgentUseCase:
     TUNNING_PARAM = 3
     RAG_TOP_K = 5
     RAG_SCORE_THRESHOLD = 0.6
+    CUSTOM_TOOL_TOP_K = 5
+    MAX_CUSTOM_TOOL_INFORMATION_CHARS = 4000
     
     ASSISTANT_CONTEXT_MAX_TOKENS = 8000 * TUNNING_PARAM
     DIRECT_CHAT_CONTEXT_MAX_TOKENS = 2048 * TUNNING_PARAM
@@ -219,9 +223,19 @@ class ChatAgentUseCase:
                 f"This is summary of the conversation to date: {summary}\n\n"
                 "Extend the summary by taking into account the new messages above:"
             )
+            summary_message += (
+                "\n\nImportant: conversation history is not a source of truth for mutable facts. "
+                "Summarize it only for continuity, mark facts from previous turns as historical unless they were verified by current tool/RAG context, "
+                "and do not copy raw custom tool outputs into the summary."
+            )
             
         else:
-            summary_message = "Create a summary of the conversation above:"
+            summary_message = (
+                "Create a summary of the conversation above.\n\n"
+                "Important: conversation history is not a source of truth for mutable facts. "
+                "Summarize it only for continuity, mark facts from previous turns as historical unless they were verified by current tool/RAG context, "
+                "and do not copy raw custom tool outputs into the summary."
+            )
 
         # Summarize from a bounded recent window to avoid recursive context blowups.
         summary_source = trim_messages(
@@ -355,6 +369,13 @@ class ChatAgentUseCase:
         return str(content).strip()
 
     @staticmethod
+    def __compact_text(text: str | None, max_chars: int) -> str:
+        compact = str(text or "").strip()
+        if len(compact) <= max_chars:
+            return compact
+        return compact[: max_chars - 3].rstrip() + "..."
+
+    @staticmethod
     def __is_internal_system_log_text(text: str) -> bool:
         """Identify internal synthetic logs that must stay hidden from users."""
         normalized = (text or "").strip()
@@ -438,6 +459,61 @@ class ChatAgentUseCase:
         except Exception as err:
             logger.error("Main agent RAG retrieve error: %s", err)
             return {"rag_context": ""}
+
+    def __load_custom_tool_context(self, state: State):
+        """
+        Load current-turn Tools Builder context before route classification.
+
+        This makes custom tool information available as current source context
+        and identifies code-backed tools that the assistant should execute when
+        mutable custom data is required.
+        """
+        try:
+            query = str(state.get("custom_tool_query") or state.get("rag_query") or "").strip()
+            if not query:
+                query = self.__latest_user_text(state, max_messages=1)
+
+            if not query:
+                return {"custom_tool_context": ""}
+
+            relevant_tools = self.tools_builder.find_relevant_tools(
+                agent_type=MAIN_AGENT,
+                query=query,
+                limit=self.CUSTOM_TOOL_TOP_K,
+            )
+            if not relevant_tools:
+                logger.info("Main tools: no relevant custom tools found for current turn")
+                return {"custom_tool_context": ""}
+
+            context_parts: list[str] = []
+            for tool_data in relevant_tools:
+                safe_name = self.tools_builder.safe_tool_name(tool_data.name)
+                has_code = bool(tool_data.code and tool_data.code.code and tool_data.code.code.strip())
+                information = self.__compact_text(
+                    tool_data.information,
+                    self.MAX_CUSTOM_TOOL_INFORMATION_CHARS,
+                )
+                tool_parts = [
+                    f"[custom_tool: {tool_data.name} | callable: {safe_name} | code: {'available' if has_code else 'not configured'}]",
+                    f"Description: {tool_data.description}",
+                ]
+                if information:
+                    tool_parts.append(f"Information:\n{information}")
+                elif has_code:
+                    tool_parts.append(
+                        "Information: no static information is configured; execute this tool when current output is needed."
+                    )
+                else:
+                    tool_parts.append("Information: no source data is configured for this tool.")
+
+                context_parts.append("\n".join(tool_parts))
+
+            logger.info("Main tools: %d relevant custom tools found", len(relevant_tools))
+            return {"custom_tool_context": "\n\n".join(context_parts)}
+
+        except Exception as err:
+            logger.error("Main custom tool context error: %s", err)
+            return {"custom_tool_context": ""}
 
     @staticmethod
     def __coerce_tool_args(args: any) -> dict:
@@ -798,7 +874,12 @@ class ChatAgentUseCase:
 
         summary = state.get("summary", "").strip()
         if summary:
-            summary_message = SystemMessage(content=f"Conversation summary: {summary}")
+            summary_message = SystemMessage(
+                content=(
+                    "Conversation summary (non-authoritative for mutable facts; current tools/RAG override it): "
+                    f"{summary}"
+                )
+            )
             return [summary_message] + trimmed_messages
 
         return trimmed_messages
@@ -864,12 +945,36 @@ class ChatAgentUseCase:
                 assistant_messages = assistant_messages + [fallback_message]
 
         payload = [self.__system_rule(use_tools=use_tools)]
+        payload.append(SystemMessage(content=(
+            "SOURCE-OF-TRUTH ORDER FOR THIS TURN:\n"
+            "1. Current-turn tool outputs and Tools Builder context.\n"
+            "2. Current-turn uploaded document context from RAG.\n"
+            "3. Latest user message, contact info, and current send time.\n"
+            "4. Conversation history only for continuity, tone, and references.\n\n"
+            "If current tools/RAG conflict with history, current tools/RAG win. "
+            "For internal, uploaded, business, or mutable factual claims, do not use stale history when current source data is unavailable."
+        )))
+
+        custom_tool_context = str(state.get("custom_tool_context") or "").strip()
+        if custom_tool_context:
+            custom_tool_action_rule = (
+                "If it identifies a code-backed tool and the answer depends on mutable/custom data, execute the matching tool before answering."
+                if use_tools
+                else "If it identifies a code-backed tool and the answer depends on mutable/custom data, do not answer from stale history; say the tool-enabled path is required."
+            )
+            payload.append(SystemMessage(content=(
+                "CURRENT CUSTOM TOOL CONTEXT:\n"
+                "Use this current Tools Builder context when relevant. "
+                f"{custom_tool_action_rule}\n\n"
+                f"{custom_tool_context}"
+            )))
+
         rag_context = str(state.get("rag_context") or "").strip()
         if rag_context:
             payload.append(SystemMessage(content=(
-                "DOCUMENT CONTEXT:\n"
+                "CURRENT DOCUMENT CONTEXT (RAG):\n"
                 "Use this uploaded document context when it is relevant to the user request. "
-                "Prefer it over general knowledge, but ignore it if it is unrelated.\n\n"
+                "Prefer it over conversation history and general knowledge, but ignore it if it is unrelated.\n\n"
                 f"{rag_context}"
             )))
 
@@ -1143,13 +1248,14 @@ class ChatAgentUseCase:
         
         dynamic_tools = [
             # dynamic tool that needs access to state (sender) must be generated here
+            self.agent_reaserch.make_agent_reaserch_tool(sender=sender), # reasearch agent
+            self.agent_code.make_agent_code_tool(sender=sender), # code agent
             self.websearch_tool.websearch_tool(sender=sender),
             self.db_access_tool.get_current_pending_message(sender=sender),
             self.db_access_tool.get_historical_pending_messages(sender=sender),
             self.wa_integration_tool.send_message(sender=sender),
             self.wa_integration_tool.send_file(sender=sender),
-            self.agent_code.make_agent_code_tool(sender=sender),
-            self.agent_reaserch.make_agent_reaserch_tool(sender=sender),
+            self.wa_integration_tool.get_all_contacts(sender=sender),
             self.terminalx_tool.simple_exec(sender=sender),
             self.filex_tool.generate_images(sender=sender)
         ]
@@ -1266,14 +1372,24 @@ class ChatAgentUseCase:
         else:
             build_msg += "\n- Tools are NOT available for this turn. Solve using reasoning and context only."
 
+        build_msg += (
+            "\n\nSOURCE-OF-TRUTH POLICY:"
+            "\n- Current-turn tool output and Tools Builder context are the first authority for internal/custom data."
+            "\n- Current-turn RAG document context is the next authority for uploaded knowledge."
+            "\n- Conversation history is only continuity context and may be stale."
+            "\n- If current tools/RAG conflict with history, current tools/RAG win."
+            "\n- If a mutable internal/business fact is not supported by current tools/RAG, say current source data is unavailable instead of reusing stale history."
+        )
+
         if use_tools:
             custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=MAIN_AGENT)
             if custom_tools_catalog:
                 build_msg += "\n\n" + custom_tools_catalog
                 build_msg += (
                     "\n\nCUSTOM TOOL USAGE:"
+                    "\n- Treat current-turn Tools Builder context, when provided, as the first relevance scan."
                     "\n- Match the user's request against each custom tool description."
-                    "\n- If there is a clear match, call the listed callable_tool_name directly."
+                    "\n- If there is a clear match, call the listed callable_tool_name directly when tool execution is needed for current/mutable data."
                     "\n- If a provider cannot call that native custom tool name, call `access_tools_builder` with `tool_name` set to original_name."
                     "\n- For information-only custom tools, call the tool and use its returned information; do not guess missing facts."
                     "\n- For code-backed custom tools, pass `tool_input` when the custom code needs data from the user request."
@@ -1386,6 +1502,7 @@ class ChatAgentUseCase:
 
         # Register worker nodes.
         builder.add_node("retrieve", self.__retrieve)
+        builder.add_node("load_custom_tool_context", self.__load_custom_tool_context)
         builder.add_node("summarize_conversation", self.__summarize_conversation)
         
         # assistant decides whether tools are needed; tools executes tool calls.
@@ -1400,8 +1517,9 @@ class ChatAgentUseCase:
         
         # Route from START using early filtering.
         builder.add_edge(START, "retrieve")
+        builder.add_edge("retrieve", "load_custom_tool_context")
         builder.add_conditional_edges(
-            "retrieve",
+            "load_custom_tool_context",
             self.__route_query,
             {
                 "direct_chat": "direct_chat",  # No-tool path.
@@ -1657,6 +1775,8 @@ class ChatAgentUseCase:
                 "sender": group_id if group_id else number,
                 "rag_query": messages,
                 "rag_context": "",
+                "custom_tool_query": messages,
+                "custom_tool_context": "",
             }, config=config)
             
             results_message = self.extract_ai_content(result.get('messages', []))

@@ -212,35 +212,48 @@ class FileX:
             f.write(base64.b64decode(images[0]))
             
         return output_path
-    
-    def __gen_image_by_pollinations(self, prompt: str, output_path: str, sender: str = ""):
-        """Generate image by using Pollinations AI"""
-        encoded_prompt = requests.utils.quote(prompt)
-        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(url, timeout=60)
-                response.raise_for_status()
-                with open(output_path, "wb") as f:
-                    f.write(response.content)
-                return output_path
-            except requests.exceptions.RequestException as e:
-                if attempt < max_retries - 1:
-                    # If 429 or read timeout, wait and retry
-                    if sender:
-                        self.wa_tools.request_send_message(number=sender, message=f"⏳ Pollinations fallback failed: {type(e).__name__}: {e}. Retrying...", sender=sender)
-                    sleep_time = (attempt + 1) * 5
-                    logger.warning("[Worker:%s] Pollinations API error %s. Retrying in %ss...", sender, e, sleep_time)
-                    time.sleep(sleep_time)
-                else:
-                    raise e
-        return ""
+    def __gen_image_by_gpt_image(self, prompt: str, output_path: str):
+        """Generate image by using OpenAI GPT Image."""
+        openai_config = self.config.get_openai_config()
+        if openai_config.api_key == "":
+            raise Exception("OpenAI API Key not found. Please set it using /openai-config.")
+
+        try:
+            from openai import OpenAI
+        except ImportError as e:
+            raise Exception("OpenAI SDK not installed. Please install requirements.txt.") from e
+
+        configured_img_model = (openai_config.img_model or "").strip()
+        model = configured_img_model if configured_img_model else "gpt-image-2-2026-04-21"
+        configured_img_quality = (openai_config.img_quality or "").strip()
+        quality = configured_img_quality if configured_img_quality else "medium"
+
+        client = OpenAI(api_key=openai_config.api_key)
+        response = client.images.generate(
+            model=model,
+            prompt=prompt,
+            size="1536x1024",
+            quality=quality,
+            output_format="jpeg",
+        )
+
+        images = getattr(response, "data", None) or []
+        if not images:
+            raise Exception(f"No image returned by OpenAI API. Response: {response}")
+
+        image_base64 = getattr(images[0], "b64_json", None)
+        if not image_base64:
+            raise Exception(f"No base64 image returned by OpenAI API. Response: {response}")
+
+        with open(output_path, "wb") as f:
+            f.write(base64.b64decode(image_base64))
+
+        return output_path
 
     def request_generate_images(self, prompts: list, folder_path: str, sender: str = "") -> dict:
         """
-        Generate images from a list of text prompts using Gemini (primary) and Pollinations AI (fallback).
+        Generate images from a list of text prompts using OpenAI, Gemini, or Minimax.
 
         AI Level Instruction (Usage Guidelines):
         - Treat this as the primary method for any bulk image generation tasks.
@@ -273,14 +286,23 @@ class FileX:
                 filename = f"image_{uuid.uuid4()}_{i+1:03d}.jpg"
                 filepath = os.path.join(resolved_folder, filename)
 
-                methods = [
-                    ("Pollinations AI", lambda p, o: self.__gen_image_by_pollinations(p, o, sender)),
-                ]
+                methods = []
+                openai_config = self.config.get_openai_config()
 
                 if self.minimax_config.api_key != "":
                     methods.insert(0, ("Minimax", self.__gen_image_by_minimax))
                 if self.google_config.api_key != "":
                     methods.insert(0, ("Gemini", self.__gen_image_by_gemini))
+                if openai_config.api_key != "":
+                    methods.insert(0, ("OpenAI GPT Image", self.__gen_image_by_gpt_image))
+                
+                if not methods:
+                    error_msg = "No image generation methods available. Please configure at least one API key for OpenAI, Gemini, or Minimax."
+                    logger.error("[Worker:%s] %s", sender, error_msg)
+                    return {
+                        "content": [{"type": "text", "text": error_msg}],
+                        "is_error": True,
+                    }
                 
                 success = False
                 last_error = None
@@ -338,10 +360,10 @@ class FileX:
         return StructuredTool.from_function(
             func=_gen,
             name="generate_images",
-            description=    """Generate images from a list of text prompts using Pollinations AI.
+            description=    """Generate images from a list of text prompts using OpenAI, Gemini, or Minimax.
 AI Level Instruction (Usage Guidelines):
 - Treat this as the primary method for any bulk image generation tasks.
-- Pollinations AI is a free service; no API key is required.
+- Requires at least one configured image provider API key: OpenAI, Gemini, or Minimax.
 - Output location: Always determine a relevant folder path based on the context 
     (e.g., `playground/generated_images/topic_name`) and pass it as `folder_path`.
 - All generated images will be saved collectively inside that single specified folder.

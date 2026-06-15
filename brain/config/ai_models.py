@@ -40,6 +40,8 @@ class MinimaxConfig(BaseModel):
 class OpenAIConfig(BaseModel):
     config_name: str = "openai"  # MongoDB document identifier
     api_key: str
+    img_model: str
+    img_quality: str = "medium"
     model: str
 
 class AgentProvidersAndModel(BaseModel):
@@ -165,13 +167,17 @@ class AIModelConfigManager:
             config = OpenAIConfig(
                 config_name="openai",
                 api_key='',
-                model='gpt-5'
+                model='gpt-5',
+                img_model='gpt-image-2-2026-04-21',
+                img_quality='medium'
             ).model_dump()
             self.collection.insert_one(config)
         return OpenAIConfig(
             config_name=config.get("config_name", "openai"),
             api_key=config.get("api_key", ""),
-            model=config.get("model", "gpt-5")
+            model=config.get("model", "gpt-5"),
+            img_model=config.get("img_model", "gpt-image-2-2026-04-21"),
+            img_quality=config.get("img_quality", "medium")
         )
 
     def get_agent_model_config(self) -> AgentConfigModels:

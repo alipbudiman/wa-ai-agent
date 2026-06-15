@@ -64,6 +64,8 @@ type OpenAIConfig struct {
 	ConfigName string `bson:"config_name" json:"config_name"`
 	APIKey     string `bson:"api_key" json:"api_key"`
 	Model      string `bson:"model" json:"model"`
+	ImgModel   string `bson:"img_model" json:"img_model"`
+	ImgQuality string `bson:"img_quality" json:"img_quality"`
 }
 
 func rawBSONMap(value any) (map[string]any, bool) {
@@ -503,6 +505,8 @@ func GetOpenAIConfig() OpenAIConfig {
 		ConfigName: OPEN_AI_CONFIG_NAME,
 		APIKey:     Env("OPENAI_API_KEY", ""),
 		Model:      Env("OPENAI_MODEL", "gpt-5"),
+		ImgModel:   Env("OPENAI_IMG_MODEL", "gpt-image-2-2026-04-21"),
+		ImgQuality: Env("OPENAI_IMG_QUALITY", "medium"),
 	}
 
 	filter := bson.M{"config_name": OPEN_AI_CONFIG_NAME}
@@ -522,6 +526,14 @@ func UpdateOpenAIConfig(config OpenAIConfig) error {
 	}
 	if config.Model != "" {
 		data_config["$set"].(bson.M)["model"] = config.Model
+	}
+
+	if config.ImgModel != "" {
+		data_config["$set"].(bson.M)["img_model"] = config.ImgModel
+	}
+
+	if config.ImgQuality != "" {
+		data_config["$set"].(bson.M)["img_quality"] = config.ImgQuality
 	}
 
 	res, err := databases.MongoManager.UpdateOne(

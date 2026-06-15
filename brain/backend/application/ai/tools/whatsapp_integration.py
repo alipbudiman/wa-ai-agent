@@ -201,7 +201,8 @@ class WhatsAppIntegration:
                 "@s.whatsapp.net or @lid. Only call this tool when both recipient and message are "
                 "available. If one field is missing, ask for it first and do not execute this tool. "
                 "Do not pass name-only aliases (example: 'ke reyhan' or 'to reyhan' without a phone number) as recipient identifier. "
-                "If recipient is not numeric/JID and no confirmed number exists in context, ask for phone number/JID first. "
+                "If recipient is not numeric/JID and no confirmed number exists in context, use get_all_contacts first, "
+                "ask the user to confirm the matched contact, then pass the confirmed JID/ID/Number here. "
                 "For multi-turn chat, you may combine values from previous turns before calling. "
                 "Interpret tool response status carefully: status='on_hold' means message has NOT "
                 "been sent and still needs explicit user confirmation."
@@ -352,7 +353,8 @@ class WhatsAppIntegration:
                 "Workflow: compress → send_file. "
                 "Only call this tool when recipient, file_path, and optional caption are available. "
                 "If the recipient is missing, ask for it first. Do not pass name-only aliases as recipient. "
-                "If recipient is not numeric/JID and no confirmed number exists in context, ask for phone number/JID first. "
+                "If recipient is not numeric/JID and no confirmed number exists in context, use get_all_contacts first, "
+                "ask the user to confirm the matched contact, then pass the confirmed JID/ID/Number here. "
                 "Interpret tool response status: status='on_hold' means file on hold status and waiting for user confirmation to send."
                 "On-hold status only applies when the recipient is different from the sender,"
                 "and needs explicit user confirmation via /file-send or /file-unsend."
@@ -469,6 +471,36 @@ class WhatsAppIntegration:
             logger.error("Error fetching commands: %s", e)
             return {"success": False, "message": f"failed to get commands: {e}", "data": None}
     
+    def request_get_all_contacts(self):
+        """Get all contacts from the WhatsApp server endpoint."""
+        try:
+            response = requests.get(f"{self.__get_self_url()}show-contacts", timeout=120)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("invalid response format")
+            return payload.get("data", [])
+        except (requests.exceptions.RequestException, ValueError) as e:
+            logger.error("Error fetching contacts: %s", e)
+            return {"success": False, "message": f"failed to get contacts: {e}", "data": None}
+
+    def get_all_contacts(self, sender: str | None = None):
+        """Build a tool for listing/searching WhatsApp contacts."""
+        def _get_all_contacts():
+            return self.request_get_all_contacts()
+
+        return StructuredTool.from_function(
+            func=_get_all_contacts,
+            name="get_all_contacts",
+            description=(
+                "Get the user's saved WhatsApp contacts, including names and JID/ID/Number when available. "
+                "Use this when the user asks to search, list, or find a contact by name, and before "
+                "send_message/send_file when the recipient is name-only. Match names case-insensitively "
+                "against First Name, Full Name, and Push Name. Partial names can be likely matches, but "
+                "you must ask the user to confirm a likely match before using its JID/ID/Number for a send action."
+            ),
+        )
+
     def store_ai_message_to_inbox(self, message: str, number: str):
         """Store a message from AI to the inbox collection in MongoDB."""
         try:
@@ -492,8 +524,8 @@ class WhatsAppIntegration:
         except Exception as e:
             logger.error(f"Error storing AI message to inbox for number '{sender_identifier}': {e}")
             return {"success": False, "message": f"failed to store AI message to inbox: {e}", "data": None}
-            
-    
+
+    # TODO: will added for broadcast admin if user (in reply agent) want to chat with admin / human
     def requests_broadcast_to_admins(self, client_number: str, message: str):
         """Broadcast a message to all admin contacts."""
         message = (message or "").strip()
@@ -530,6 +562,7 @@ class WhatsAppIntegration:
                 on_hold=False,
             )        
     
+    # TODO: will added for broadcast admin if user (in reply agent) want to chat with admin / human
     def broadcast_to_admins(self, client_number: str):
         """Broadcast a message to all admin contacts."""
         def _broadcast(message: str) -> SendMessageResponse:
@@ -554,4 +587,3 @@ class WhatsAppIntegration:
              args_schema=SendMessageInput
          )
     
-        
