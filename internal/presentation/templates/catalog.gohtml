@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Catalog Store</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
+	<style>
+		:root {
+			--color-bg: #090909;
+			--color-bg-soft: #121212;
+			--color-panel: #1a1a1a;
+			--color-panel-line: rgba(255, 255, 255, 0.1);
+			--color-text: #ffffff;
+			--color-muted: #a0a0a0;
+			--color-accent: #d4ed31;
+			--color-cyan: #00e5ff;
+			--color-danger: #ff4d5f;
+			--font-primary: "Rajdhani", "Segoe UI", sans-serif;
+			--font-mono: "JetBrains Mono", Consolas, monospace;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			min-height: 100vh;
+			margin: 0;
+			background-color: var(--color-bg);
+			color: var(--color-text);
+			font-family: var(--font-primary);
+			background-image:
+				linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				radial-gradient(circle at 12% -8%, rgba(212, 237, 49, 0.16), transparent 35%),
+				radial-gradient(circle at 98% 5%, rgba(0, 229, 255, 0.12), transparent 30%);
+			background-size: 40px 40px, 40px 40px, auto, auto;
+		}
+
+		.catalog-shell {
+			max-width: 1460px;
+		}
+
+		.panel {
+			border: 1px solid var(--color-panel-line);
+			background: linear-gradient(145deg, rgba(26, 26, 26, 0.98), rgba(18, 18, 18, 0.98));
+			box-shadow: 0 18px 32px rgba(0, 0, 0, 0.34);
+		}
+
+		.tech-kicker {
+			font-family: var(--font-mono);
+			font-size: 0.74rem;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+			color: var(--color-accent);
+		}
+
+		.section-title {
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			font-size: 1.05rem;
+		}
+
+		.muted-text {
+			color: var(--color-muted) !important;
+		}
+
+		.font-mono {
+			font-family: var(--font-mono);
+			font-size: 0.78rem;
+			word-break: break-all;
+		}
+
+		.form-label {
+			color: var(--color-muted);
+			text-transform: uppercase;
+			font-size: 0.78rem;
+			letter-spacing: 0.06em;
+		}
+
+		.form-control,
+		.form-select {
+			background-color: var(--color-bg-soft);
+			border-color: var(--color-panel-line);
+			color: var(--color-text);
+		}
+
+		.form-control:focus,
+		.form-select:focus {
+			background-color: var(--color-bg-soft);
+			border-color: var(--color-accent);
+			box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+			color: var(--color-text);
+		}
+
+		.form-control::placeholder {
+			color: #707070;
+		}
+
+		.form-text {
+			color: #8e8e8e;
+			font-family: var(--font-mono);
+			font-size: 0.72rem;
+		}
+
+		.btn-tech-primary {
+			--bs-btn-bg: var(--color-accent);
+			--bs-btn-border-color: var(--color-accent);
+			--bs-btn-color: #141414;
+			--bs-btn-hover-bg: #e1ff3f;
+			--bs-btn-hover-border-color: #e1ff3f;
+			--bs-btn-active-bg: #c6df2d;
+			--bs-btn-active-border-color: #c6df2d;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		.btn-tech-outline {
+			--bs-btn-color: var(--color-text);
+			--bs-btn-border-color: var(--color-panel-line);
+			--bs-btn-hover-bg: rgba(255, 255, 255, 0.09);
+			--bs-btn-hover-border-color: rgba(255, 255, 255, 0.2);
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		.btn-tech-danger {
+			--bs-btn-bg: transparent;
+			--bs-btn-border-color: rgba(255, 77, 95, 0.55);
+			--bs-btn-color: #ffb8bf;
+			--bs-btn-hover-bg: rgba(255, 77, 95, 0.14);
+			--bs-btn-hover-border-color: rgba(255, 77, 95, 0.9);
+			--bs-btn-hover-color: #ffd8dd;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		.catalog-grid {
+			display: grid;
+			grid-template-columns: minmax(260px, 340px) minmax(0, 1fr) minmax(280px, 380px);
+			gap: 1rem;
+			align-items: start;
+		}
+
+		.product-list {
+			max-height: 680px;
+			overflow: auto;
+			padding-right: 0.15rem;
+		}
+
+		.product-item {
+			width: 100%;
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			background: rgba(255, 255, 255, 0.04);
+			color: var(--color-text);
+			text-align: left;
+			padding: 0.78rem;
+			border-radius: 0.45rem;
+			margin-bottom: 0.55rem;
+			transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+		}
+
+		.product-item:hover,
+		.product-item.active {
+			border-color: rgba(212, 237, 49, 0.72);
+			background: rgba(212, 237, 49, 0.08);
+			transform: translateY(-1px);
+		}
+
+		.product-name {
+			font-weight: 700;
+			letter-spacing: 0.03em;
+			text-transform: uppercase;
+		}
+
+		.product-meta {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.35rem;
+			margin-top: 0.45rem;
+		}
+
+		.product-chip {
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			border-radius: 999px;
+			padding: 0.14rem 0.48rem;
+			color: #d8d8d8;
+			font-family: var(--font-mono);
+			font-size: 0.68rem;
+		}
+
+		.reply-agent-note {
+			border: 1px solid rgba(0, 229, 255, 0.28);
+			background: rgba(0, 229, 255, 0.08);
+			color: #c8f6ff;
+			border-radius: 0.55rem;
+			padding: 0.7rem 0.85rem;
+			font-family: var(--font-mono);
+			font-size: 0.74rem;
+		}
+
+		.image-grid {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 0.65rem;
+		}
+
+		.image-tile {
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			background: rgba(255, 255, 255, 0.04);
+			border-radius: 0.5rem;
+			overflow: hidden;
+		}
+
+		.image-tile img {
+			width: 100%;
+			aspect-ratio: 1 / 1;
+			object-fit: cover;
+			display: block;
+			background: #111;
+		}
+
+		.image-actions {
+			padding: 0.55rem;
+		}
+
+		.empty-state {
+			border: 1px dashed rgba(255, 255, 255, 0.18);
+			border-radius: 0.55rem;
+			padding: 1rem;
+			color: var(--color-muted);
+			text-align: center;
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+		}
+
+		.feedback-toast,
+		.floating-loading {
+			position: fixed;
+			top: 0.95rem;
+			left: 50%;
+			transform: translate(-50%, -12px);
+			z-index: 1300;
+			display: flex;
+			align-items: center;
+			max-width: min(620px, calc(100vw - 1.4rem));
+			padding: 0.72rem 0.95rem;
+			border-radius: 0.65rem;
+			font-family: var(--font-mono);
+			font-size: 0.78rem;
+			letter-spacing: 0.03em;
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+		}
+
+		.feedback-toast {
+			border: 1px solid rgba(0, 229, 255, 0.4);
+			background: rgba(0, 229, 255, 0.1);
+			color: #d4fbff;
+		}
+
+		.feedback-toast.is-error {
+			border-color: rgba(255, 77, 95, 0.6);
+			background: rgba(255, 77, 95, 0.12);
+			color: #ffd8dd;
+		}
+
+		.feedback-toast.is-warning {
+			border-color: rgba(255, 214, 107, 0.6);
+			background: rgba(255, 214, 107, 0.12);
+			color: #fff0bd;
+		}
+
+		.floating-loading {
+			border: 1px solid rgba(212, 237, 49, 0.42);
+			background: rgba(16, 18, 9, 0.92);
+			color: #f6ffd0;
+			gap: 0.62rem;
+		}
+
+		.feedback-toast.show,
+		.floating-loading.show {
+			opacity: 1;
+			visibility: visible;
+			transform: translate(-50%, 0);
+		}
+
+		.loading-dot {
+			width: 0.72rem;
+			height: 0.72rem;
+			border-radius: 999px;
+			border: 2px solid rgba(255, 255, 255, 0.22);
+			border-top-color: var(--color-accent);
+			animation: spin 0.75s linear infinite;
+			flex-shrink: 0;
+		}
+
+		@keyframes spin {
+			to { transform: rotate(360deg); }
+		}
+
+		@media (max-width: 1199.98px) {
+			.catalog-grid {
+				grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+			}
+
+			.image-panel {
+				grid-column: 1 / -1;
+			}
+		}
+
+		@media (max-width: 767.98px) {
+			.catalog-grid {
+				grid-template-columns: 1fr;
+			}
+
+			.product-list {
+				max-height: 360px;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div id="feedbackToast" class="feedback-toast" role="status" aria-live="polite"></div>
+	<div id="floatingLoading" class="floating-loading" role="status" aria-live="polite">
+		<span class="loading-dot" aria-hidden="true"></span>
+		<span id="loadingText">Syncing catalog...</span>
+	</div>
+
+	<main class="container-fluid catalog-shell py-4">
+		<section class="panel rounded-3 p-3 p-lg-4 mb-3">
+			<div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+				<div>
+					<p class="tech-kicker mb-2">// transporter catalog store</p>
+					<h1 class="h3 mb-1 text-uppercase">Catalog Control</h1>
+					<p class="muted-text mb-0">Catalog ini akan digunakan sebagai data produk untuk Reply Agent.</p>
+				</div>
+				<div class="d-flex flex-wrap gap-2">
+					<a href="/" class="btn btn-tech-outline">Hub</a>
+					<button id="refreshButton" type="button" class="btn btn-tech-outline">Refresh</button>
+					<button id="newProductButton" type="button" class="btn btn-tech-primary">New Product</button>
+				</div>
+			</div>
+		</section>
+
+		<section class="catalog-grid">
+			<aside class="panel rounded-3 p-3">
+				<div class="d-flex justify-content-between align-items-center mb-3">
+					<div>
+						<p class="tech-kicker mb-1">// database</p>
+						<h2 class="section-title mb-0">Products</h2>
+					</div>
+					<span id="productCount" class="font-mono muted-text">0</span>
+				</div>
+				<input id="searchInput" type="search" class="form-control mb-3" placeholder="Search product, SKU, category" />
+				<div id="productList" class="product-list"></div>
+			</aside>
+
+			<section class="panel rounded-3 p-3 p-lg-4">
+				<div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-start gap-3 mb-3">
+					<div>
+						<p id="formKicker" class="tech-kicker mb-1">// create</p>
+						<h2 id="formTitle" class="section-title mb-0">Create Catalog Product</h2>
+					</div>
+					<div class="font-mono muted-text" id="selectedProductId">id: auto</div>
+				</div>
+
+				<form id="catalogForm">
+					<div class="row g-3">
+						<div class="col-md-6">
+							<label class="form-label" for="skuInput">SKU</label>
+							<input id="skuInput" class="form-control" required placeholder="WATCH-SEIKO-001" />
+						</div>
+						<div class="col-md-6">
+							<label class="form-label" for="nameInput">Product Name</label>
+							<input id="nameInput" class="form-control" required placeholder="Seiko 5 Sports Automatic" />
+						</div>
+						<div class="col-12">
+							<label class="form-label" for="descriptionInput">Description</label>
+							<textarea id="descriptionInput" class="form-control" rows="3" placeholder="Short product description"></textarea>
+						</div>
+						<div class="col-md-4">
+							<label class="form-label" for="priceInput">Price</label>
+							<input id="priceInput" type="number" min="0" step="0.01" class="form-control" required />
+						</div>
+						<div class="col-md-4">
+							<label class="form-label" for="stockInput">Stock</label>
+							<input id="stockInput" type="number" min="0" step="1" class="form-control" value="0" />
+						</div>
+						<div class="col-md-4">
+							<label class="form-label" for="shippingWeightInput">Shipping Weight (grams)</label>
+							<input id="shippingWeightInput" type="number" min="0" step="1" class="form-control" required />
+						</div>
+						<div class="col-md-6">
+							<label class="form-label" for="brandInput">Brand</label>
+							<input id="brandInput" class="form-control" placeholder="Brand name" />
+						</div>
+						<div class="col-md-6">
+							<label class="form-label" for="categorySelect">Category</label>
+							<select id="categorySelect" class="form-select" required>
+								<option value="watch">watch</option>
+								<option value="clothing">clothing</option>
+								<option value="furniture">furniture</option>
+								<option value="lainnya">lainnya</option>
+							</select>
+						</div>
+					</div>
+
+					<hr class="border-secondary-subtle my-4" />
+
+					<div class="d-flex justify-content-between align-items-center mb-2">
+						<h3 class="section-title mb-0">Category Details</h3>
+						<span id="detailSchemaLabel" class="font-mono muted-text">WatchDetails</span>
+					</div>
+					<div id="detailsFields" class="row g-3"></div>
+
+					<div class="d-flex flex-wrap gap-2 mt-4">
+						<button id="saveButton" type="submit" class="btn btn-tech-primary">Save Product</button>
+						<button id="resetButton" type="button" class="btn btn-tech-outline">Reset Form</button>
+						<button id="deleteProductButton" type="button" class="btn btn-tech-danger d-none">Delete Product</button>
+					</div>
+				</form>
+			</section>
+
+			<aside class="panel image-panel rounded-3 p-3">
+				<div class="mb-3">
+					<p class="tech-kicker mb-1">// product images</p>
+					<h2 class="section-title mb-2">Image Gallery</h2>
+					<div class="reply-agent-note">Images are stored as catalog references. File uploads are converted to public R2 URLs by Brain.</div>
+				</div>
+
+				<form id="imageUploadForm" class="mb-3">
+					<label class="form-label" for="imageFileInput">Upload image files</label>
+					<input id="imageFileInput" type="file" class="form-control mb-2" accept="image/*" multiple />
+					<button type="submit" class="btn btn-tech-outline w-100">Upload Files</button>
+				</form>
+
+				<form id="imageURLForm" class="mb-3">
+					<label class="form-label" for="imageURLInput">Attach image URL</label>
+					<input id="imageURLInput" type="url" class="form-control mb-2" placeholder="https://..." />
+					<button type="submit" class="btn btn-tech-outline w-100">Add URL</button>
+				</form>
+
+				<div id="imageGrid" class="image-grid"></div>
+			</aside>
+		</section>
+	</main>
+
+	<script>
+		const catalogStoreBaseURL = "{{ .CatalogStoreBaseURL }}" || "/api/catalog-store";
+		const FEEDBACK_AUTO_HIDE_MS = 2800;
+
+		const detailSchemas = {
+			watch: {
+				label: "WatchDetails",
+				fields: [
+					{ name: "movement_type", label: "Movement Type", type: "text", placeholder: "automatic" },
+					{ name: "material", label: "Material", type: "text", placeholder: "stainless steel" },
+					{ name: "water_resistance_atm", label: "Water Resistance ATM", type: "number", placeholder: "10" },
+					{ name: "length_mm", label: "Length MM", type: "number", placeholder: "46.3", step: "0.01" },
+					{ name: "width_mm", label: "Width MM", type: "number", placeholder: "40.0", step: "0.01" },
+					{ name: "thickness_mm", label: "Thickness MM", type: "number", placeholder: "10.9", step: "0.01" },
+				],
+			},
+			clothing: {
+				label: "ClothingDetails",
+				fields: [
+					{ name: "size", label: "Size", type: "text", placeholder: "L" },
+					{ name: "fabric", label: "Fabric", type: "text", placeholder: "cotton" },
+					{ name: "color", label: "Color", type: "text", placeholder: "black" },
+				],
+			},
+			furniture: {
+				label: "FurnitureDetails",
+				fields: [
+					{ name: "dimensions_cm", label: "Dimensions CM", type: "text", placeholder: "120 x 60 x 75" },
+					{ name: "primary_material", label: "Primary Material", type: "text", placeholder: "solid wood" },
+					{ name: "requires_assembly", label: "Requires Assembly", type: "checkbox" },
+				],
+			},
+			lainnya: {
+				label: "NoDetails",
+				fields: [],
+			},
+		};
+
+		const state = {
+			products: [],
+			selectedId: "",
+			feedbackTimerId: 0,
+			loadingCount: 0,
+		};
+
+		const ui = {
+			feedbackToast: document.getElementById("feedbackToast"),
+			floatingLoading: document.getElementById("floatingLoading"),
+			loadingText: document.getElementById("loadingText"),
+			refreshButton: document.getElementById("refreshButton"),
+			newProductButton: document.getElementById("newProductButton"),
+			searchInput: document.getElementById("searchInput"),
+			productList: document.getElementById("productList"),
+			productCount: document.getElementById("productCount"),
+			catalogForm: document.getElementById("catalogForm"),
+			formKicker: document.getElementById("formKicker"),
+			formTitle: document.getElementById("formTitle"),
+			selectedProductId: document.getElementById("selectedProductId"),
+			skuInput: document.getElementById("skuInput"),
+			nameInput: document.getElementById("nameInput"),
+			descriptionInput: document.getElementById("descriptionInput"),
+			priceInput: document.getElementById("priceInput"),
+			stockInput: document.getElementById("stockInput"),
+			shippingWeightInput: document.getElementById("shippingWeightInput"),
+			brandInput: document.getElementById("brandInput"),
+			categorySelect: document.getElementById("categorySelect"),
+			detailSchemaLabel: document.getElementById("detailSchemaLabel"),
+			detailsFields: document.getElementById("detailsFields"),
+			saveButton: document.getElementById("saveButton"),
+			resetButton: document.getElementById("resetButton"),
+			deleteProductButton: document.getElementById("deleteProductButton"),
+			imageUploadForm: document.getElementById("imageUploadForm"),
+			imageFileInput: document.getElementById("imageFileInput"),
+			imageURLForm: document.getElementById("imageURLForm"),
+			imageURLInput: document.getElementById("imageURLInput"),
+			imageGrid: document.getElementById("imageGrid"),
+		};
+
+		function showLoading(message) {
+			state.loadingCount += 1;
+			ui.loadingText.textContent = message || "Syncing catalog...";
+			ui.floatingLoading.classList.add("show");
+		}
+
+		function hideLoading() {
+			state.loadingCount = Math.max(0, state.loadingCount - 1);
+			window.setTimeout(() => {
+				if (state.loadingCount === 0) {
+					ui.floatingLoading.classList.remove("show");
+				}
+			}, 90);
+		}
+
+		function showFeedback(message, tone = "info") {
+			window.clearTimeout(state.feedbackTimerId);
+			ui.feedbackToast.textContent = message;
+			ui.feedbackToast.classList.toggle("is-error", tone === "error");
+			ui.feedbackToast.classList.toggle("is-warning", tone === "warning");
+			ui.feedbackToast.classList.add("show");
+			state.feedbackTimerId = window.setTimeout(() => {
+				ui.feedbackToast.classList.remove("show");
+			}, FEEDBACK_AUTO_HIDE_MS);
+		}
+
+		async function requestJSON(url, options = {}) {
+			const response = await fetch(url, {
+				headers: {
+					Accept: "application/json",
+					...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+					...(options.headers || {}),
+				},
+				...options,
+			});
+
+			const payload = await response.json().catch(() => null);
+			if (!response.ok || !payload || payload.success === false) {
+				const message = payload && payload.message ? payload.message : `request failed with status ${response.status}`;
+				throw new Error(message);
+			}
+			return payload;
+		}
+
+		function productsEndpoint() {
+			return `${catalogStoreBaseURL}/products`;
+		}
+
+		function productEndpoint(productId) {
+			return `${catalogStoreBaseURL}/products/${encodeURIComponent(productId)}`;
+		}
+
+		function productImagesEndpoint(productId) {
+			return `${productEndpoint(productId)}/images`;
+		}
+
+		function extractData(payload) {
+			return payload && Object.prototype.hasOwnProperty.call(payload, "data") ? payload.data : payload;
+		}
+
+		function escapeHTML(value) {
+			return String(value || "")
+				.replaceAll("&", "&amp;")
+				.replaceAll("<", "&lt;")
+				.replaceAll(">", "&gt;")
+				.replaceAll("\"", "&quot;")
+				.replaceAll("'", "&#039;");
+		}
+
+		function formatPrice(value) {
+			const numericValue = Number(value || 0);
+			return Number.isFinite(numericValue) ? numericValue.toLocaleString() : "0";
+		}
+
+		function findSelectedProduct() {
+			return state.products.find((product) => product.id === state.selectedId) || null;
+		}
+
+		function filteredProducts() {
+			const query = ui.searchInput.value.trim().toLowerCase();
+			if (!query) {
+				return state.products;
+			}
+
+			return state.products.filter((product) => {
+				return [
+					product.product_name,
+					product.sku,
+					product.category,
+					product.brand,
+					product.description,
+				].some((value) => String(value || "").toLowerCase().includes(query));
+			});
+		}
+
+		function renderProducts() {
+			const products = filteredProducts();
+			ui.productList.innerHTML = "";
+			ui.productCount.textContent = `${state.products.length} items`;
+
+			if (products.length === 0) {
+				ui.productList.innerHTML = "<div class=\"empty-state\">[ empty ] no catalog products found</div>";
+				return;
+			}
+
+			products.forEach((product) => {
+				const item = document.createElement("button");
+				item.type = "button";
+				item.className = `product-item${product.id === state.selectedId ? " active" : ""}`;
+				item.dataset.productId = product.id;
+				item.innerHTML = `
+					<div class="product-name">${escapeHTML(product.product_name || "-")}</div>
+					<div class="font-mono muted-text">${escapeHTML(product.sku || "-")}</div>
+					<div class="product-meta">
+						<span class="product-chip">${escapeHTML(product.category || "-")}</span>
+						<span class="product-chip">Rp ${formatPrice(product.price)}</span>
+						<span class="product-chip">${Array.isArray(product.images) ? product.images.length : 0} img</span>
+					</div>
+				`;
+				ui.productList.appendChild(item);
+			});
+		}
+
+		function renderDetailsFields(category, details = {}) {
+			const schema = detailSchemas[category] || detailSchemas.lainnya;
+			ui.detailSchemaLabel.textContent = schema.label;
+			ui.detailsFields.innerHTML = "";
+
+			schema.fields.forEach((field) => {
+				const col = document.createElement("div");
+				col.className = field.type === "checkbox" ? "col-12" : "col-md-6";
+				const value = details[field.name];
+
+				if (field.type === "checkbox") {
+					col.innerHTML = `
+						<div class="form-check mt-2">
+							<input id="detail_${field.name}" class="form-check-input detail-input" type="checkbox" data-detail-name="${field.name}" ${value ? "checked" : ""} />
+							<label class="form-check-label" for="detail_${field.name}">${escapeHTML(field.label)}</label>
+						</div>
+					`;
+				} else {
+					col.innerHTML = `
+						<label class="form-label" for="detail_${field.name}">${escapeHTML(field.label)}</label>
+						<input id="detail_${field.name}" class="form-control detail-input" data-detail-name="${field.name}" type="${field.type}" step="${field.step || "1"}" required placeholder="${escapeHTML(field.placeholder || "")}" value="${escapeHTML(value ?? "")}" />
+					`;
+				}
+
+				ui.detailsFields.appendChild(col);
+			});
+		}
+
+		function collectDetails() {
+			const category = ui.categorySelect.value;
+			const schema = detailSchemas[category] || detailSchemas.lainnya;
+			const details = {};
+
+			schema.fields.forEach((field) => {
+				const input = document.querySelector(`[data-detail-name="${field.name}"]`);
+				if (!input) {
+					return;
+				}
+				if (field.type === "checkbox") {
+					details[field.name] = input.checked;
+					return;
+				}
+				if (field.type === "number") {
+					details[field.name] = Number(input.value);
+					return;
+				}
+				details[field.name] = input.value.trim();
+			});
+
+			return details;
+		}
+
+		function buildPayload() {
+			return {
+				sku: ui.skuInput.value.trim(),
+				product_name: ui.nameInput.value.trim(),
+				description: ui.descriptionInput.value.trim() || null,
+				price: Number(ui.priceInput.value),
+				stock: Number(ui.stockInput.value || 0),
+				brand: ui.brandInput.value.trim() || null,
+				shipping_weight_grams: Number(ui.shippingWeightInput.value),
+				category: ui.categorySelect.value,
+				details: collectDetails(),
+			};
+		}
+
+		function setFormProduct(product) {
+			if (!product) {
+				state.selectedId = "";
+				ui.catalogForm.reset();
+				ui.categorySelect.value = "watch";
+				ui.stockInput.value = "0";
+				ui.formKicker.textContent = "// create";
+				ui.formTitle.textContent = "Create Catalog Product";
+				ui.selectedProductId.textContent = "id: auto";
+				ui.deleteProductButton.classList.add("d-none");
+				renderDetailsFields("watch", {});
+				renderImages([]);
+				renderProducts();
+				return;
+			}
+
+			state.selectedId = product.id;
+			ui.skuInput.value = product.sku || "";
+			ui.nameInput.value = product.product_name || "";
+			ui.descriptionInput.value = product.description || "";
+			ui.priceInput.value = product.price ?? "";
+			ui.stockInput.value = product.stock ?? 0;
+			ui.brandInput.value = product.brand || "";
+			ui.shippingWeightInput.value = product.shipping_weight_grams ?? "";
+			ui.categorySelect.value = product.category || "watch";
+			ui.formKicker.textContent = "// edit";
+			ui.formTitle.textContent = "Edit Catalog Product";
+			ui.selectedProductId.textContent = `id: ${product.id}`;
+			ui.deleteProductButton.classList.remove("d-none");
+			renderDetailsFields(ui.categorySelect.value, product.details || {});
+			renderImages(product.images || []);
+			renderProducts();
+		}
+
+		function renderImages(images) {
+			ui.imageGrid.innerHTML = "";
+
+			if (!state.selectedId) {
+				ui.imageGrid.innerHTML = "<div class=\"empty-state\" style=\"grid-column: 1 / -1;\">[ select_product ] choose a catalog product first</div>";
+				return;
+			}
+
+			if (!images || images.length === 0) {
+				ui.imageGrid.innerHTML = "<div class=\"empty-state\" style=\"grid-column: 1 / -1;\">[ no_images ] upload files or attach image URLs</div>";
+				return;
+			}
+
+			images.forEach((image) => {
+				const tile = document.createElement("article");
+				tile.className = "image-tile";
+				tile.innerHTML = `
+					<a href="${escapeHTML(image.url)}" target="_blank" rel="noopener noreferrer">
+						<img src="${escapeHTML(image.url)}" alt="Catalog image ${escapeHTML(image.id)}" loading="lazy" />
+					</a>
+					<div class="image-actions">
+						<div class="font-mono muted-text mb-2">${escapeHTML(image.id)}</div>
+						<button type="button" class="btn btn-sm btn-tech-danger w-100 delete-image-btn" data-image-id="${escapeHTML(image.id)}">Delete</button>
+					</div>
+				`;
+				ui.imageGrid.appendChild(tile);
+			});
+		}
+
+		async function refreshProducts(options = {}) {
+			if (!options.silent) {
+				showLoading("Loading catalog products...");
+			}
+
+			try {
+				const payload = await requestJSON(productsEndpoint());
+				const products = extractData(payload);
+				state.products = Array.isArray(products) ? products : [];
+
+				const selectedProduct = findSelectedProduct();
+				if (selectedProduct) {
+					setFormProduct(selectedProduct);
+				} else {
+					renderProducts();
+					if (!state.selectedId) {
+						renderImages([]);
+					}
+				}
+
+				if (!options.silent) {
+					showFeedback("Catalog synchronized.");
+				}
+			} catch (error) {
+				showFeedback(`Failed to load catalog: ${error.message}`, "error");
+			} finally {
+				if (!options.silent) {
+					hideLoading();
+				}
+			}
+		}
+
+		async function saveProduct(event) {
+			event.preventDefault();
+			const payload = buildPayload();
+
+			if (!payload.sku || !payload.product_name || !payload.category) {
+				showFeedback("SKU, product name, and category are required.", "warning");
+				return;
+			}
+
+			const isEdit = Boolean(state.selectedId);
+			showLoading(isEdit ? "Updating catalog product..." : "Creating catalog product...");
+			try {
+				const response = await requestJSON(isEdit ? productEndpoint(state.selectedId) : productsEndpoint(), {
+					method: isEdit ? "PUT" : "POST",
+					body: JSON.stringify(payload),
+				});
+				const savedProduct = extractData(response);
+				state.selectedId = savedProduct && savedProduct.id ? savedProduct.id : state.selectedId;
+				showFeedback(isEdit ? "Catalog product updated." : "Catalog product created.");
+				await refreshProducts({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to save product: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		async function deleteSelectedProduct() {
+			const product = findSelectedProduct();
+			if (!product) {
+				showFeedback("Select a product first.", "warning");
+				return;
+			}
+			if (!window.confirm(`Delete catalog product '${product.product_name}' and its R2-owned images?`)) {
+				return;
+			}
+
+			showLoading("Deleting catalog product...");
+			try {
+				await requestJSON(productEndpoint(product.id), { method: "DELETE" });
+				state.selectedId = "";
+				setFormProduct(null);
+				showFeedback("Catalog product deleted.");
+				await refreshProducts({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to delete product: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		async function uploadImages(event) {
+			event.preventDefault();
+			if (!state.selectedId) {
+				showFeedback("Select a product before uploading images.", "warning");
+				return;
+			}
+
+			const files = Array.from(ui.imageFileInput.files || []);
+			if (files.length === 0) {
+				showFeedback("Select at least one image file.", "warning");
+				return;
+			}
+
+			const formData = new FormData();
+			files.forEach((file) => formData.append("files", file));
+
+			showLoading("Uploading catalog images...");
+			try {
+				await requestJSON(`${productImagesEndpoint(state.selectedId)}/upload`, {
+					method: "POST",
+					body: formData,
+				});
+				ui.imageUploadForm.reset();
+				showFeedback("Catalog images uploaded.");
+				await refreshProducts({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to upload images: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		async function addImageURL(event) {
+			event.preventDefault();
+			if (!state.selectedId) {
+				showFeedback("Select a product before adding an image URL.", "warning");
+				return;
+			}
+
+			const url = ui.imageURLInput.value.trim();
+			if (!url) {
+				showFeedback("Image URL is required.", "warning");
+				return;
+			}
+
+			showLoading("Attaching image URL...");
+			try {
+				await requestJSON(`${productImagesEndpoint(state.selectedId)}/url`, {
+					method: "POST",
+					body: JSON.stringify({ url }),
+				});
+				ui.imageURLForm.reset();
+				showFeedback("Catalog image URL added.");
+				await refreshProducts({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to add image URL: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		async function deleteImage(imageId) {
+			if (!state.selectedId || !imageId) {
+				showFeedback("Image selection is missing.", "error");
+				return;
+			}
+			if (!window.confirm("Delete this catalog image? R2-owned files will also be removed.")) {
+				return;
+			}
+
+			showLoading("Deleting catalog image...");
+			try {
+				await requestJSON(`${productImagesEndpoint(state.selectedId)}/${encodeURIComponent(imageId)}`, {
+					method: "DELETE",
+				});
+				showFeedback("Catalog image deleted.");
+				await refreshProducts({ silent: true });
+			} catch (error) {
+				showFeedback(`Failed to delete image: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		ui.categorySelect.addEventListener("change", () => {
+			const product = findSelectedProduct();
+			const details = product && product.category === ui.categorySelect.value ? product.details || {} : {};
+			renderDetailsFields(ui.categorySelect.value, details);
+		});
+		ui.catalogForm.addEventListener("submit", saveProduct);
+		ui.resetButton.addEventListener("click", () => setFormProduct(null));
+		ui.newProductButton.addEventListener("click", () => setFormProduct(null));
+		ui.deleteProductButton.addEventListener("click", deleteSelectedProduct);
+		ui.refreshButton.addEventListener("click", () => refreshProducts());
+		ui.searchInput.addEventListener("input", renderProducts);
+		ui.productList.addEventListener("click", (event) => {
+			const item = event.target.closest(".product-item");
+			if (!item) {
+				return;
+			}
+			const product = state.products.find((entry) => entry.id === item.dataset.productId);
+			if (product) {
+				setFormProduct(product);
+			}
+		});
+		ui.imageUploadForm.addEventListener("submit", uploadImages);
+		ui.imageURLForm.addEventListener("submit", addImageURL);
+		ui.imageGrid.addEventListener("click", (event) => {
+			const button = event.target.closest(".delete-image-btn");
+			if (!button) {
+				return;
+			}
+			deleteImage(button.dataset.imageId);
+		});
+
+		setFormProduct(null);
+		refreshProducts();
+	</script>
+</body>
+</html>

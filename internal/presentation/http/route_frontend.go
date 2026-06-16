@@ -601,6 +601,12 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 		})
 	})
 
+	router.GET("/access/replyadmin", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "replyadmin.gohtml", gin.H{
+			"ReplyAdminBaseURL": fmt.Sprintf("%s%s/admins", API_BASE_PATH, ADMINS_REPLY_AGENT_PATH),
+		})
+	})
+
 	router.GET("/artifacts", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "artifacts.gohtml", gin.H{
 			"Title":                                 "Agent Accsessible Resources",
@@ -627,6 +633,12 @@ func FrontendRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, cf
 	router.GET("/toolsbuilder", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "toolsbuilder.gohtml", gin.H{
 			"ToolBuilderBaseURL": fmt.Sprintf("%s%s", API_BASE_PATH, TOOL_BUILDER_PATH),
+		})
+	})
+
+	router.GET("/catalog", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "catalog.gohtml", gin.H{
+			"CatalogStoreBaseURL": fmt.Sprintf("%s%s", API_BASE_PATH, CATALOG_STORE_PATH),
 		})
 	})
 

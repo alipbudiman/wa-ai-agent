@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Reply Admin Manager</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
+	<style>
+		:root {
+			--color-bg: #090909;
+			--color-bg-soft: #121212;
+			--color-panel: #1a1a1a;
+			--color-panel-line: rgba(255, 255, 255, 0.1);
+			--color-text: #ffffff;
+			--color-muted: #a0a0a0;
+			--color-accent: #d4ed31;
+			--color-cyan: #00e5ff;
+			--color-danger: #ff4d5f;
+			--font-primary: "Rajdhani", "Segoe UI", sans-serif;
+			--font-mono: "JetBrains Mono", Consolas, monospace;
+		}
+
+		body {
+			font-family: var(--font-primary);
+			color: var(--color-text);
+			background-color: var(--color-bg);
+			background-image:
+				linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				radial-gradient(circle at 12% -8%, rgba(212, 237, 49, 0.18), transparent 35%),
+				radial-gradient(circle at 95% 8%, rgba(0, 229, 255, 0.12), transparent 28%);
+			background-size: 40px 40px, 40px 40px, auto, auto;
+			min-height: 100vh;
+			font-size: 1.05rem;
+		}
+
+		.tech-shell {
+			max-width: 1240px;
+		}
+
+		.panel {
+			background: linear-gradient(145deg, rgba(26, 26, 26, 0.98), rgba(18, 18, 18, 0.98));
+			border: 1px solid var(--color-panel-line);
+			box-shadow: 0 20px 34px rgba(0, 0, 0, 0.35);
+		}
+
+		.hero-panel {
+			position: relative;
+			overflow: hidden;
+		}
+
+		.hero-panel::after {
+			content: "";
+			position: absolute;
+			inset: 0;
+			background: linear-gradient(120deg, rgba(212, 237, 49, 0.09), transparent 38%);
+			pointer-events: none;
+		}
+
+		.tech-kicker {
+			font-family: var(--font-mono);
+			font-size: 0.74rem;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+			color: var(--color-accent);
+		}
+
+		.section-title {
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			font-size: 1.08rem;
+			margin-bottom: 1rem;
+		}
+
+		.text-muted-tech {
+			color: var(--color-muted) !important;
+		}
+
+		.font-mono {
+			font-family: var(--font-mono);
+			font-size: 0.8rem;
+			word-break: break-all;
+		}
+
+		.form-label {
+			color: var(--color-muted);
+			text-transform: uppercase;
+			font-size: 0.78rem;
+			letter-spacing: 0.06em;
+			margin-bottom: 0.35rem;
+		}
+
+		.form-control {
+			background-color: var(--color-bg-soft);
+			border-color: var(--color-panel-line);
+			color: var(--color-text);
+		}
+
+		.form-control:focus {
+			background-color: var(--color-bg-soft);
+			border-color: var(--color-accent);
+			box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+			color: var(--color-text);
+		}
+
+		.form-control::placeholder {
+			color: #707070;
+		}
+
+		.btn-tech-primary {
+			--bs-btn-bg: var(--color-accent);
+			--bs-btn-border-color: var(--color-accent);
+			--bs-btn-color: #141414;
+			--bs-btn-hover-bg: #e1ff3f;
+			--bs-btn-hover-border-color: #e1ff3f;
+			--bs-btn-active-bg: #c6df2d;
+			--bs-btn-active-border-color: #c6df2d;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		.btn-tech-outline {
+			--bs-btn-color: var(--color-text);
+			--bs-btn-border-color: var(--color-panel-line);
+			--bs-btn-hover-bg: rgba(255, 255, 255, 0.09);
+			--bs-btn-hover-border-color: rgba(255, 255, 255, 0.2);
+			--bs-btn-active-bg: rgba(255, 255, 255, 0.12);
+			--bs-btn-active-border-color: rgba(255, 255, 255, 0.25);
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		.btn-tech-danger {
+			--bs-btn-bg: transparent;
+			--bs-btn-border-color: rgba(255, 77, 95, 0.55);
+			--bs-btn-color: #ffb8bf;
+			--bs-btn-hover-bg: rgba(255, 77, 95, 0.14);
+			--bs-btn-hover-border-color: rgba(255, 77, 95, 0.9);
+			--bs-btn-hover-color: #ffd8dd;
+			--bs-btn-active-bg: rgba(255, 77, 95, 0.2);
+			--bs-btn-active-border-color: var(--color-danger);
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			font-size: 0.72rem;
+		}
+
+		.floating-loading {
+			position: fixed;
+			top: 0.95rem;
+			left: 50%;
+			transform: translate(-50%, -12px);
+			z-index: 1300;
+			display: flex;
+			align-items: center;
+			gap: 0.62rem;
+			max-width: min(560px, calc(100vw - 1.4rem));
+			padding: 0.72rem 0.95rem;
+			border: 1px solid rgba(0, 229, 255, 0.4);
+			background: rgba(0, 229, 255, 0.09);
+			backdrop-filter: blur(6px);
+			border-radius: 0.65rem;
+			color: #c9f7ff;
+			font-family: var(--font-mono);
+			font-size: 0.78rem;
+			letter-spacing: 0.03em;
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+		}
+
+		.floating-loading.show {
+			opacity: 1;
+			visibility: visible;
+			transform: translate(-50%, 0);
+		}
+
+		.floating-loading-dot {
+			width: 0.5rem;
+			height: 0.5rem;
+			border-radius: 50%;
+			background: var(--color-accent);
+			box-shadow: 0 0 10px rgba(212, 237, 49, 0.8);
+			flex-shrink: 0;
+		}
+
+		.feedback-toast {
+			position: fixed;
+			top: 1.05rem;
+			right: 1rem;
+			z-index: 1320;
+			min-width: 270px;
+			max-width: min(92vw, 460px);
+			padding: 0.7rem 0.9rem;
+			border: 1px solid rgba(0, 229, 255, 0.46);
+			background: rgba(0, 229, 255, 0.13);
+			color: #d8fbff;
+			font-family: var(--font-mono);
+			font-size: 0.76rem;
+			letter-spacing: 0.03em;
+			border-radius: 0.62rem;
+			box-shadow: 0 14px 26px rgba(0, 0, 0, 0.42);
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+			pointer-events: none;
+			transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+		}
+
+		.feedback-toast.is-hidden {
+			opacity: 0;
+			visibility: hidden;
+			transform: translateY(-12px);
+		}
+
+		.feedback-toast:not(.is-hidden) {
+			opacity: 1;
+			visibility: visible;
+			transform: translateY(0);
+		}
+
+		.feedback-toast.is-warning {
+			border-color: rgba(255, 214, 107, 0.54);
+			background: rgba(255, 214, 107, 0.16);
+			color: #ffe8ad;
+		}
+
+		.feedback-toast.is-error {
+			border-color: rgba(255, 77, 95, 0.56);
+			background: rgba(255, 77, 95, 0.17);
+			color: #ffd0d5;
+		}
+
+		.access-table {
+			--bs-table-bg: transparent;
+			--bs-table-color: var(--color-text);
+			--bs-table-border-color: rgba(255, 255, 255, 0.08);
+			--bs-table-striped-bg: rgba(255, 255, 255, 0.02);
+			--bs-table-hover-bg: rgba(212, 237, 49, 0.08);
+			margin-bottom: 0;
+		}
+
+		.access-table thead th {
+			font-family: var(--font-mono);
+			font-size: 0.72rem;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+			color: #c6c6c6;
+			border-bottom-width: 1px;
+			white-space: nowrap;
+		}
+
+		.muted-text {
+			color: var(--color-muted);
+		}
+
+		.muted-text a {
+			color: #d6d6d6;
+		}
+
+		.muted-text a:hover {
+			color: #ffffff;
+		}
+
+		.info-line {
+			border-left: 3px solid var(--color-accent);
+			padding-left: 0.85rem;
+			color: var(--color-muted);
+		}
+
+		:where(p, span, a, label, button, input, select, textarea, td, th, code, .btn, .form-control, .form-select, .form-text, .font-mono, .small) {
+			font-size: max(1.02rem, 1em) !important;
+		}
+
+		@media (max-width: 991.98px) {
+			.feedback-toast {
+				top: 0.85rem;
+				right: 0.7rem;
+				left: 0.7rem;
+				max-width: none;
+				min-width: 0;
+			}
+
+			.floating-loading {
+				top: 0.8rem;
+				max-width: calc(100vw - 1rem);
+			}
+
+			.section-title {
+				font-size: 0.98rem;
+			}
+
+			.access-table thead th,
+			.access-table tbody td {
+				font-size: 0.78rem;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div id="floatingLoading" class="floating-loading" role="status" aria-live="polite">
+		<span class="floating-loading-dot" aria-hidden="true"></span>
+		<span id="floatingLoadingText">Loading data...</span>
+	</div>
+
+	<div id="feedbackToast" class="feedback-toast is-hidden" role="alert"></div>
+
+	<main class="container tech-shell py-4 py-lg-5">
+		<section class="panel hero-panel rounded-3 p-3 p-md-4 mb-4">
+			<div class="d-flex flex-column flex-lg-row align-items-start justify-content-between gap-3">
+				<div>
+					<p class="tech-kicker mb-2">// REPLY ADMIN</p>
+					<h1 class="h3 text-uppercase mb-2">Reply Agent Admin Dashboard</h1>
+					<p class="mb-2 text-muted-tech">Reply admin adalah admin dari Reply Agent. Ketika Reply Agent membutuhkan manusia, sistem akan broadcast pesan ke admin yang terdaftar di sini.</p>
+					<p class="muted-text mb-0"><a href="/" class="text-decoration-underline">Hub</a> &gt; <a href="/access" class="text-decoration-underline">Access Control</a> &gt; <a href="/access/replyadmin" class="text-decoration-underline">Reply Admin</a></p>
+				</div>
+				<div class="d-flex flex-column flex-sm-row gap-2">
+					<a class="btn btn-tech-outline" href="/access">Access</a>
+					<button type="button" class="btn btn-tech-outline" id="refreshButton">Refresh Data</button>
+				</div>
+			</div>
+		</section>
+
+		<div class="row g-4">
+			<div class="col-12 col-lg-4">
+				<section class="panel rounded-3 p-3 p-md-4 h-100">
+					<p class="tech-kicker mb-2">[ write ]</p>
+					<h2 class="section-title" id="formTitle">Add Reply Admin</h2>
+					<form id="replyAdminForm" novalidate>
+						<input type="hidden" id="originalNumberInput" />
+						<div class="mb-3">
+							<label class="form-label" for="nameInput">Name</label>
+							<input class="form-control" id="nameInput" name="name" placeholder="Support Admin" required />
+						</div>
+						<div class="mb-3">
+							<label class="form-label" for="numberInput">Number</label>
+							<input class="form-control" id="numberInput" name="number" placeholder="6281234567890" required />
+						</div>
+						<p class="info-line mb-4">Nomor ini akan menerima broadcast ketika Reply Agent meminta eskalasi ke manusia.</p>
+						<div class="d-flex gap-2">
+							<button type="submit" class="btn btn-tech-primary flex-grow-1" id="saveButton">Add</button>
+							<button type="button" class="btn btn-tech-outline" id="resetButton">Reset</button>
+						</div>
+					</form>
+				</section>
+			</div>
+
+			<div class="col-12 col-lg-8">
+				<section class="panel rounded-3 p-3 p-md-4 mb-4">
+					<div class="d-flex align-items-center justify-content-between mb-3">
+						<div>
+							<p class="tech-kicker mb-1">[ read ]</p>
+							<h2 class="section-title mb-0">Reply Admin List</h2>
+						</div>
+						<span id="summaryText" class="text-muted-tech small">0 admins loaded</span>
+					</div>
+
+					<div class="table-responsive" id="adminTableWrap">
+						<table class="table table-hover align-middle access-table">
+							<thead>
+								<tr>
+									<th>Name</th>
+									<th>Number</th>
+									<th>Action</th>
+								</tr>
+							</thead>
+							<tbody id="adminTableBody">
+								<tr id="emptyStateRow">
+									<td colspan="3" class="text-center text-muted-tech py-4">[ data_missing ] reply admin list is empty</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</section>
+
+				<section class="panel rounded-3 p-3 p-md-4">
+					<p class="tech-kicker mb-2">[ queue ]</p>
+					<h2 class="section-title">Waiting For Admins</h2>
+					<p class="text-muted-tech mb-3">Nomor pada daftar ini sedang menunggu tindak lanjut manusia dari Reply Agent.</p>
+					<div id="waitingList" class="font-mono text-muted-tech">-</div>
+				</section>
+			</div>
+		</div>
+	</main>
+
+	<script>
+		const apiBaseURL = "{{ .ReplyAdminBaseURL }}" || "/api/admin-reply-agent/admins";
+		const LOADING_HIDE_DELAY_MS = 90;
+		const FEEDBACK_SHOW_DELAY_MS = 120;
+		const FEEDBACK_HIDE_DELAY_MS = 220;
+		const FEEDBACK_AUTO_HIDE_MS = 4200;
+
+		const ui = {
+			form: document.getElementById("replyAdminForm"),
+			formTitle: document.getElementById("formTitle"),
+			originalNumberInput: document.getElementById("originalNumberInput"),
+			nameInput: document.getElementById("nameInput"),
+			numberInput: document.getElementById("numberInput"),
+			saveButton: document.getElementById("saveButton"),
+			resetButton: document.getElementById("resetButton"),
+			refreshButton: document.getElementById("refreshButton"),
+			floatingLoading: document.getElementById("floatingLoading"),
+			floatingLoadingText: document.getElementById("floatingLoadingText"),
+			feedbackToast: document.getElementById("feedbackToast"),
+			adminTableWrap: document.getElementById("adminTableWrap"),
+			adminTableBody: document.getElementById("adminTableBody"),
+			summaryText: document.getElementById("summaryText"),
+			waitingList: document.getElementById("waitingList"),
+		};
+
+		const state = {
+			loadingCount: 0,
+			loadingHideTimerId: null,
+			feedbackShowTimerId: null,
+			feedbackHideTimerId: null,
+			feedbackAutoHideTimerId: null,
+		};
+
+		function clearLoadingHideTimer() {
+			if (!state.loadingHideTimerId) {
+				return;
+			}
+
+			window.clearTimeout(state.loadingHideTimerId);
+			state.loadingHideTimerId = null;
+		}
+
+		function showFloatingLoading(message) {
+			clearLoadingHideTimer();
+			state.loadingCount += 1;
+			if (message) {
+				ui.floatingLoadingText.textContent = message;
+			}
+			ui.floatingLoading.classList.add("show");
+		}
+
+		function hideFloatingLoading() {
+			state.loadingCount = Math.max(0, state.loadingCount - 1);
+			if (state.loadingCount > 0) {
+				return;
+			}
+
+			clearLoadingHideTimer();
+			state.loadingHideTimerId = window.setTimeout(() => {
+				ui.floatingLoading.classList.remove("show");
+				state.loadingHideTimerId = null;
+			}, LOADING_HIDE_DELAY_MS);
+		}
+
+		function setLoading(isLoading, message) {
+			ui.refreshButton.disabled = isLoading;
+			ui.saveButton.disabled = isLoading;
+			ui.adminTableBody.querySelectorAll("button").forEach((button) => {
+				button.disabled = isLoading;
+			});
+
+			if (isLoading) {
+				showFloatingLoading(message || "Syncing reply admin data...");
+				return;
+			}
+			hideFloatingLoading();
+		}
+
+		function clearFeedbackTimers() {
+			for (const key of ["feedbackShowTimerId", "feedbackHideTimerId", "feedbackAutoHideTimerId"]) {
+				if (state[key]) {
+					window.clearTimeout(state[key]);
+					state[key] = null;
+				}
+			}
+		}
+
+		function applyFeedbackState(message, tone, hidden) {
+			ui.feedbackToast.classList.remove("is-warning", "is-error");
+			if (!hidden) {
+				if (tone === "error") {
+					ui.feedbackToast.classList.add("is-error");
+				} else if (tone === "warning") {
+					ui.feedbackToast.classList.add("is-warning");
+				}
+			}
+			ui.feedbackToast.textContent = hidden ? "" : message;
+			ui.feedbackToast.classList.toggle("is-hidden", hidden);
+		}
+
+		function showFeedback(message, options = {}) {
+			const { tone = "info" } = options;
+			clearFeedbackTimers();
+			if (!message) {
+				state.feedbackHideTimerId = window.setTimeout(() => {
+					applyFeedbackState("", "info", true);
+					state.feedbackHideTimerId = null;
+				}, FEEDBACK_HIDE_DELAY_MS);
+				return;
+			}
+
+			state.feedbackShowTimerId = window.setTimeout(() => {
+				applyFeedbackState(message, tone, false);
+				state.feedbackShowTimerId = null;
+				state.feedbackAutoHideTimerId = window.setTimeout(() => showFeedback(""), FEEDBACK_AUTO_HIDE_MS);
+			}, FEEDBACK_SHOW_DELAY_MS);
+		}
+
+		function setSummary(count) {
+			ui.summaryText.textContent = `${count} admins loaded`;
+		}
+
+		function resetForm() {
+			ui.form.reset();
+			ui.originalNumberInput.value = "";
+			ui.formTitle.textContent = "Add Reply Admin";
+			ui.saveButton.textContent = "Add";
+			showFeedback("");
+		}
+
+		function createCell(content, className) {
+			const cell = document.createElement("td");
+			if (className) {
+				cell.className = className;
+			}
+			cell.textContent = content;
+			return cell;
+		}
+
+		function addActionCell(item) {
+			const cell = document.createElement("td");
+			const editButton = document.createElement("button");
+			editButton.type = "button";
+			editButton.className = "btn btn-sm btn-tech-outline me-2";
+			editButton.textContent = "Edit";
+			editButton.addEventListener("click", () => startEdit(item));
+
+			const deleteButton = document.createElement("button");
+			deleteButton.type = "button";
+			deleteButton.className = "btn btn-sm btn-tech-danger";
+			deleteButton.textContent = "Delete";
+			deleteButton.addEventListener("click", () => deleteAdmin(item.number || ""));
+
+			cell.appendChild(editButton);
+			cell.appendChild(deleteButton);
+			return cell;
+		}
+
+		function buildRow(item) {
+			const tr = document.createElement("tr");
+			tr.dataset.number = item.number || "";
+			tr.appendChild(createCell(item.name || "-", ""));
+			tr.appendChild(createCell(item.number || "-", "font-mono"));
+			tr.appendChild(addActionCell(item));
+			return tr;
+		}
+
+		function renderWaitingList(items) {
+			const waitingItems = Array.isArray(items) ? items.filter(Boolean) : [];
+			if (!waitingItems.length) {
+				ui.waitingList.textContent = "-";
+				return;
+			}
+			ui.waitingList.textContent = waitingItems.join(", ");
+		}
+
+		function renderAdmins(config) {
+			const admins = Array.isArray(config.numbers) ? config.numbers : [];
+			ui.adminTableBody.innerHTML = "";
+
+			if (!admins.length) {
+				const emptyRow = document.createElement("tr");
+				emptyRow.id = "emptyStateRow";
+				emptyRow.innerHTML = "<td colspan=\"3\" class=\"text-center text-muted-tech py-4\">[ data_missing ] reply admin list is empty</td>";
+				ui.adminTableBody.appendChild(emptyRow);
+				setSummary(0);
+				renderWaitingList(config.waiting_for_admins);
+				return;
+			}
+
+			const sorted = [...admins].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+			sorted.forEach((item) => ui.adminTableBody.appendChild(buildRow(item)));
+			setSummary(sorted.length);
+			renderWaitingList(config.waiting_for_admins);
+		}
+
+		async function requestJSON(url, options) {
+			const response = await fetch(url, options);
+			let result = {};
+
+			try {
+				result = await response.json();
+			} catch (_) {
+				result = {};
+			}
+
+			if (!response.ok || !result.success) {
+				throw new Error(result.message || "Request failed");
+			}
+
+			return result;
+		}
+
+		async function fetchReplyAdmins(options = {}) {
+			const { showSuccessMessage = "", loadingMessage = "Syncing reply admin data..." } = options;
+			setLoading(true, loadingMessage);
+			try {
+				const result = await requestJSON(apiBaseURL, { method: "GET" });
+				renderAdmins(result.data || {});
+				if (showSuccessMessage) {
+					showFeedback(showSuccessMessage, { tone: "info" });
+				}
+			} catch (error) {
+				showFeedback(`Failed loading data: ${error.message}`, { tone: "error" });
+			} finally {
+				setLoading(false);
+			}
+		}
+
+		function startEdit(item) {
+			ui.originalNumberInput.value = item.number || "";
+			ui.nameInput.value = item.name || "";
+			ui.numberInput.value = item.number || "";
+			ui.formTitle.textContent = "Update Reply Admin";
+			ui.saveButton.textContent = "Update";
+			ui.nameInput.focus();
+		}
+
+		async function saveReplyAdmin(event) {
+			event.preventDefault();
+			showFeedback("");
+
+			const name = ui.nameInput.value.trim();
+			const number = ui.numberInput.value.trim();
+			const originalNumber = ui.originalNumberInput.value.trim();
+
+			if (!name || !number) {
+				showFeedback("Please fill name and number.", { tone: "warning" });
+				return;
+			}
+
+			const isUpdate = Boolean(originalNumber);
+			const url = isUpdate ? `${apiBaseURL}/${encodeURIComponent(originalNumber)}` : apiBaseURL;
+			const method = isUpdate ? "PUT" : "POST";
+
+			setLoading(true, isUpdate ? "Updating reply admin..." : "Creating reply admin...");
+			try {
+				const result = await requestJSON(url, {
+					method,
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ name, number }),
+				});
+				renderAdmins(result.data || {});
+				resetForm();
+				showFeedback(isUpdate ? "Reply admin updated successfully." : "Reply admin added successfully.", { tone: "info" });
+			} catch (error) {
+				showFeedback(`Failed to save reply admin: ${error.message}`, { tone: "error" });
+			} finally {
+				setLoading(false);
+			}
+		}
+
+		async function deleteAdmin(number) {
+			if (!number) {
+				return;
+			}
+
+			if (!window.confirm(`Delete reply admin ${number}?`)) {
+				return;
+			}
+
+			setLoading(true, "Deleting reply admin...");
+			try {
+				await requestJSON(`${apiBaseURL}/${encodeURIComponent(number)}`, { method: "DELETE" });
+				showFeedback("Reply admin deleted successfully.", { tone: "info" });
+				if (ui.originalNumberInput.value === number) {
+					resetForm();
+				}
+				await fetchReplyAdmins({ loadingMessage: "Refreshing reply admin data..." });
+			} catch (error) {
+				showFeedback(`Failed to delete reply admin: ${error.message}`, { tone: "error" });
+			} finally {
+				setLoading(false);
+			}
+		}
+
+		ui.form.addEventListener("submit", saveReplyAdmin);
+		ui.resetButton.addEventListener("click", resetForm);
+		ui.refreshButton.addEventListener("click", () => {
+			fetchReplyAdmins({
+				showSuccessMessage: "Reply admin list synchronized successfully.",
+				loadingMessage: "Syncing reply admin records...",
+			});
+		});
+
+		fetchReplyAdmins();
+	</script>
+</body>
+</html>

@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field, model_validator
+from typing import Any, Literal, Optional, Union
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from enum import Enum
 
 class LevelSystem(str, Enum):
@@ -168,3 +171,312 @@ class ToolDataRequest(BaseModel):
 class ToolDataReturn(BaseModel):
     name: str
     description: str
+
+# catalog
+
+class WatchDetails(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "movement_type": "automatic",
+                    "material": "stainless steel",
+                    "water_resistance_atm": 10,
+                    "length_mm": 46.3,
+                    "width_mm": 40.0,
+                    "thickness_mm": 10.9,
+                }
+            ]
+        }
+    )
+
+    movement_type: str = Field(description="Watch movement type, for example automatic, quartz, or mechanical.")
+    material: str = Field(description="Main watch case or strap material.")
+    water_resistance_atm: int = Field(description="Water resistance rating in ATM.")
+    length_mm: float = Field(..., description="Lug-to-lug length in mm (e.g., 46.3).")
+    width_mm: float = Field(..., description="Diameter/width in mm (e.g., 40.0).")
+    thickness_mm: float = Field(..., description="Casing thickness in mm (e.g., 10.9).")
+
+class ClothingDetails(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "size": "L",
+                    "fabric": "cotton",
+                    "color": "black",
+                }
+            ]
+        }
+    )
+
+    size: str = Field(description="Clothing size, for example S, M, L, XL, or a numeric size.")
+    fabric: str = Field(description="Main fabric or material.")
+    color: str = Field(description="Primary product color.")
+
+class FurnitureDetails(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "dimensions_cm": "120 x 60 x 75",
+                    "primary_material": "solid wood",
+                    "requires_assembly": True,
+                }
+            ]
+        }
+    )
+
+    dimensions_cm: str = Field(description="Furniture dimensions in centimeters, for example '120 x 60 x 75'.")
+    primary_material: str = Field(description="Primary furniture material.")
+    requires_assembly: bool = Field(description="Whether the product requires assembly.")
+
+class OtherDetails(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {}
+            ]
+        }
+    )
+
+class ImageDetails(BaseModel):
+    model_config = ConfigDict(
+        extra="ignore",
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "5b1f8e61f2cf4d99a7df87971f5b0af6",
+                    "url": "https://cdn.example.com/catalog/watch-001/front.webp",
+                }
+            ]
+        },
+    )
+
+    id: str = Field(
+        default_factory=lambda: uuid4().hex,
+        description="Unique image id inside a catalog product.",
+    )
+    url: str = Field(description="Public URL to the product image.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_image_fields(cls, data: Any):
+        if isinstance(data, str):
+            return {"url": data}
+
+        if not isinstance(data, dict):
+            return data
+
+        return {
+            "id": data.get("id") or data.get("image_id") or uuid4().hex,
+            "url": data.get("url") or data.get("image_url") or "",
+        }
+
+    @model_validator(mode="after")
+    def validate_image_fields(self):
+        self.id = self.id.strip() or uuid4().hex
+        self.url = self.url.strip()
+        if not self.url:
+            raise ValueError("image url cannot be empty")
+
+        return self
+
+class CatalogProduct(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "sku": "WATCH-SEIKO-001",
+                    "product_name": "Seiko 5 Sports Automatic",
+                    "description": "Automatic stainless steel daily watch.",
+                    "price": 3250000,
+                    "stock": 12,
+                    "brand": "Seiko",
+                    "shipping_weight_grams": 600,
+                    "images": [
+                        {
+                            "id": "watch-front",
+                            "url": "https://cdn.example.com/catalog/watch-001/front.webp",
+                        }
+                    ],
+                    "category": "watch",
+                    "details": {
+                        "movement_type": "automatic",
+                        "material": "stainless steel",
+                        "water_resistance_atm": 10,
+                        "length_mm": 46.3,
+                        "width_mm": 40.0,
+                        "thickness_mm": 10.9,
+                    },
+                },
+                {
+                    "sku": "TSHIRT-BASIC-001",
+                    "product_name": "Basic Cotton T-Shirt",
+                    "description": "Regular fit cotton t-shirt.",
+                    "price": 149000,
+                    "stock": 50,
+                    "brand": "Dailywear",
+                    "shipping_weight_grams": 250,
+                    "images": [],
+                    "category": "clothing",
+                    "details": {
+                        "size": "L",
+                        "fabric": "cotton",
+                        "color": "black",
+                    },
+                },
+                {
+                    "sku": "DESK-OAK-001",
+                    "product_name": "Oak Working Desk",
+                    "description": "Minimal working desk for home office.",
+                    "price": 1750000,
+                    "stock": 8,
+                    "brand": "Homecraft",
+                    "shipping_weight_grams": 18000,
+                    "images": [],
+                    "category": "furniture",
+                    "details": {
+                        "dimensions_cm": "120 x 60 x 75",
+                        "primary_material": "solid wood",
+                        "requires_assembly": True,
+                    },
+                },
+                {
+                    "sku": "GENERAL-001",
+                    "product_name": "General Product",
+                    "description": "Catalog product without category-specific details.",
+                    "price": 99000,
+                    "stock": 5,
+                    "brand": "Generic",
+                    "shipping_weight_grams": 500,
+                    "images": [],
+                    "category": "lainnya",
+                    "details": {},
+                },
+            ]
+        }
+    )
+
+    id: str = Field(
+        default_factory=lambda: uuid4().hex,
+        description="Unique catalog id. Optional on create; backend will generate one when omitted or empty.",
+    )
+    images: list[ImageDetails] = Field(
+        default_factory=list,
+        description="List of product images. Use image upload/delete endpoints to manage files safely.",
+    )
+    sku: str = Field(description="Stock keeping unit.")
+    product_name: str = Field(description="Display name of the product.")
+    description: Optional[str] = Field(default=None, description="Short product description.")
+    price: float = Field(description="Product price.")
+    stock: int = Field(default=0, description="Available stock count.")
+    brand: Optional[str] = Field(default=None, description="Product brand.")
+    shipping_weight_grams: int = Field(description="Shipping weight in grams.")
+    
+    # Menentukan pilihan kategori yang valid
+    category: Literal["watch", "clothing", "furniture", "lainnya"] = Field(
+        description=(
+            "Required product category. Use 'watch' with WatchDetails, "
+            "'clothing' with ClothingDetails, 'furniture' with FurnitureDetails, "
+            "or 'lainnya' with empty details."
+        )
+    )
+    
+    # Field 'details' akan otomatis mengikuti model yang sesuai di atas
+    details: Union[WatchDetails, ClothingDetails, FurnitureDetails, OtherDetails] = Field(
+        default_factory=OtherDetails,
+        description=(
+            "Category-specific detail object. It must match the selected category: "
+            "WatchDetails for watch, ClothingDetails for clothing, FurnitureDetails for furniture, "
+            "or an empty object for lainnya."
+        )
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_catalog_images(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        if normalized.get("category") == "lainnya":
+            normalized["details"] = {}
+        if "images" not in normalized and "image_url" in normalized:
+            legacy_image_url = normalized.get("image_url")
+            if isinstance(legacy_image_url, list):
+                normalized["images"] = legacy_image_url
+            elif legacy_image_url:
+                normalized["images"] = [legacy_image_url]
+            else:
+                normalized["images"] = []
+        if normalized.get("images") is None:
+            normalized["images"] = []
+
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_category_details(self):
+        self.id = self.id.strip() or uuid4().hex
+        expected_details = {
+            "watch": WatchDetails,
+            "clothing": ClothingDetails,
+            "furniture": FurnitureDetails,
+            "lainnya": OtherDetails,
+        }
+        expected_model = expected_details[self.category]
+
+        if not isinstance(self.details, expected_model):
+            raise ValueError(
+                f"details must use {expected_model.__name__} when category is '{self.category}'"
+            )
+
+        return self
+    
+class SendCatalogArgs(BaseModel):
+    product_ids: list[str] = Field(
+        description=(
+            "List of catalog product IDs to include in the message. Required. "
+            "Only call this tool when the user explicitly requests catalog details, product images, "
+            "or product information for specific products. If the user does not specify which products "
+            "they are interested in, ask for clarification instead of calling this tool."
+        )
+    )
+
+    @model_validator(mode="after")
+    def normalize_product_ids(self):
+        normalized_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for product_id in self.product_ids:
+            clean_id = (product_id or "").strip()
+            if clean_id and clean_id not in seen_ids:
+                normalized_ids.append(clean_id)
+                seen_ids.add(clean_id)
+
+        if not normalized_ids:
+            raise ValueError("product_ids must contain at least one catalog product id")
+
+        self.product_ids = normalized_ids
+        return self
+
+class AdminData(BaseModel):
+    name: str = Field(description="Name of the admin data entry. Required.")
+    number: str = Field(description="Phone number associated with the admin data. Required.")
+
+class AdminDataOutput(BaseModel):
+    parameter: Literal["admins"] = Field(
+        default="admins",
+        description="Database parameter key for admin configuration.",
+    )
+    numbers: list[AdminData] = Field(
+        default_factory=list,
+        description="Admin contacts stored in manager_bot_config.numbers.",
+    )
+    waiting_for_admins: list[str] = Field(
+        default_factory=list,
+        description="Phone numbers waiting for admin follow-up.",
+    )

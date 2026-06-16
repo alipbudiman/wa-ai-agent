@@ -4,7 +4,7 @@ from backend.application.ai.tools.models import SendFileInput
 import logging
 import os
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import requests
 from backend.application.ai.tools.models import (
@@ -210,7 +210,14 @@ class WhatsAppIntegration:
             args_schema=SendMessageInput
         )
         
-    def request_send_file(self, number: str, file_path: str, caption: str | None = None, sender: str | None = None) -> SendMessageResponse:
+    def request_send_file(
+        self,
+        number: str,
+        file_path: str,
+        caption: str | None = None,
+        sender: str | None = None,
+        allow_url: bool = False,
+    ) -> SendMessageResponse:
         """send file to a whatsapp user"""
         number = (number or "").strip()
         file_path = (file_path or "").strip()
@@ -226,25 +233,37 @@ class WhatsAppIntegration:
                 on_hold=False,
             )
         
-        # playground guard — only allow files from within playground/
-        playground_root = str(Path(BASE_DIR, "playground").resolve())
-        resolved_path = str(Path(file_path).resolve())
-        if not resolved_path.startswith(playground_root):
-            return SendMessageResponse(
-                success=False,
-                message="File must be inside the playground/ directory. Move or compress the file to playground/ first.",
-                data=None,
-                status="failed",
-                on_hold=False,
-            )
-        if not Path(resolved_path).is_file():
-            return SendMessageResponse(
-                success=False,
-                message=f"File not found: {file_path}",
-                data=None,
-                status="failed",
-                on_hold=False,
-            )
+        # Remote URLs are restricted to trusted internal flows; local files must stay in playground/.
+        parsed_file_url = urlparse(file_path)
+        is_remote_file_url = parsed_file_url.scheme in {"http", "https"} and bool(parsed_file_url.netloc)
+        if is_remote_file_url:
+            if not allow_url:
+                return SendMessageResponse(
+                    success=False,
+                    message="URL file sending is only allowed for trusted internal flows.",
+                    data=None,
+                    status="failed",
+                    on_hold=False,
+                )
+        else:
+            playground_root = str(Path(BASE_DIR, "playground").resolve())
+            resolved_path = str(Path(file_path).resolve())
+            if not resolved_path.startswith(playground_root):
+                return SendMessageResponse(
+                    success=False,
+                    message="File must be inside the playground/ directory. Move or compress the file to playground/ first.",
+                    data=None,
+                    status="failed",
+                    on_hold=False,
+                )
+            if not Path(resolved_path).is_file():
+                return SendMessageResponse(
+                    success=False,
+                    message=f"File not found: {file_path}",
+                    data=None,
+                    status="failed",
+                    on_hold=False,
+                )
         
         if not number:
             return SendMessageResponse(
@@ -525,12 +544,20 @@ class WhatsAppIntegration:
             logger.error(f"Error storing AI message to inbox for number '{sender_identifier}': {e}")
             return {"success": False, "message": f"failed to store AI message to inbox: {e}", "data": None}
 
-    # TODO: will added for broadcast admin if user (in reply agent) want to chat with admin / human
     def requests_broadcast_to_admins(self, client_number: str, message: str):
         """Broadcast a message to all admin contacts."""
         message = (message or "").strip()
+        if not message:
+            return SendMessageResponse(
+                success=False,
+                message="message is a required field, ask the user to provide it",
+                data=None,
+                status="failed",
+                on_hold=False,
+            )
         
-        admins = self.access_db.get_admins_data()
+        admin_config = self.access_db.get_admins_data()
+        admins = admin_config.numbers
         if not admins:
             logger.warning("No admin contacts found for broadcasting.")
             return SendMessageResponse(
@@ -542,48 +569,48 @@ class WhatsAppIntegration:
             )
         
         for admin in admins:
+            admin_number = admin.number.strip()
+            if not admin_number:
+                continue
+
             notification_result = self.request_send_message(
-                admin,
+                admin_number,
                 message=f"📢 Broadcast from {client_number}:\n\n{message}",
-                sender=admin,
+                sender=admin_number,
             )
             if not notification_result.success:
                 logger.warning(
                     "Failed to send on-hold notification to '%s': %s",
-                    admin,
+                    admin_number,
                     notification_result.message,
                 )
-        if not message:
-            return SendMessageResponse(
-                success=False,
-                message="message is a required field, ask the user to provide it",
-                data=None,
-                status="failed",
-                on_hold=False,
-            )        
+        
+        return SendMessageResponse(
+            success=True,
+            message="Broadcast request sent to admins.",
+            data=None,
+            status="sent",
+            on_hold=False,
+        )
     
     # TODO: will added for broadcast admin if user (in reply agent) want to chat with admin / human
     def broadcast_to_admins(self, client_number: str):
         """Broadcast a message to all admin contacts."""
         def _broadcast(message: str) -> SendMessageResponse:
-            self.requests_broadcast_to_admins(client_number, message)
-            return SendMessageResponse(
-                success=True,
-                message="Broadcast request sent to admins.",
-                data=None,
-                status="sent",
-                on_hold=False,
-             )
+            return self.requests_broadcast_to_admins(client_number, message)
         
         return StructuredTool.from_function(
             func=_broadcast,
             name="broadcast_to_admins",
             description=(
-                "Broadcast a message to all admin contacts. This is for one-way announcements from users to admins. "
-                 "Only call this tool when the announcement message is available. If the message is missing, ask for it first and do not execute this tool. "
-                 "The client_number parameter is used to identify the sender in the broadcast message to admins, but it does not affect the tool's ability to execute. "
-                 "Admins will receive the broadcast with the client_number included in the message content."
-             ),
-             args_schema=SendMessageInput
-         )
+                "Broadcast a message to all admin contacts. Use this for one-way announcements from users to admins, "
+                "AND for escalation when the user explicitly asks for human/admin help, reports an issue the assistant "
+                "cannot resolve, or requests to talk to a real person/staff/admin. "
+                "Only call this tool when the announcement or escalation message is available. If the message is missing, "
+                "ask for it first and do not execute this tool. "
+                "The client_number parameter is used to identify the sender in the broadcast message to admins, but it does not affect the tool's ability to execute. "
+                "Admins will receive the broadcast with the client_number included in the message content."
+            ),
+            args_schema=SendMessageInput
+        )
     

@@ -1,8 +1,11 @@
+import ast
+import json
 import logging
 import re
 from typing import Any
 
 from langchain.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -19,6 +22,7 @@ from backend.application.ai.instruction import Instruction
 from backend.application.ai.tools.time import TimeTool
 from backend.application.ai.tools.tools_builder import ToolsBuilder
 from backend.application.ai.helper import minimax_helper
+from backend.application.ai.tools.catalog import Catalog
 from config.config import Config
 from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import REPLY_AGENT
@@ -28,6 +32,8 @@ class State(MessagesState):
     sender: str = ""
     rag_context: str = ""
     rag_query: str = ""
+    catalog_context: str = ""
+    catalog_message_sent: bool = False
     custom_tool_context: str = ""
     custom_tool_query: str = ""
     guardrail_safe: bool = True
@@ -79,10 +85,18 @@ class ReplyAgentUsecase:
     def __init__(self):
         self.llm = AI()
         self.instruction = Instruction()        
-        self.checkpointer = MongoDB.get_checkpointer()
+        self.checkpointer = MongoDB.get_checkpointer(
+            # ttl use for automatically deleting old checkpoints and messages after a certain period,
+            # to save storage and keep the database clean.
+            # Adjust the TTL value as needed based on your use case and expected conversation length.
+            ttl=3600 * 24 * 7,  # 1 week
+            checkpoint_collection_name="reply_agent_checkpoints",
+            writes_collection_name="reply_agent_checkpoint_writes",
+        )
         self.wa_integration_tool = WhatsAppIntegration()
         self.time_tool = TimeTool()
         self.tools_builder = ToolsBuilder()
+        self.catalog_tools = Catalog()
         self.config = Config()
         self._process_diagram_mermaid = ""
         self._reasoning = True
@@ -178,6 +192,33 @@ class ReplyAgentUsecase:
         except Exception as e:
             logger.error(f"RAG retrieve error: {e}")
             return {"rag_context": ""}
+    
+    def __load_catalog_context(self, state: State):
+        """
+        Load relevant catalog information for the current turn, if applicable.
+
+        This is a simplified example of how an agent can include mutable
+        context from external tools without directly connecting them as tool calls.
+        The agent can decide when to surface this information based on the user query
+        and tool relevance, and the LLM can use it as part of the response generation
+        without needing to execute a separate tool call that may expose code or sensitive data.
+        """
+        try:
+            latest_user_request = str(
+                state.get("rag_query") or self.__latest_user_text(state, max_messages=1)
+            ).strip()
+            catalog_context = self.catalog_tools.get_previous_catalog_tools(query=latest_user_request)
+            return {
+                "catalog_context": json.dumps(
+                    catalog_context,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            }
+        except Exception as e:
+            logger.error(f"Catalog context load error: {e}")
+            return {"catalog_context": ""}
+
     
     def __latest_user_text(self, state: State, max_messages: int = 5) -> str:
         """
@@ -449,14 +490,18 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             return {"custom_tool_context": ""}
     
     def __get_tools(self, state: State) -> list:
-        if not self.tools_builder.get_tools_builder_list(agent_type=REPLY_AGENT):
-            return []
-
         sender = str(state.get("sender", "") or "").strip()
-        return [
-            self.tools_builder.find_relevant_tools_builder(agent_type=REPLY_AGENT),
-            self.tools_builder.execute_tools_builder(agent_type=REPLY_AGENT, sender=sender),
-        ]
+        tools = []
+        if self.tools_builder.get_tools_builder_list(agent_type=REPLY_AGENT):
+            tools.extend(
+                [
+                    self.tools_builder.find_relevant_tools_builder(agent_type=REPLY_AGENT),
+                    self.tools_builder.execute_tools_builder(agent_type=REPLY_AGENT, sender=sender),
+                ]
+            )
+
+        tools.append(self.catalog_tools.get_catalog_tool_by_id(sender=sender))
+        return tools
 
     @staticmethod
     def __has_pending_tool_calls(state: State) -> bool:
@@ -484,13 +529,69 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                 ]
             }
 
-        return await ToolNode(tools).ainvoke(state)
+        result = await ToolNode(tools).ainvoke(state)
+        if self.__catalog_tool_message_sent(result.get("messages", [])):
+            result["catalog_message_sent"] = True
+
+        return result
+
+    @staticmethod
+    def __tool_message_payload(message: ToolMessage) -> dict:
+        content = getattr(message, "content", None)
+        if isinstance(content, dict):
+            return content
+
+        if not isinstance(content, str) or not content.strip():
+            return {}
+
+        try:
+            payload = json.loads(content)
+            return payload if isinstance(payload, dict) else {}
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            payload = ast.literal_eval(content)
+            return payload if isinstance(payload, dict) else {}
+        except (ValueError, SyntaxError):
+            return {}
+
+    def __catalog_tool_message_sent(self, messages: list) -> bool:
+        for message in reversed(messages):
+            if not isinstance(message, ToolMessage):
+                continue
+
+            if getattr(message, "name", "") != "get_catalog_tool_by_id":
+                continue
+
+            payload = self.__tool_message_payload(message)
+            send_result = payload.get("send_result") if isinstance(payload, dict) else None
+            if isinstance(send_result, dict) and send_result.get("success") is True:
+                return True
+
+        return False
 
     def __route_after_conversation(self, state: State) -> Literal["tools", "summarize_conversation", "__end__"]:
         if self.__has_pending_tool_calls(state):
             return "tools"
 
         return self.should_continue(state)
+
+    def __route_after_tools(self, state: State) -> Literal["conversation", "catalog_follow_up"]:
+        if state.get("catalog_message_sent"):
+            return "catalog_follow_up"
+
+        return "conversation"
+
+    def __latest_catalog_tool_payload(self, state: State) -> dict:
+        for message in reversed(state.get("messages", [])):
+            if not isinstance(message, ToolMessage):
+                continue
+
+            if getattr(message, "name", "") == "get_catalog_tool_by_id":
+                return self.__tool_message_payload(message)
+
+        return {}
 
     @staticmethod
     def __content_to_text(content: Any) -> str:
@@ -631,6 +732,7 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
         No writes to vector DB happen in this node.
         """
         rag_context = str(state.get("rag_context", "") or "").strip()
+        catalog_context = str(state.get("catalog_context", "") or "").strip()
         custom_tool_context = str(state.get("custom_tool_context", "") or "").strip()
         summary = str(state.get("summary", "") or "").strip()
 
@@ -643,6 +745,11 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             custom_tool_context
             if custom_tool_context
             else "No relevant custom tool context was found for the current turn."
+        )
+        catalog_context_block = (
+            catalog_context
+            if catalog_context
+            else "No catalog context was loaded for the current turn."
         )
 
         summary_block = summary if summary else "No prior summary is available."
@@ -669,18 +776,24 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             "REQUEST SCOPE CHECK:\n"
             f"{scope_guard_block}\n\n"
             "SOURCE-OF-TRUTH ORDER FOR THIS TURN:\n"
-            "1. Current-turn custom database tool output and custom tool context.\n"
-            "2. Current-turn uploaded document context from RAG.\n"
-            "3. Latest user message, contact info, and current send time.\n"
-            "4. Conversation summary/history only for continuity, tone, and references.\n\n"
+            "1. Current-turn catalog context and catalog tool output.\n"
+            "2. Current-turn custom database tool output and custom tool context.\n"
+            "3. Current-turn uploaded document context from RAG.\n"
+            "4. Latest user message, contact info, and current send time.\n"
+            "5. Conversation summary/history only for continuity, tone, and references.\n\n"
             "SOURCE RULES:\n"
             "- Never use older conversation history as the authority for facts that can change.\n"
             "- If tool/RAG context conflicts with history, tool/RAG context wins.\n"
+            "- The catalog context is a lightweight preview for the latest user input. Use it only to identify candidate product ids; call `get_catalog_tool_by_id` when the user asks for price, biaya, harga, details, images, comparison, or full information about specific matched catalog products.\n"
+            "- If the user asks for catalog information but does not identify specific products, ask a short clarification question using available catalog preview names instead of calling `get_catalog_tool_by_id`.\n"
+            "- If CURRENT CATALOG CONTEXT has no matching catalog items, do not call `get_catalog_tool_by_id`; ignore catalog for this turn and continue with the other current sources normally.\n"
             "- If the answer depends on mutable business/custom data and a relevant code-backed custom tool is available, call `execute_custom_tool` before finalizing.\n"
             "- If no current tool/RAG source supports an internal, uploaded, business, or mutable factual claim, say the current source data is unavailable instead of copying a stale answer from history.\n"
             "- If the request is unrelated to the ROLE section, do not answer from general knowledge; briefly state that you can only help with topics covered by this agent's role.\n"
             "- Keep answers concise, direct, and easy to understand.\n"
             "- Do not mention hidden reasoning steps. Provide only the final answer.\n\n"
+            "CURRENT CATALOG CONTEXT:\n"
+            f"{catalog_context_block}\n\n"
             "CURRENT CUSTOM TOOL CONTEXT:\n"
             f"{custom_tool_context_block}\n\n"
             "CURRENT DOCUMENT CONTEXT (RAG):\n"
@@ -689,6 +802,15 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             f"{summary_block}\n\n"
             "RECENT CONVERSATION HISTORY (NON-AUTHORITATIVE):\n"
             f"{history_context_block}"
+        )
+
+        system_content += (
+            "\n\nCATALOG TOOL USAGE:\n"
+            "- You have one catalog tool: `get_catalog_tool_by_id`.\n"
+            "- `get_catalog_tool_by_id` requires `product_ids`, a non-empty list of ids from CURRENT CATALOG CONTEXT that match the user's latest request.\n"
+            "- Use `get_catalog_tool_by_id` after the user asks for price, biaya, harga, details, images, price/detail comparison, or full information about specific catalog products.\n"
+            "- If the user asks generally about available catalog products without asking for price, details, images, or a specific product, answer only with a short list of available product names from CURRENT CATALOG CONTEXT and do not call `get_catalog_tool_by_id` yet.\n"
+            "- If product intent is unclear, ask a concise clarification question using available catalog product names."
         )
 
         custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=REPLY_AGENT)
@@ -723,7 +845,10 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                             tools,
                             prefer_find_first=True,
                             result_rule=(
-                                "- If current custom tool context already answers the request, answer from it. "
+                                "- Use current catalog preview only to choose product_ids. "
+                                "If the user asks for catalog price, biaya, harga, details, or images for specific products, call get_catalog_tool_by_id with matching product_ids from CURRENT CATALOG CONTEXT. "
+                                "Only answer from preview directly for broad availability/listing questions that do not ask for price or details. "
+                                "If current custom tool context already answers the request, answer from it. "
                                 "If a code-backed custom tool is needed for mutable/custom data, call execute_custom_tool. "
                                 "If no current source supports an internal or mutable claim, say the current source data is unavailable."
                             ),
@@ -740,6 +865,46 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
         response = llm.invoke(messages)
         if tools and minimax_provider:
             response = minimax_helper.coerce_textual_tool_response(response, tools, logger=logger, id_prefix="reply-minimax")
+        return {"messages": [response]}
+
+    def __catalog_follow_up(self, state: State):
+        """
+        Generate the user-facing reply after catalog details were already sent by
+        the catalog tool. This keeps the AI present in the conversation without
+        repeating the full catalog payload.
+        """
+        payload = self.__latest_catalog_tool_payload(state)
+        catalog_payload = json.dumps(payload, ensure_ascii=False, default=str)
+        latest_user_request = str(
+            state.get("rag_query") or self.__latest_user_text(state, max_messages=1)
+        ).strip()
+
+        system_content = (
+            "ROLE:\n"
+            f"{self.sys_msg}\n\n"
+            "CATALOG FOLLOW-UP MODE:\n"
+            "- The catalog tool has already sent the selected catalog details to the WhatsApp chat.\n"
+            "- Now send one concise natural-language follow-up reply to the user.\n"
+            "- Use the catalog payload only as internal context to answer the user's latest catalog question.\n"
+            "- Mention that the catalog/details have been sent when useful.\n"
+            "- Do not repeat the full catalog, raw ids, raw JSON, all image URLs, or every field from the tool output.\n"
+            "- If the user asked for a specific value such as price, answer that value briefly using catalog_detail.\n"
+            "- If the sent catalog is enough and no extra explanation is needed, ask a short follow-up question about what they want to compare or clarify next.\n"
+            "- Keep the reply in the same language as the user.\n\n"
+            "LATEST USER REQUEST:\n"
+            f"{latest_user_request}\n\n"
+            "CATALOG TOOL PAYLOAD:\n"
+            f"{catalog_payload}"
+        )
+
+        messages = [SystemMessage(content=system_content)] + self.__current_turn_messages(state.get("messages", []))
+        if minimax_helper.is_minimax_provider(self.config, "reply_model"):
+            messages = minimax_helper.minimax_safe_payload(
+                messages,
+                content_to_text_func=self.__content_to_text,
+            )
+
+        response = self.__llm().invoke(messages)
         return {"messages": [response]}
     
     def should_continue(self, state: State, max_chat_to_summarize: int = 10) -> Literal["summarize_conversation", "__end__"]:
@@ -818,17 +983,21 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
         builder = StateGraph(State)
         builder.add_node("guardrail", self.__input_guardrail)
         builder.add_node("retrieve", self.__retrieve)
+        builder.add_node("load_catalog_context", self.__load_catalog_context)
         builder.add_node("load_custom_tool_context", self.__load_custom_tool_context)
         builder.add_node("conversation", self.__conversation)
         builder.add_node("tools", self.__tool_node)
+        builder.add_node("catalog_follow_up", self.__catalog_follow_up)
         builder.add_node("summarize_conversation", self.summarize_conversation)
         
         builder.add_edge(START, "guardrail")
         builder.add_conditional_edges("guardrail", self.__route_after_guardrail)
-        builder.add_edge("retrieve", "load_custom_tool_context")
+        builder.add_edge("retrieve", "load_catalog_context")
+        builder.add_edge("load_catalog_context", "load_custom_tool_context")
         builder.add_edge("load_custom_tool_context", "conversation")
         builder.add_conditional_edges("conversation", self.__route_after_conversation)
-        builder.add_edge("tools", "conversation")
+        builder.add_conditional_edges("tools", self.__route_after_tools)
+        builder.add_edge("catalog_follow_up", END)
         builder.add_edge("summarize_conversation", END)
         
         react_graph = builder.compile(checkpointer=self.checkpointer)
@@ -865,11 +1034,12 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                 "sender": group_id if group_id else number,
                 "rag_query": messages,
                 "rag_context": "",
+                "catalog_message_sent": False,
                 "custom_tool_query": messages,
                 "custom_tool_context": "",
                 # "summary": "",
             }, config=config)
-            
+
             results_message = self.__extract_reply_ai_content(result.get('messages', []))
             if not results_message:
                 results_message = "Maaf, saya belum bisa membuat jawaban akhir dari hasil proses tadi."

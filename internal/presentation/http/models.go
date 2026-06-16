@@ -93,3 +93,12 @@ type DeleteToolBuilderRequest struct {
 	AgentType string `json:"agent_type" binding:"required"`
 	Name      string `json:"name" binding:"required"`
 }
+
+type CatalogImageURLRequest struct {
+	URL string `json:"url" binding:"required"`
+}
+
+type ReplyAdminRequest struct {
+	Name   string `json:"name" binding:"required"`
+	Number string `json:"number" binding:"required"`
+}

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path"
@@ -31,6 +33,10 @@ const (
 	brainVectorTimeout            = 360 * time.Second
 
 	TOOL_BUILDER_PATH string = "/tool-builder"
+
+	CATALOG_STORE_PATH string = "/catalog-store"
+
+	ADMINS_REPLY_AGENT_PATH string = "/admin-reply-agent"
 )
 
 var (
@@ -73,6 +79,20 @@ var supportedVectorDocumentExtensions = map[string]struct{}{
 	".docx": {},
 	".xlsx": {},
 	".pptx": {},
+}
+
+var supportedCatalogImageExtensions = map[string]struct{}{
+	".avif": {},
+	".bmp":  {},
+	".gif":  {},
+	".heic": {},
+	".jpeg": {},
+	".jpg":  {},
+	".png":  {},
+	".svg":  {},
+	".tif":  {},
+	".tiff": {},
+	".webp": {},
 }
 
 var supportedToolBuilderAgents = map[string]struct{}{
@@ -164,6 +184,109 @@ func requestBrainJSON(ctx context.Context, method string, apiPath string, query 
 	var responsePayload any
 	if err := json.NewDecoder(resp.Body).Decode(&responsePayload); err != nil {
 		return nil, fmt.Errorf("decode brain response: %w", err)
+	}
+
+	return responsePayload, nil
+}
+
+func escapeMultipartValue(value string) string {
+	return strings.NewReplacer("\\", "\\\\", `"`, "\\\"").Replace(value)
+}
+
+func requestBrainMultipart(ctx context.Context, method string, apiPath string, form *multipart.Form) (any, error) {
+	requestCtx := ctx
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+
+	var cancel context.CancelFunc
+	if _, hasDeadline := requestCtx.Deadline(); !hasDeadline {
+		requestCtx, cancel = context.WithTimeout(requestCtx, brainVectorTimeout)
+		defer cancel()
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	for fieldName, values := range form.Value {
+		for _, value := range values {
+			if err := writer.WriteField(fieldName, value); err != nil {
+				return nil, fmt.Errorf("write multipart field: %w", err)
+			}
+		}
+	}
+
+	for fieldName, fileHeaders := range form.File {
+		for _, fileHeader := range fileHeaders {
+			file, err := fileHeader.Open()
+			if err != nil {
+				return nil, fmt.Errorf("open multipart file: %w", err)
+			}
+
+			contentType := fileHeader.Header.Get("Content-Type")
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+
+			header := textproto.MIMEHeader{}
+			header.Set(
+				"Content-Disposition",
+				fmt.Sprintf(
+					`form-data; name="%s"; filename="%s"`,
+					escapeMultipartValue(fieldName),
+					escapeMultipartValue(fileHeader.Filename),
+				),
+			)
+			header.Set("Content-Type", contentType)
+
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				_ = file.Close()
+				return nil, fmt.Errorf("create multipart part: %w", err)
+			}
+
+			if _, err := io.Copy(part, file); err != nil {
+				_ = file.Close()
+				return nil, fmt.Errorf("copy multipart file: %w", err)
+			}
+			_ = file.Close()
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(requestCtx, method, brainVectorEndpoint(apiPath), &body)
+	if err != nil {
+		return nil, fmt.Errorf("build brain multipart request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{Timeout: brainVectorTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute brain multipart request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return nil, fmt.Errorf("brain multipart request failed: status=%d, read_body_error=%w", resp.StatusCode, readErr)
+		}
+
+		bodyText := strings.TrimSpace(string(bodyBytes))
+		if bodyText == "" {
+			bodyText = fmt.Sprintf("upstream status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("brain multipart request failed: status=%d, body=%s", resp.StatusCode, bodyText)
+	}
+
+	var responsePayload any
+	if err := json.NewDecoder(resp.Body).Decode(&responsePayload); err != nil {
+		return nil, fmt.Errorf("decode brain multipart response: %w", err)
 	}
 
 	return responsePayload, nil
@@ -820,6 +943,335 @@ func deleteToolBuilderHandler(manager ports.Manager) gin.HandlerFunc {
 	}
 }
 
+func catalogProductPath(catalogID string) string {
+	return "/catalog/" + url.PathEscape(catalogID)
+}
+
+func isCatalogImageUpload(fileHeader *multipart.FileHeader) bool {
+	contentType := strings.ToLower(strings.TrimSpace(fileHeader.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "image/") {
+		return true
+	}
+
+	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+	_, ok := supportedCatalogImageExtensions[ext]
+	return ok
+}
+
+func getCatalogProductsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Request.URL.Query()
+		apiPath := "/catalog"
+		if len(query["ids"]) > 0 {
+			apiPath = "/catalog/by-ids"
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, apiPath, query, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get catalog products: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog products retrieved successfully", payload)
+	}
+}
+
+func getCatalogProductHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		if catalogID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id is required")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, catalogProductPath(catalogID), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get catalog product: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog product retrieved successfully", payload)
+	}
+}
+
+func createCatalogProductHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req map[string]any
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPost, "/catalog", nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to create catalog product: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusCreated, "catalog product created successfully", payload)
+	}
+}
+
+func updateCatalogProductHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		if catalogID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id is required")
+			return
+		}
+
+		var req map[string]any
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPut, catalogProductPath(catalogID), nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to update catalog product: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog product updated successfully", payload)
+	}
+}
+
+func deleteCatalogProductHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		if catalogID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id is required")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodDelete, catalogProductPath(catalogID), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to delete catalog product: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog product deleted successfully", payload)
+	}
+}
+
+func getCatalogImagesHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		if catalogID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id is required")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, catalogProductPath(catalogID)+"/images", nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get catalog images: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog images retrieved successfully", payload)
+	}
+}
+
+func addCatalogImageURLHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		if catalogID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id is required")
+			return
+		}
+
+		var req CatalogImageURLRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPost, catalogProductPath(catalogID)+"/images/url", nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to add catalog image URL: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusCreated, "catalog image URL added successfully", payload)
+	}
+}
+
+func uploadCatalogImagesHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		if catalogID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id is required")
+			return
+		}
+
+		form, err := c.MultipartForm()
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid multipart form")
+			return
+		}
+
+		fileHeaders := form.File["files"]
+		if len(fileHeaders) == 0 {
+			if singleFile, err := c.FormFile("file"); err == nil {
+				fileHeaders = append(fileHeaders, singleFile)
+			}
+		}
+		if len(fileHeaders) == 0 {
+			ErrorHTTPResp(c, http.StatusBadRequest, "files are required")
+			return
+		}
+
+		for _, fileHeader := range fileHeaders {
+			if !isCatalogImageUpload(fileHeader) {
+				ErrorHTTPResp(c, http.StatusBadRequest, "uploaded catalog files must be images")
+				return
+			}
+		}
+
+		proxyForm := &multipart.Form{
+			Value: form.Value,
+			File: map[string][]*multipart.FileHeader{
+				"files": fileHeaders,
+			},
+		}
+		payload, err := requestBrainMultipart(c.Request.Context(), http.MethodPost, catalogProductPath(catalogID)+"/images/upload", proxyForm)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to upload catalog images: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusCreated, "catalog images uploaded successfully", payload)
+	}
+}
+
+func deleteCatalogImageHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		catalogID := strings.TrimSpace(c.Param("id"))
+		imageID := strings.TrimSpace(c.Param("image_id"))
+		if catalogID == "" || imageID == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "catalog id and image id are required")
+			return
+		}
+
+		endpoint := catalogProductPath(catalogID) + "/images/" + url.PathEscape(imageID)
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodDelete, endpoint, nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to delete catalog image: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog image deleted successfully", payload)
+	}
+}
+
+func replyAdminPath(number string) string {
+	if strings.TrimSpace(number) == "" {
+		return "/admin/number-store"
+	}
+	return "/admin/number-store/" + url.PathEscape(number)
+}
+
+func getReplyAdminsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, replyAdminPath(""), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get reply admins: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "reply admins retrieved successfully", payload)
+	}
+}
+
+func getReplyAdminHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		number := strings.TrimSpace(c.Param("number"))
+		if number == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "admin number is required")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, replyAdminPath(number), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get reply admin: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "reply admin retrieved successfully", payload)
+	}
+}
+
+func createReplyAdminHandler(waClient ports.WhatsAppClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ReplyAdminRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		contact, err := waClient.GetContact(c.Request.Context(), req.Number)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "failed to get contact information")
+			return
+		}
+
+		if !contact.Found {
+			ErrorHTTPResp(c, http.StatusBadRequest, "the provided number is not a valid WhatsApp contact")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPost, replyAdminPath(""), nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to create reply admin: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusCreated, "reply admin created successfully", payload)
+	}
+}
+
+func updateReplyAdminHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		number := strings.TrimSpace(c.Param("number"))
+		if number == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "admin number is required")
+			return
+		}
+
+		var req ReplyAdminRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPut, replyAdminPath(number), nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to update reply admin: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "reply admin updated successfully", payload)
+	}
+}
+
+func deleteReplyAdminHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		number := strings.TrimSpace(c.Param("number"))
+		if number == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "admin number is required")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodDelete, replyAdminPath(number), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to delete reply admin: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "reply admin deleted successfully", payload)
+	}
+}
+
 /*
 ManagerRouter sets up the routes for manager-related operations under the /api path.
 */
@@ -873,6 +1325,28 @@ func ManagerRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, waC
 			toolBuilder.POST("/tools", addToolBuilderHandler(manager))
 			toolBuilder.PUT("/tools", updateToolBuilderHandler(manager))
 			toolBuilder.DELETE("/tools", deleteToolBuilderHandler(manager))
+		}
+
+		catalogStore := r.Group(CATALOG_STORE_PATH)
+		{
+			catalogStore.GET("/products", getCatalogProductsHandler())
+			catalogStore.POST("/products", createCatalogProductHandler())
+			catalogStore.GET("/products/:id", getCatalogProductHandler())
+			catalogStore.PUT("/products/:id", updateCatalogProductHandler())
+			catalogStore.DELETE("/products/:id", deleteCatalogProductHandler())
+			catalogStore.GET("/products/:id/images", getCatalogImagesHandler())
+			catalogStore.POST("/products/:id/images/url", addCatalogImageURLHandler())
+			catalogStore.POST("/products/:id/images/upload", uploadCatalogImagesHandler())
+			catalogStore.DELETE("/products/:id/images/:image_id", deleteCatalogImageHandler())
+		}
+
+		admins_reply_agent := r.Group(ADMINS_REPLY_AGENT_PATH)
+		{
+			admins_reply_agent.GET("/admins", getReplyAdminsHandler())
+			admins_reply_agent.POST("/admins", createReplyAdminHandler(waClient))
+			admins_reply_agent.GET("/admins/:number", getReplyAdminHandler())
+			admins_reply_agent.PUT("/admins/:number", updateReplyAdminHandler())
+			admins_reply_agent.DELETE("/admins/:number", deleteReplyAdminHandler())
 		}
 
 	}

@@ -34,6 +34,14 @@ class GinServerConfig(BaseModel):
     host: str = 'localhost'
     app_mod: str = 'debug'
 
+class CloudflareR2Config(BaseModel):
+    config_name: str = "cloudflare_r2"  # MongoDB document identifier
+    account_id: str = ""
+    access_key_id: str = ""
+    secret_access_key: str = ""
+    bucket_name: str = ""
+    public_url: str = ""
+
 class Config(AIModelConfigManager):
     def __init__(self):
         super().__init__()
@@ -46,6 +54,7 @@ class Config(AIModelConfigManager):
         self.get_tavily_config()
         self.get_langsmith_config()
         self.get_gin_server_config()
+        self.get_cloudflare_r2_config()
     
     def get_provider_config(self):
         """Fetch provider configuration from MongoDB, with fallback to default if not present. The providers field is a comma-separated string of enabled providers."""
@@ -115,6 +124,35 @@ class Config(AIModelConfigManager):
             port=(str(config.get("port", "")).strip() or default_port),
             host=(str(config.get("host", "")).strip() or default_host),
             app_mod=(str(config.get("app_mod", "")).strip() or default_app_mod)
+        )
+    
+    def get_cloudflare_r2_config(self) -> CloudflareR2Config:
+        """Fetch Cloudflare R2 configuration from MongoDB, with env fallback."""
+        env_account_id = (os.getenv("R2_ACCOUNT_ID") or "").strip()
+        env_access_key_id = (os.getenv("R2_ACCESS_KEY_ID") or "").strip()
+        env_secret_access_key = (os.getenv("R2_SECRET_ACCESS_KEY") or "").strip()
+        env_bucket_name = (os.getenv("R2_BUCKET_NAME") or "").strip()
+        env_public_url = (os.getenv("R2_PUBLIC_URL") or "").strip()
+
+        config = self.collection.find_one({"config_name": "cloudflare_r2"})
+        if config is None:
+            config = CloudflareR2Config(
+                config_name="cloudflare_r2",
+                account_id=env_account_id,
+                access_key_id=env_access_key_id,
+                secret_access_key=env_secret_access_key,
+                bucket_name=env_bucket_name,
+                public_url=env_public_url,
+            ).model_dump()
+            self.collection.insert_one(config)
+
+        return CloudflareR2Config(
+            config_name=config.get("config_name", "cloudflare_r2"),
+            account_id=(str(config.get("account_id", "")).strip() or env_account_id),
+            access_key_id=(str(config.get("access_key_id", "")).strip() or env_access_key_id),
+            secret_access_key=(str(config.get("secret_access_key", "")).strip() or env_secret_access_key),
+            bucket_name=(str(config.get("bucket_name", "")).strip() or env_bucket_name),
+            public_url=(str(config.get("public_url", "")).strip() or env_public_url),
         )
     
 

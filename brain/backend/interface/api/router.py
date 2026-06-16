@@ -8,8 +8,8 @@ from backend.application.ingestion.loader import (
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, Field
 
 from backend.application.ai.agents import ChatAgentUseCase
 from backend.application.ai.code import AgentCodeUsecase
@@ -17,10 +17,12 @@ from backend.application.ai.reaserch import ResearchAgentUsecase
 from backend.application.health import CheckHealthUseCase
 from backend.application.report import ReportUseCase
 from backend.domain.report import LangSmithLogReport, LangSmithRunReport
-from backend.application.ai.tools.models import LevelSystem
+from backend.application.ai.tools.models import AdminData, AdminDataOutput, CatalogProduct, ImageDetails, LevelSystem
 from backend.application.aidata import CheckAIData
 from backend.domain.aidata import AIDataInjectionResponse, AIDataStatus
 from backend.application.ai.reply import ReplyAgentUsecase
+from backend.application.ai.tools.catalog import Catalog
+from backend.application.ai.tools.dbaccess import DBAcess
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -65,6 +67,57 @@ class VectorStoreDocumentStatusResponse(BaseModel):
     source: str
     exists: bool
     total_chunks: int
+
+
+class CatalogPreviewItem(BaseModel):
+    id: str = Field(description="Unique catalog product id.")
+    product_name: str = Field(description="Display name of the product.")
+    description: str | None = Field(default=None, description="Short product description.")
+    price: float = Field(description="Product price.")
+
+
+class CatalogDeleteResponse(BaseModel):
+    id: str = Field(description="Deleted catalog product id.")
+    deleted: bool = Field(description="True when a catalog product was deleted.")
+
+
+class CatalogImageURLRequest(BaseModel):
+    url: str = Field(description="Public image URL to attach to the catalog product.")
+
+
+class AdminDeleteResponse(BaseModel):
+    number: str = Field(description="Deleted admin phone number.")
+    deleted: bool = Field(description="True when an admin was deleted.")
+
+
+CATALOG_DETAILS_GUIDE = """
+Panduan payload catalog:
+
+- `category="watch"` wajib memakai `WatchDetails` pada `details`: `movement_type`, `material`, `water_resistance_atm`, `length_mm`, `width_mm`, `thickness_mm`.
+- `category="clothing"` wajib memakai `ClothingDetails` pada `details`: `size`, `fabric`, `color`.
+- `category="furniture"` wajib memakai `FurnitureDetails` pada `details`: `dimensions_cm`, `primary_material`, `requires_assembly`.
+- `category="lainnya"` memakai `details: {}`. Backend akan menyimpan detail kosong untuk kategori ini.
+- `category` wajib dipilih dari `watch`, `clothing`, `furniture`, atau `lainnya`. Request tanpa `category`, dengan `category` kosong, atau dengan bentuk `details` yang tidak cocok akan ditolak oleh validasi backend.
+- `id` boleh tidak dikirim saat create; backend akan membuat id otomatis.
+"""
+
+
+REPLY_ADMIN_GUIDE = """
+Reply admin adalah daftar admin untuk Reply Agent.
+
+Ketika Reply Agent membutuhkan bantuan manusia, backend akan melakukan broadcast pesan ke nomor admin yang tersimpan di konfigurasi ini.
+
+Payload admin:
+
+- `name`: nama admin yang mudah dibaca di dashboard.
+- `number`: nomor WhatsApp admin, contoh `6281234567890`.
+
+Data disimpan mengikuti dokumen database `manager_bot_config` dengan bentuk:
+
+- `parameter: "admins"`
+- `numbers: AdminData[]`
+- `waiting_for_admins: string[]`
+"""
 
 
 def create_health_router(usecase: CheckHealthUseCase) -> APIRouter:
@@ -336,5 +389,313 @@ def create_vector_store_router(usecase: DocumentLoader | None = None) -> APIRout
             raise HTTPException(status_code=400, detail="Tidak ada dokumen yang dimuat")
 
         return result
+
+    return router
+
+def create_catalog_store_router(usecase: Catalog) -> APIRouter:
+    router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+    @router.post(
+        "",
+        response_model=CatalogProduct,
+        status_code=status.HTTP_201_CREATED,
+        summary="Create catalog product",
+        description=CATALOG_DETAILS_GUIDE,
+        response_description="Created catalog product.",
+    )
+    def create_catalog_product(request: CatalogProduct) -> CatalogProduct:
+        """Create a new catalog product."""
+        try:
+            return usecase.create_catalog(request)
+        except ValueError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+
+    @router.get(
+        "",
+        response_model=list[CatalogProduct],
+        summary="List catalog products",
+        description="Return all catalog products with complete detail data.",
+        response_description="All catalog products.",
+    )
+    def list_catalog_products() -> list[CatalogProduct]:
+        """Read all catalog products."""
+        return usecase.get_all_catalog()
+
+    @router.get(
+        "/preview",
+        response_model=list[CatalogPreviewItem],
+        summary="Preview catalog products",
+        description="Return lightweight catalog data containing only id, product_name, description, and price.",
+        response_description="Catalog preview items.",
+    )
+    def preview_catalog_products() -> list[CatalogPreviewItem]:
+        """Read catalog preview data."""
+        return usecase.get_preview_catalog()
+
+    @router.get(
+        "/by-ids",
+        response_model=list[CatalogProduct],
+        summary="Get catalog products by ids",
+        description=(
+            "Return catalog products matching the requested ids. "
+            "Use repeated query params like `?ids=id1&ids=id2`, or comma-separated ids."
+        ),
+        response_description="Catalog products.",
+    )
+    def get_catalog_products_by_ids(
+        ids: list[str] = Query(..., description="Catalog ids to retrieve."),
+    ) -> list[CatalogProduct]:
+        """Read multiple catalog products by ids."""
+        catalog_ids: list[str] = []
+        for raw_id in ids:
+            for catalog_id in raw_id.split(","):
+                clean_id = catalog_id.strip()
+                if clean_id:
+                    catalog_ids.append(clean_id)
+
+        if not catalog_ids:
+            raise HTTPException(status_code=400, detail="At least one catalog id is required")
+
+        return usecase.get_catalog_by_id(catalog_ids)
+
+    @router.get(
+        "/{catalog_id}",
+        response_model=CatalogProduct,
+        summary="Get catalog product by id",
+        description="Return one catalog product by its id.",
+        response_description="Catalog product.",
+    )
+    def get_catalog_product(catalog_id: str) -> CatalogProduct:
+        """Read one catalog product by id."""
+        products = usecase.get_catalog_by_id([catalog_id])
+        if not products:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return products[0]
+
+    @router.get(
+        "/{catalog_id}/images",
+        response_model=list[ImageDetails],
+        summary="List catalog product images",
+        description="Return all images attached to one catalog product.",
+        response_description="Catalog product images.",
+    )
+    def list_catalog_images(catalog_id: str) -> list[ImageDetails]:
+        """Read all images for one catalog product."""
+        images = usecase.get_catalog_images(catalog_id)
+        if images is None:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return images
+
+    @router.post(
+        "/{catalog_id}/images/url",
+        response_model=ImageDetails,
+        status_code=status.HTTP_201_CREATED,
+        summary="Attach catalog image URL",
+        description="Attach an existing public image URL to one catalog product.",
+        response_description="Attached catalog image.",
+    )
+    def add_catalog_image_url(catalog_id: str, request: CatalogImageURLRequest) -> ImageDetails:
+        """Attach a public image URL to one catalog product."""
+        try:
+            image = usecase.add_catalog_image_url(catalog_id, request.url)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+        if image is None:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return image
+
+    @router.post(
+        "/{catalog_id}/images/upload",
+        response_model=list[ImageDetails],
+        status_code=status.HTTP_201_CREATED,
+        summary="Upload catalog images",
+        description="Upload one or more image files to Cloudflare R2 and attach the resulting URLs to the catalog product.",
+        response_description="Uploaded catalog images.",
+    )
+    async def upload_catalog_images(
+        catalog_id: str,
+        files: list[UploadFile] = File(..., description="One or more image files."),
+    ) -> list[ImageDetails]:
+        """Upload image files for one catalog product."""
+        if not files:
+            raise HTTPException(status_code=400, detail="At least one image file is required")
+
+        upload_files: list[tuple[str, bytes, str]] = []
+        for upload_file in files:
+            content_type = (upload_file.content_type or "").strip()
+            if content_type and not content_type.lower().startswith("image/"):
+                raise HTTPException(status_code=400, detail="Uploaded catalog files must be images")
+
+            content = await upload_file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="Uploaded catalog image cannot be empty")
+
+            upload_files.append((upload_file.filename or "catalog-image", content, content_type))
+
+        try:
+            uploaded_images = usecase.upload_catalog_images(catalog_id, upload_files)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+        if uploaded_images is None:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return uploaded_images
+
+    @router.delete(
+        "/{catalog_id}/images/{image_id}",
+        response_model=CatalogDeleteResponse,
+        summary="Delete catalog image",
+        description="Delete one image reference from the catalog product. R2-owned images are also deleted from Cloudflare R2.",
+        response_description="Delete result.",
+    )
+    def delete_catalog_image(catalog_id: str, image_id: str) -> CatalogDeleteResponse:
+        """Delete one image from one catalog product."""
+        try:
+            product = usecase.delete_catalog_image(catalog_id, image_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err)) from err
+
+        if product is None:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return CatalogDeleteResponse(id=image_id, deleted=True)
+
+    @router.put(
+        "/{catalog_id}",
+        response_model=CatalogProduct,
+        summary="Update catalog product",
+        description=CATALOG_DETAILS_GUIDE,
+        response_description="Updated catalog product.",
+    )
+    def update_catalog_product(catalog_id: str, request: CatalogProduct) -> CatalogProduct:
+        """Update an existing catalog product with a full replacement payload."""
+        product = usecase.update_catalog(catalog_id, request)
+        if product is None:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return product
+
+    @router.delete(
+        "/{catalog_id}",
+        response_model=CatalogDeleteResponse,
+        summary="Delete catalog product",
+        description="Delete one catalog product by its id.",
+        response_description="Delete result.",
+    )
+    def delete_catalog_product(catalog_id: str) -> CatalogDeleteResponse:
+        """Delete one catalog product by id."""
+        deleted = usecase.delete_catalog_by_id(catalog_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Catalog product not found")
+
+        return CatalogDeleteResponse(id=catalog_id, deleted=True)
+
+    return router
+
+def create_admin_number_store_router(usecase: DBAcess) -> APIRouter:
+    router = APIRouter(prefix="/admin/number-store", tags=["admin-number-store"])
+
+    @router.get(
+        "",
+        response_model=AdminDataOutput,
+        summary="List reply admins",
+        description=REPLY_ADMIN_GUIDE,
+        response_description="Reply admin database configuration.",
+    )
+    def list_reply_admins() -> AdminDataOutput:
+        """Read reply admin configuration."""
+        return usecase.get_admins_data()
+
+    @router.get(
+        "/{number}",
+        response_model=AdminData,
+        summary="Get reply admin by number",
+        description="Return one reply admin by WhatsApp number.",
+        response_description="Reply admin data.",
+    )
+    def get_reply_admin(number: str) -> AdminData:
+        """Read one reply admin by number."""
+        clean_number = number.strip()
+        for admin in usecase.get_admins_data().numbers:
+            if admin.number == clean_number:
+                return admin
+
+        raise HTTPException(status_code=404, detail="Reply admin not found")
+
+    @router.post(
+        "",
+        response_model=AdminDataOutput,
+        status_code=status.HTTP_201_CREATED,
+        summary="Create reply admin",
+        description=REPLY_ADMIN_GUIDE,
+        response_description="Updated reply admin database configuration.",
+    )
+    def create_reply_admin(request: AdminData) -> AdminDataOutput:
+        """Create a new reply admin."""
+        clean_number = request.number.strip()
+        if not clean_number:
+            raise HTTPException(status_code=400, detail="number is required")
+
+        current_admins = usecase.get_admins_data().numbers
+        if any(admin.number == clean_number for admin in current_admins):
+            raise HTTPException(status_code=409, detail="Reply admin already exists")
+
+        saved = usecase.set_admins_data([request])
+        if not saved:
+            raise HTTPException(status_code=500, detail="Failed to create reply admin")
+
+        return usecase.get_admins_data()
+
+    @router.put(
+        "/{number}",
+        response_model=AdminDataOutput,
+        summary="Update reply admin",
+        description=REPLY_ADMIN_GUIDE,
+        response_description="Updated reply admin database configuration.",
+    )
+    def update_reply_admin(number: str, request: AdminData) -> AdminDataOutput:
+        """Update an existing reply admin."""
+        original_number = number.strip()
+        new_number = request.number.strip()
+        if not original_number or not new_number:
+            raise HTTPException(status_code=400, detail="number is required")
+
+        current_admins = usecase.get_admins_data().numbers
+        if not any(admin.number == original_number for admin in current_admins):
+            raise HTTPException(status_code=404, detail="Reply admin not found")
+
+        if new_number != original_number and any(admin.number == new_number for admin in current_admins):
+            raise HTTPException(status_code=409, detail="Reply admin number already exists")
+
+        if new_number != original_number:
+            usecase.remove_admins_data([AdminData(name=request.name, number=original_number)])
+
+        usecase.set_admins_data([request])
+
+        return usecase.get_admins_data()
+
+    @router.delete(
+        "/{number}",
+        response_model=AdminDeleteResponse,
+        summary="Delete reply admin",
+        description="Delete one reply admin by WhatsApp number.",
+        response_description="Delete result.",
+    )
+    def delete_reply_admin(number: str) -> AdminDeleteResponse:
+        """Delete one reply admin by number."""
+        clean_number = number.strip()
+        if not any(admin.number == clean_number for admin in usecase.get_admins_data().numbers):
+            raise HTTPException(status_code=404, detail="Reply admin not found")
+
+        deleted = usecase.remove_admins_data([AdminData(name=clean_number, number=clean_number)])
+        if not deleted:
+            raise HTTPException(status_code=500, detail="Failed to delete reply admin")
+
+        return AdminDeleteResponse(number=clean_number, deleted=True)
 
     return router

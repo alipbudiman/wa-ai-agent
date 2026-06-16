@@ -1,11 +1,11 @@
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, List
 
 from backend.infrastructure.database.database import MongoDB, RedisDB
 from langchain_core.tools import StructuredTool
 
-from backend.application.ai.tools.models import InputHistory, LogSystemEntry
+from backend.application.ai.tools.models import AdminData, AdminDataOutput, InputHistory, LogSystemEntry
 from backend.application.ai.tools.time import TimeTool
 
 
@@ -262,16 +262,166 @@ Session Resume (IMPORTANT):
             ) 
         )
     
-    def get_admins_data(self) -> list:
-        """Get the list of admin users from the database."""
+    @staticmethod
+    def _normalize_admin_data(admin: Any) -> AdminData | None:
+        """Normalize admin records from API input or legacy database shape."""
+        try:
+            if isinstance(admin, AdminData):
+                admin_data = admin
+            elif isinstance(admin, dict):
+                number = str(admin.get("number") or "").strip()
+                name = str(admin.get("name") or number).strip()
+                admin_data = AdminData(name=name, number=number)
+            elif isinstance(admin, str):
+                number = admin.strip()
+                if not number:
+                    return None
+                admin_data = AdminData(name=number, number=number)
+            else:
+                return None
+        except Exception as exc:
+            logger.warning("Skipping invalid admin record=%r: %s", admin, exc)
+            return None
+
+        name = admin_data.name.strip() or admin_data.number.strip()
+        number = admin_data.number.strip()
+        if not number:
+            return None
+
+        return AdminData(name=name, number=number)
+
+    @classmethod
+    def _normalize_admins_data(cls, admins: list[Any]) -> list[AdminData]:
+        normalized_admins: list[AdminData] = []
+        seen_numbers: set[str] = set()
+
+        for admin in admins:
+            admin_data = cls._normalize_admin_data(admin)
+            if admin_data is None or admin_data.number in seen_numbers:
+                continue
+
+            normalized_admins.append(admin_data)
+            seen_numbers.add(admin_data.number)
+
+        return normalized_admins
+
+    @staticmethod
+    def _dump_admins_data(admins: list[AdminData]) -> list[dict[str, str]]:
+        return [admin.model_dump() for admin in admins]
+
+    @staticmethod
+    def _normalize_waiting_for_admins(waiting_for_admins: Any) -> list[str]:
+        if not isinstance(waiting_for_admins, list):
+            return []
+
+        normalized_numbers: list[str] = []
+        seen_numbers: set[str] = set()
+        for number in waiting_for_admins:
+            clean_number = str(number or "").strip()
+            if clean_number and clean_number not in seen_numbers:
+                normalized_numbers.append(clean_number)
+                seen_numbers.add(clean_number)
+
+        return normalized_numbers
+
+    def get_admins_data(self) -> AdminDataOutput:
+        """Get admin configuration using the same shape as the database document."""
         collection = self.db.get_collection(self.manager_bot_config)
         results = collection.find_one({
             "parameter": "admins"
         })
         if results is None:
+            output = AdminDataOutput()
             collection.insert_one({
                 "parameter": "admins",
-                "numbers": []
+                "numbers": self._dump_admins_data(output.numbers),
+                "waiting_for_admins": output.waiting_for_admins,
             })
-            return []
-        return results.get("numbers", [])
+            return output
+        
+        raw_admins = results.get("numbers", [])
+        should_update_admins = False
+        if not isinstance(raw_admins, list):
+            raw_admins = []
+            should_update_admins = True
+
+        admins = self._normalize_admins_data(raw_admins)
+        normalized_admins = self._dump_admins_data(admins)
+        raw_waiting_for_admins = results.get("waiting_for_admins", [])
+        waiting_for_admins = self._normalize_waiting_for_admins(raw_waiting_for_admins)
+        output = AdminDataOutput(
+            parameter="admins",
+            numbers=admins,
+            waiting_for_admins=waiting_for_admins,
+        )
+
+        if should_update_admins or raw_admins != normalized_admins or raw_waiting_for_admins != waiting_for_admins:
+            collection.update_one(
+                {"parameter": "admins"},
+                {
+                    "$set": {
+                        "numbers": normalized_admins,
+                        "waiting_for_admins": waiting_for_admins,
+                    }
+                },
+            )
+
+        return output
+    
+    def set_admins_data(self, numbers: List[AdminData]) -> bool:
+        """Add or update admin users in the database, deduplicated by number."""
+        new_admins = self._normalize_admins_data(numbers)
+        if not new_admins:
+            return False
+
+        collection = self.db.get_collection(self.manager_bot_config)
+        existing_admins = self.get_admins_data().numbers
+        admins_by_number = {admin.number: admin for admin in existing_admins}
+
+        for admin in new_admins:
+            admins_by_number[admin.number] = admin
+
+        merged_admins = list(admins_by_number.values())
+        result = collection.update_one(
+            {"parameter": "admins"},
+            {"$set": {"numbers": self._dump_admins_data(merged_admins)}},
+            upsert=True
+        )
+        return result.modified_count > 0 or result.upserted_id is not None
+    
+    def remove_admins_data(self, numbers: List[AdminData]) -> bool:
+        """Remove admin users from the database by number."""
+        admins_to_remove = self._normalize_admins_data(numbers)
+        if not admins_to_remove:
+            return False
+
+        collection = self.db.get_collection(self.manager_bot_config)
+        remove_numbers = {admin.number for admin in admins_to_remove}
+        remaining_admins = [
+            admin
+            for admin in self.get_admins_data().numbers
+            if admin.number not in remove_numbers
+        ]
+
+        result = collection.update_one(
+            {"parameter": "admins"},
+            {"$set": {"numbers": self._dump_admins_data(remaining_admins)}}
+        )
+        return result.modified_count > 0
+    
+    def disable_ai_reply(self, number: str) -> bool:
+        """Add a phone number to the admin waiting list."""
+        number = (number or "").strip()
+        if not number:
+            return False
+
+        collection = self.db.get_collection(self.manager_bot_config)
+        result = collection.update_one(
+            {"parameter": "admins"},
+            {
+                "$addToSet": {"waiting_for_admins": number},
+                "$setOnInsert": {"numbers": []},
+            },
+            upsert=True
+        )
+        return result.modified_count > 0 or result.upserted_id is not None

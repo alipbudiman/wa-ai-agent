@@ -1,9 +1,13 @@
 package route
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
@@ -126,6 +130,17 @@ func sendFileHandler(waClient ports.WhatsAppClient, manager ports.Manager) gin.H
 			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
+
+		if isHTTPFileURL(req.FilePath) {
+			filePath, err := downloadFileToTemp(c.Request.Context(), req.FilePath)
+			if err != nil {
+				ErrorHTTPResp(c, http.StatusBadRequest, err.Error())
+				return
+			}
+			defer os.Remove(filePath)
+			req.FilePath = filePath
+		}
+
 		err := handler.SendFile(waClient, manager, req.Number, req.FilePath, req.Caption)
 		if err != nil {
 			ErrorHTTPResp(c, http.StatusInternalServerError, "failed to send file")
@@ -133,6 +148,67 @@ func sendFileHandler(waClient ports.WhatsAppClient, manager ports.Manager) gin.H
 		}
 		SuccessHTTPResp(c, http.StatusOK, "file sent successfully", nil)
 	}
+}
+
+func isHTTPFileURL(filePath string) bool {
+	parsed, err := url.Parse(filePath)
+	if err != nil {
+		return false
+	}
+
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
+}
+
+func downloadFileToTemp(ctx context.Context, rawURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("invalid file URL")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to download file")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download file")
+	}
+
+	ext := ".tmp"
+	if parsed, err := url.Parse(rawURL); err == nil {
+		if urlExt := filepath.Ext(parsed.Path); urlExt != "" {
+			ext = urlExt
+		}
+	}
+
+	file, err := os.CreateTemp(os.TempDir(), "wa-file-*"+ext)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary file")
+	}
+
+	tempPath := file.Name()
+	removeOnError := true
+	defer func() {
+		if file != nil {
+			file.Close()
+		}
+		if removeOnError {
+			os.Remove(tempPath)
+		}
+	}()
+
+	if _, err = io.Copy(file, resp.Body); err != nil {
+		return "", fmt.Errorf("failed to save file")
+	}
+
+	if err = file.Close(); err != nil {
+		return "", fmt.Errorf("failed to save file")
+	}
+	file = nil
+
+	removeOnError = false
+	return tempPath, nil
 }
 
 // broadcastMessageHandler godoc
