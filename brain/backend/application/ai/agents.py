@@ -36,6 +36,8 @@ from langchain_community.agent_toolkits import FileManagementToolkit
 from langchain_core.messages import trim_messages
 from typing_extensions import Literal
 from pydantic import BaseModel
+from typing_extensions import NotRequired
+
 
 
 logger = logging.getLogger('uvicorn.error')
@@ -43,10 +45,10 @@ logger = logging.getLogger('uvicorn.error')
 class State(MessagesState):
     summary: str
     sender: str
-    rag_context: str = ""
-    rag_query: str = ""
-    custom_tool_context: str = ""
-    custom_tool_query: str = ""
+    rag_context: NotRequired[str]
+    rag_query: NotRequired[str]
+    custom_tool_context: NotRequired[str]
+    custom_tool_query: NotRequired[str]
 
 class FeedBackType(BaseModel):
     is_approved: str

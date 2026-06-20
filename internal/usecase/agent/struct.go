@@ -3,6 +3,7 @@ package rulebase
 import (
 	"fmt"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -120,4 +121,12 @@ func (i *InboxContent) String() string {
 		return fmt.Sprintf(wrapper, info)
 	}
 	return ""
+}
+
+type GetReplyResponse struct {
+	ReplyFrom    string
+	StanzaId     string
+	Participant  string
+	Conversation string
+	Message      *waE2E.Message
 }

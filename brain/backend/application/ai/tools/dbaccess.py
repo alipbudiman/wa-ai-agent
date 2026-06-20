@@ -409,6 +409,32 @@ Session Resume (IMPORTANT):
         )
         return result.modified_count > 0
     
+
+    def get_waiting_for_admins(self) -> list[str]:
+        """Get the list of phone numbers that are currently waiting for admin approval."""
+        collection = self.db.get_collection(self.manager_bot_config)
+        results = collection.find_one({"parameter": "admins"})
+        if results is None:
+            return []
+
+        raw_waiting_for_admins = results.get("waiting_for_admins", [])
+        return self._normalize_waiting_for_admins(raw_waiting_for_admins)
+    
+    def is_number_waiting_for_admin(self, number: str) -> bool:
+        """Check if a specific phone number is currently in the admin waiting list."""
+        number = (number or "").strip()
+        if not number:
+            return False
+
+        collection = self.db.get_collection(self.manager_bot_config)
+        results = collection.find_one({"parameter": "admins"})
+        if results is None:
+            return False
+
+        raw_waiting_for_admins = results.get("waiting_for_admins", [])
+        waiting_for_admins = self._normalize_waiting_for_admins(raw_waiting_for_admins)
+        return number in waiting_for_admins
+
     def disable_ai_reply(self, number: str) -> bool:
         """Add a phone number to the admin waiting list."""
         number = (number or "").strip()
@@ -425,3 +451,16 @@ Session Resume (IMPORTANT):
             upsert=True
         )
         return result.modified_count > 0 or result.upserted_id is not None
+    
+    def enable_ai_reply(self, number: str) -> bool:
+        """Remove a phone number from the admin waiting list."""
+        number = (number or "").strip()
+        if not number:
+            return False
+
+        collection = self.db.get_collection(self.manager_bot_config)
+        result = collection.update_one(
+            {"parameter": "admins"},
+            {"$pull": {"waiting_for_admins": number}}
+        )
+        return result.modified_count > 0

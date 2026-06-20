@@ -3,6 +3,7 @@ package rulebase
 import (
 	"context"
 	"log"
+	"slices"
 	"strings"
 
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
@@ -151,4 +152,46 @@ func (h *Agents) getReplyMessage(v *events.Message) string {
 	}
 
 	return ""
+}
+
+func getMention(v *events.Message) []string {
+	newArry := []string{}
+	Vm := v.Message
+	if IsExtendedTextMessage := Vm.GetExtendedTextMessage(); IsExtendedTextMessage != nil {
+		if IsContextInfo := IsExtendedTextMessage.GetContextInfo(); IsContextInfo != nil {
+			if IsMentionedJid := IsContextInfo.GetMentionedJID(); IsMentionedJid != nil {
+				if len(IsMentionedJid) > 0 {
+					for _, x := range IsMentionedJid {
+						if !slices.Contains(newArry, x) {
+							newArry = append(newArry, x)
+						}
+					}
+				}
+			}
+		}
+	}
+	return newArry
+}
+func getReply(v *events.Message) *GetReplyResponse {
+	Vm := v.Message
+	if IsExtendedTextMessage := Vm.GetExtendedTextMessage(); IsExtendedTextMessage != nil {
+		if IsContextInfo := IsExtendedTextMessage.GetContextInfo(); IsContextInfo != nil {
+			if IsQuotedMessage := IsContextInfo.GetQuotedMessage(); IsQuotedMessage != nil {
+				var Chat string
+				if IsConversation := IsQuotedMessage.GetConversation(); IsConversation != "" {
+					Chat = IsConversation
+				} else {
+					Chat = IsQuotedMessage.ExtendedTextMessage.GetText()
+				}
+				ret := &GetReplyResponse{
+					StanzaId:     IsContextInfo.GetStanzaID(),
+					Participant:  IsContextInfo.GetParticipant(),
+					Conversation: Chat,
+					Message:      Vm,
+				}
+				return ret
+			}
+		}
+	}
+	return nil
 }

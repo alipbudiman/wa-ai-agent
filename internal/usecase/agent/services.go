@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -188,57 +189,103 @@ func (h *Agents) wrapNoAccessHandler(v *events.Message, content InboxContent) bo
 		return false
 	}
 
-	if !isAllowed {
-		isStroeIboxSuccess := make(chan Result)
+	if isAllowed {
+		return false
+	}
 
-		go func() {
-			err := h.storeMessageToInbox(v, content, resolvedSender, senderNumber)
+	// store ke inbox jalan paralel, channel dibuat buffered (capacity 1)
+	// supaya goroutine pengirim gak pernah ke-block walau receiver belum siap.
+	storeDone := make(chan Result, 1)
+	go func() {
+		err := h.storeMessageToInbox(v, content, resolvedSender, senderNumber)
+		if err != nil {
+			storeDone <- Result{Err: err}
+			return
+		}
+		storeDone <- Result{Value: "message stored to inbox successfully"}
+	}()
+
+	if h.config.App.AIReply.Enable() {
+		continueAutoReply := true
+
+		if v.Info.Chat.Server == types.GroupServer {
+			continueAutoReply = false
+			log.Printf("group message, checking mentions for auto-reply")
+			replyData := getReply(v)
+			botJID, err := h.waclient.GetSelfJID(context.Background())
 			if err != nil {
-				log.Printf("error storing message to inbox for user %s: %v", senderNumber, err)
-				isStroeIboxSuccess <- Result{Value: "", Err: err}
-				return
+				log.Printf("error getting bot JID: %v", err)
+				botJID, err = h.waclient.ParseJID(h.config.BotInfo.Number)
+				if err != nil {
+					log.Printf("error parsing bot JID: %v", err)
+					continueAutoReply = true
+				}
 			}
-			isStroeIboxSuccess <- Result{Value: "message stored to inbox successfully", Err: nil}
-		}()
 
-		if h.config.App.AIReply.Enable() {
+			if !continueAutoReply {
+				dataJid := getMention(v)
+				if len(dataJid) > 0 {
+					if !slices.Contains(dataJid, botJID.String()) {
+						continueAutoReply = true
+					}
+				} else {
+					if replyData != nil && replyData.Participant != "" {
+						jid, err := h.waclient.ParseJID(replyData.Participant)
+						if err != nil {
+							log.Printf("error parsing reply participant JID: %v", err)
+						}
 
-			isReplyAISuccess := make(chan Result)
+						resolvedSender := jid.ToNonAD()
 
+						if !jid.IsEmpty() && jid.Server == types.DefaultUserServer {
+							resolvedSender = jid.ToNonAD()
+						}
+
+						pkg.Marker(pkg.IoColorCyan, "Resolved Sender:", resolvedSender)
+						pkg.Marker(pkg.IoColorCyan, "Bot JID:", botJID)
+						if resolvedSender.String() == botJID.String() {
+							continueAutoReply = true
+						}
+					}
+				}
+
+			}
+		}
+
+		var replyResult Result
+		if continueAutoReply {
+			replyDone := make(chan Result, 1)
 			go func() {
 				err := h.autoReplyAIHandler(v, resolvedSender, content.String())
 				if err != nil {
-					log.Printf("error in auto-reply handler for user %s: %v", senderNumber, err)
-					isReplyAISuccess <- Result{Value: "", Err: err}
+					replyDone <- Result{Err: err}
 					return
 				}
-				isReplyAISuccess <- Result{Value: "auto-reply process completed", Err: nil}
+				replyDone <- Result{Value: "auto-reply process completed"}
 			}()
-
-			replyResult := <-isReplyAISuccess
-
-			if replyResult.Err != nil {
-				h.waclient.SendText(context.Background(), v.Info.Chat.String(), &waE2E.Message{
-					Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while processing your request._\nError Details: %s", replyResult.Err.Error())),
-				})
-				log.Printf("failed to process auto-reply for user %s: %v", senderNumber, replyResult.Err)
-			} else {
-				log.Printf("successfully processed auto-reply for user %s", senderNumber)
-			}
-		}
-
-		storeResult := <-isStroeIboxSuccess
-
-		if storeResult.Err != nil {
-			log.Printf("failed to store message to inbox for user %s: %v", senderNumber, storeResult.Err)
+			replyResult = <-replyDone
 		} else {
-			log.Printf("successfully stored message to inbox for user %s", senderNumber)
+			replyResult = Result{Value: "auto-reply skipped due to group message without mention"}
 		}
 
-		return true
+		if replyResult.Err != nil {
+			h.waclient.SendText(context.Background(), v.Info.Chat.String(), &waE2E.Message{
+				Conversation: proto.String(fmt.Sprintf("🤖_Sorry, I encountered an error while processing your request._\nError Details: %s", replyResult.Err.Error())),
+			})
+			log.Printf("failed to process auto-reply for user %s: %v", senderNumber, replyResult.Err)
+		} else {
+			log.Printf("successfully processed auto-reply for user %s", senderNumber)
+		}
 	}
 
-	return false
+	storeResult := <-storeDone
+	if storeResult.Err != nil {
+		log.Printf("failed to store message to inbox for user %s: %v", senderNumber, storeResult.Err)
+	} else {
+		log.Printf("successfully stored message to inbox for user %s", senderNumber)
+	}
+
+	return true
 }
 
 func (h *Agents) autoReplyAIHandler(v *events.Message, resolvedSender types.JID, text string) error {

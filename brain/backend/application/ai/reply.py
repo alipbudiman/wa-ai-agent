@@ -10,6 +10,8 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 from typing import Literal
+from typing_extensions import NotRequired
+
 
 from pydantic import BaseModel
 
@@ -28,16 +30,16 @@ from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import REPLY_AGENT
 
 class State(MessagesState):
-    summary: str = ""
-    sender: str = ""
-    rag_context: str = ""
-    rag_query: str = ""
-    catalog_context: str = ""
-    catalog_message_sent: bool = False
-    custom_tool_context: str = ""
-    custom_tool_query: str = ""
-    guardrail_safe: bool = True
-    guardrail_reason: str = ""
+    summary: NotRequired[str]
+    sender: NotRequired[str]
+    rag_context: NotRequired[str]
+    rag_query: NotRequired[str]
+    catalog_context: NotRequired[str]
+    catalog_message_sent: NotRequired[bool]
+    custom_tool_context: NotRequired[str]
+    custom_tool_query: NotRequired[str]
+    guardrail_safe: NotRequired[bool]
+    guardrail_reason: NotRequired[str]
 
 class JudgeFeedback(BaseModel):
     safe: bool
@@ -501,6 +503,7 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             )
 
         tools.append(self.catalog_tools.get_catalog_tool_by_id(sender=sender))
+        tools.append(self.wa_integration_tool.broadcast_to_admins(client_number=sender))
         return tools
 
     @staticmethod
@@ -813,6 +816,15 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             "- If product intent is unclear, ask a concise clarification question using available catalog product names."
         )
 
+        system_content += (
+            "\n\nADMIN/CS HANDOFF TOOL USAGE:\n"
+            "- You have one handoff tool: `broadcast_to_admins`.\n"
+            "- Call `broadcast_to_admins` when the user explicitly asks to speak with a human, admin, CS, customer service, staff, operator, or says they want manual handling.\n"
+            "- The tool only needs `message`: write a concise escalation summary that includes the user's request and the reason admin/CS handling is needed.\n"
+            "- After the tool succeeds, tell the user naturally that their request has been forwarded and will be handled by admin/CS. Match the user's language and conversation context.\n"
+            "- Do not call this tool for ordinary questions that the assistant can answer normally."
+        )
+
         custom_tools_catalog = self.tools_builder.custom_tools_catalog(agent_type=REPLY_AGENT)
         if custom_tools_catalog:
             system_content += (
@@ -848,6 +860,7 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                                 "- Use current catalog preview only to choose product_ids. "
                                 "If the user asks for catalog price, biaya, harga, details, or images for specific products, call get_catalog_tool_by_id with matching product_ids from CURRENT CATALOG CONTEXT. "
                                 "Only answer from preview directly for broad availability/listing questions that do not ask for price or details. "
+                                "If the user asks to talk to a human/admin/CS/operator or wants manual handling, call broadcast_to_admins with a concise escalation summary, then respond that admin/CS will handle it. "
                                 "If current custom tool context already answers the request, answer from it. "
                                 "If a code-backed custom tool is needed for mutable/custom data, call execute_custom_tool. "
                                 "If no current source supports an internal or mutable claim, say the current source data is unavailable."
@@ -1027,7 +1040,8 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             
             config = {"configurable": {"thread_id": group_id if group_id else number}}
             contact_info = self.wa_integration_tool.get_user_information(number)
-            
+            if reply_content:
+                input_messages.append(AIMessage(content=f"User Replying Message from AI:\n{reply_content}"))
             input_messages.append(HumanMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}. Message: {messages}"))
             result = await self.react_graph.ainvoke({
                 "messages": input_messages,

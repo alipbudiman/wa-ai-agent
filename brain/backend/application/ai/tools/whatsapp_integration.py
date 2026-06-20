@@ -1,13 +1,17 @@
 from pprint import pprint
+import random
+import time
 
 from backend.application.ai.tools.models import SendFileInput
 import logging
 import os
 from pathlib import Path
+import re
 from urllib.parse import quote, urlparse
 
 import requests
 from backend.application.ai.tools.models import (
+    BroadcastToAdminsInput,
     GetUserInformationResponse,
     SendMessageInput,
     SendMessageResponse
@@ -23,6 +27,22 @@ from backend.infrastructure.database.database import MongoDB
 
 
 logger = logging.getLogger("uvicorn.error")
+
+MARKDOWN_LINK_RE = re.compile(r"^\s*\[([^\]]+)\]\(([^)]+)\)\s*$")
+TRAILING_URL_PUNCTUATION = ".,;:"
+
+
+def _clean_file_path_or_url(file_path: str) -> str:
+    clean_path = (file_path or "").strip()
+    markdown_match = MARKDOWN_LINK_RE.match(clean_path)
+    if markdown_match:
+        clean_path = markdown_match.group(2).strip()
+
+    parsed = urlparse(clean_path)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        clean_path = clean_path.rstrip(TRAILING_URL_PUNCTUATION)
+
+    return clean_path
 
 
 class WhatsAppIntegration:
@@ -220,7 +240,7 @@ class WhatsAppIntegration:
     ) -> SendMessageResponse:
         """send file to a whatsapp user"""
         number = (number or "").strip()
-        file_path = (file_path or "").strip()
+        file_path = _clean_file_path_or_url(file_path)
         caption = (caption or "").strip()
         sender = (sender or "").strip()
 
@@ -442,7 +462,7 @@ class WhatsAppIntegration:
     def get_user_information(self, number: str) -> GetUserInformationResponse:
         """Fetch WhatsApp contact information for a provided target number.
 
-        This tool accepts a clean number or a full WhatsApp JID (e.g. @lid).
+        This tool accepts a clean number or a full WhatsApp JID (e.g. @lid) for information about user in WhatsApp.
         It is only for lookup by explicit target input.
         Do not use this tool to get information about the current client/human
         who is currently chatting unless their number is explicitly provided as
@@ -546,8 +566,10 @@ class WhatsAppIntegration:
 
     def requests_broadcast_to_admins(self, client_number: str, message: str):
         """Broadcast a message to all admin contacts."""
+        client_number = (client_number or "").strip()
         message = (message or "").strip()
         if not message:
+            time.sleep(random.uniform(0.5, 2))  # Small delay to avoid rapid-fire logging
             return SendMessageResponse(
                 success=False,
                 message="message is a required field, ask the user to provide it",
@@ -568,6 +590,8 @@ class WhatsAppIntegration:
                 on_hold=False,
             )
         
+        sent_count = 0
+        failed_admins: list[str] = []
         for admin in admins:
             admin_number = admin.number.strip()
             if not admin_number:
@@ -575,25 +599,36 @@ class WhatsAppIntegration:
 
             notification_result = self.request_send_message(
                 admin_number,
-                message=f"📢 Broadcast from {client_number}:\n\n{message}",
+                message=f"Escalation request from {client_number}:\n\n{message}",
                 sender=admin_number,
             )
             if not notification_result.success:
+                failed_admins.append(admin_number)
                 logger.warning(
                     "Failed to send on-hold notification to '%s': %s",
                     admin_number,
                     notification_result.message,
                 )
+            else:
+                sent_count += 1
+        
+        self.access_db.disable_ai_reply(client_number)
         
         return SendMessageResponse(
-            success=True,
-            message="Broadcast request sent to admins.",
-            data=None,
-            status="sent",
+            success=sent_count > 0,
+            message=(
+                "Escalation request sent to admins."
+                if sent_count > 0
+                else "Failed to send escalation request to admins."
+            ),
+            data={
+                "sent_count": sent_count,
+                "failed_admins": failed_admins,
+            },
+            status="sent" if sent_count > 0 else "failed",
             on_hold=False,
         )
     
-    # TODO: will added for broadcast admin if user (in reply agent) want to chat with admin / human
     def broadcast_to_admins(self, client_number: str):
         """Broadcast a message to all admin contacts."""
         def _broadcast(message: str) -> SendMessageResponse:
@@ -603,14 +638,12 @@ class WhatsAppIntegration:
             func=_broadcast,
             name="broadcast_to_admins",
             description=(
-                "Broadcast a message to all admin contacts. Use this for one-way announcements from users to admins, "
-                "AND for escalation when the user explicitly asks for human/admin help, reports an issue the assistant "
-                "cannot resolve, or requests to talk to a real person/staff/admin. "
-                "Only call this tool when the announcement or escalation message is available. If the message is missing, "
-                "ask for it first and do not execute this tool. "
-                "The client_number parameter is used to identify the sender in the broadcast message to admins, but it does not affect the tool's ability to execute. "
-                "Admins will receive the broadcast with the client_number included in the message content."
+                "Escalate the current user conversation to configured admins/CS contacts. "
+                "Use this only when the user explicitly asks to talk to a human, admin, staff, CS, customer service, or operator, "
+                "or when the user reports a problem that needs manual handling. "
+                "Pass a concise message that includes the user's request and the reason admin/CS handling is needed. "
+                "The tool disables future AI replies for this client so an admin can handle the conversation."
             ),
-            args_schema=SendMessageInput
+            args_schema=BroadcastToAdminsInput
         )
     

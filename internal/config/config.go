@@ -18,11 +18,19 @@ type Config struct {
 
 	// application configuration
 	App cfg_struct.AppConfig
+
+	BotInfo cfg_struct.BotInfoConfig
 }
 
 func Load() Config {
 	return Config{
 		// WhatsApp Bot & AI Agent configuration
+		// BotInfo configuration
+		BotInfo: cfg_struct.BotInfoConfig{
+			Name:   cfg_struct.Env("BOT_NAME", "WA AI Agent"),
+			Number: cfg_struct.Env("BOT_NUMBER", ""),
+		},
+
 		// Gin Server configuration
 		GinServer: cfg_struct.GinServerConfig{
 			Port:   cfg_struct.Env("GIN_SERVER_PORT", "8001"),

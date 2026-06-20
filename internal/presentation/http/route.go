@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/alipbudiman/wa-ai-agent.git/internal/config"
 	ports "github.com/alipbudiman/wa-ai-agent.git/internal/domain"
@@ -130,6 +131,7 @@ func sendFileHandler(waClient ports.WhatsAppClient, manager ports.Manager) gin.H
 			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
+		req.FilePath = cleanFilePathOrURL(req.FilePath)
 
 		if isHTTPFileURL(req.FilePath) {
 			filePath, err := downloadFileToTemp(c.Request.Context(), req.FilePath)
@@ -148,6 +150,21 @@ func sendFileHandler(waClient ports.WhatsAppClient, manager ports.Manager) gin.H
 		}
 		SuccessHTTPResp(c, http.StatusOK, "file sent successfully", nil)
 	}
+}
+
+func cleanFilePathOrURL(filePath string) string {
+	cleanPath := strings.TrimSpace(filePath)
+	if strings.HasPrefix(cleanPath, "[") {
+		if closeBracket := strings.Index(cleanPath, "]("); closeBracket > 0 && strings.HasSuffix(cleanPath, ")") {
+			cleanPath = strings.TrimSuffix(cleanPath[closeBracket+2:], ")")
+		}
+	}
+
+	if isHTTPFileURL(cleanPath) {
+		cleanPath = strings.TrimRight(cleanPath, ".,;:")
+	}
+
+	return cleanPath
 }
 
 func isHTTPFileURL(filePath string) bool {
