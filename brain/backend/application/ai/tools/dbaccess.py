@@ -1,3 +1,5 @@
+from PIL import ImageFile
+from typing import Optional
 import logging
 from datetime import datetime
 from typing import Any, List
@@ -19,10 +21,12 @@ class DBAcess:
         self.log_system_collection = MongoDB.MONGO_LOG_SYSTEM_COLLECTION
         self.input_history_collection = MongoDB.MONGO_USER_INPUT_HISTORY_COLLECTION
         self.manager_bot_config = MongoDB.MONGO_MANAGER_BOT_CONFIG_COLLECTION
+        self.escalation_log_collection = MongoDB.ESCALATION_LOG_COLLECTION
         self.time_tool = TimeTool()
         self.redis_db = RedisDB()
         self.redis_client = self.redis_db.get_client()
         self._session_ttl = int(getattr(self.redis_db, "REDIS_SESSION_EXPIRE_SECONDS", self.redis_db.REDIS_TTL))
+        self.db.escalation_ttl_index()
 
     @staticmethod
     def _decode_redis_value(value: Any) -> str:
@@ -309,33 +313,27 @@ Session Resume (IMPORTANT):
     def _dump_admins_data(admins: list[AdminData]) -> list[dict[str, str]]:
         return [admin.model_dump() for admin in admins]
 
-    @staticmethod
-    def _normalize_waiting_for_admins(waiting_for_admins: Any) -> list[str]:
-        if not isinstance(waiting_for_admins, list):
-            return []
-
-        normalized_numbers: list[str] = []
-        seen_numbers: set[str] = set()
-        for number in waiting_for_admins:
-            clean_number = str(number or "").strip()
-            if clean_number and clean_number not in seen_numbers:
-                normalized_numbers.append(clean_number)
-                seen_numbers.add(clean_number)
-
-        return normalized_numbers
-
     def get_admins_data(self) -> AdminDataOutput:
         """Get admin configuration using the same shape as the database document."""
         collection = self.db.get_collection(self.manager_bot_config)
         results = collection.find_one({
             "parameter": "admins"
         })
+
+        # Fetch waiting list from escalation log collection instead of admins document
+        escalation_collection = self.db.get_collection(self.escalation_log_collection)
+        waiting_for_admins = [
+            doc["identifier"]
+            for doc in escalation_collection.find({}, {"identifier": 1})
+            if "identifier" in doc
+        ]
+        waiting_for_admins = sorted(list(set(waiting_for_admins)))
+
         if results is None:
-            output = AdminDataOutput()
+            output = AdminDataOutput(waiting_for_admins=waiting_for_admins)
             collection.insert_one({
                 "parameter": "admins",
                 "numbers": self._dump_admins_data(output.numbers),
-                "waiting_for_admins": output.waiting_for_admins,
             })
             return output
         
@@ -347,26 +345,25 @@ Session Resume (IMPORTANT):
 
         admins = self._normalize_admins_data(raw_admins)
         normalized_admins = self._dump_admins_data(admins)
-        raw_waiting_for_admins = results.get("waiting_for_admins", [])
-        waiting_for_admins = self._normalize_waiting_for_admins(raw_waiting_for_admins)
+        
         output = AdminDataOutput(
             parameter="admins",
             numbers=admins,
             waiting_for_admins=waiting_for_admins,
         )
 
-        if should_update_admins or raw_admins != normalized_admins or raw_waiting_for_admins != waiting_for_admins:
+        if should_update_admins or raw_admins != normalized_admins:
             collection.update_one(
                 {"parameter": "admins"},
                 {
                     "$set": {
                         "numbers": normalized_admins,
-                        "waiting_for_admins": waiting_for_admins,
                     }
                 },
             )
 
         return output
+
     
     def set_admins_data(self, numbers: List[AdminData]) -> bool:
         """Add or update admin users in the database, deduplicated by number."""
@@ -409,58 +406,46 @@ Session Resume (IMPORTANT):
         )
         return result.modified_count > 0
     
+    def get_waiting_for_admin_list(self) -> List[str]:
+        """Get the list of identifiers that are currently waiting for admin approval."""
+        collection = self.db.get_collection(self.escalation_log_collection)
+        results = collection.find()
+        waiting_list = []
+        for result in results:
+            if "identifier" in result:
+                waiting_list.append(result["identifier"])
+        return sorted(waiting_list)
 
-    def get_waiting_for_admins(self) -> list[str]:
-        """Get the list of phone numbers that are currently waiting for admin approval."""
-        collection = self.db.get_collection(self.manager_bot_config)
-        results = collection.find_one({"parameter": "admins"})
+    def get_waiting_for_admin(self, identifier: str) -> Optional[str]:
+        """Get the identifier that are currently waiting for admin approval."""
+        collection = self.db.get_collection(self.escalation_log_collection)
+        results = collection.find_one({"identifier": identifier})
         if results is None:
-            return []
+            return None
+        return results.get("identifier", None)
 
-        raw_waiting_for_admins = results.get("waiting_for_admins", [])
-        return self._normalize_waiting_for_admins(raw_waiting_for_admins)
-    
-    def is_number_waiting_for_admin(self, number: str) -> bool:
-        """Check if a specific phone number is currently in the admin waiting list."""
-        number = (number or "").strip()
-        if not number:
-            return False
-
-        collection = self.db.get_collection(self.manager_bot_config)
-        results = collection.find_one({"parameter": "admins"})
-        if results is None:
-            return False
-
-        raw_waiting_for_admins = results.get("waiting_for_admins", [])
-        waiting_for_admins = self._normalize_waiting_for_admins(raw_waiting_for_admins)
-        return number in waiting_for_admins
-
-    def disable_ai_reply(self, number: str) -> bool:
+    def disable_ai_reply(self, identifier: str) -> bool:
         """Add a phone number to the admin waiting list."""
-        number = (number or "").strip()
-        if not number:
+        identifier = (identifier or "").strip()
+        if not identifier:
             return False
 
-        collection = self.db.get_collection(self.manager_bot_config)
-        result = collection.update_one(
-            {"parameter": "admins"},
-            {
-                "$addToSet": {"waiting_for_admins": number},
-                "$setOnInsert": {"numbers": []},
-            },
-            upsert=True
-        )
-        return result.modified_count > 0 or result.upserted_id is not None
+        collection = self.db.get_collection(self.escalation_log_collection)
+        find = collection.find_one({"identifier": identifier})
+        if find:
+            return True
+        collection.insert_one({
+            "identifier": identifier,
+            "created_at": datetime.utcnow(),
+        })
+        return True
     
-    def enable_ai_reply(self, number: str) -> bool:
+    def enable_ai_reply(self, identifier: str) -> bool:
         """Remove a phone number from the admin waiting list."""
-        number = (number or "").strip()
-        if not number:
+        identifier = (identifier or "").strip()
+        if not identifier:
             return False
 
-        collection = self.db.get_collection(self.manager_bot_config)
-        result = collection.update_one(
-            {"parameter": "admins"},
-            {"$pull": {"waiting_for_admins": number}}
-        )
-        return result.modified_count > 0
+        collection = self.db.get_collection(self.escalation_log_collection)
+        result = collection.delete_one({"identifier": identifier})
+        return result.deleted_count > 0

@@ -663,6 +663,55 @@ font-size: 0.68rem;
 padding: 0.2rem 0.46rem;
 }
 
+.btn-tech-success {
+--bs-btn-bg: transparent;
+--bs-btn-border-color: rgba(212, 237, 49, 0.54);
+--bs-btn-color: #f2ffbf;
+--bs-btn-hover-bg: rgba(212, 237, 49, 0.16);
+--bs-btn-hover-border-color: rgba(212, 237, 49, 0.88);
+--bs-btn-hover-color: #f7ffd8;
+--bs-btn-active-bg: rgba(212, 237, 49, 0.22);
+--bs-btn-active-border-color: var(--color-accent);
+text-transform: uppercase;
+letter-spacing: 0.04em;
+font-size: 0.68rem;
+padding: 0.2rem 0.46rem;
+}
+
+.badge-ai-active {
+display: inline-flex;
+align-items: center;
+padding: 0.15rem 0.45rem;
+border: 1px solid rgba(212, 237, 49, 0.4);
+border-radius: 4px;
+font-family: var(--font-mono);
+font-size: 0.65rem;
+color: var(--color-accent);
+background: rgba(212, 237, 49, 0.05);
+text-transform: uppercase;
+letter-spacing: 0.05em;
+}
+
+.badge-escalated {
+display: inline-flex;
+align-items: center;
+padding: 0.15rem 0.45rem;
+border: 1px solid rgba(255, 77, 95, 0.4);
+border-radius: 4px;
+font-family: var(--font-mono);
+font-size: 0.65rem;
+color: var(--color-danger);
+background: rgba(255, 77, 95, 0.05);
+text-transform: uppercase;
+letter-spacing: 0.05em;
+animation: subtle-blink 2s infinite;
+}
+
+@keyframes subtle-blink {
+0%, 100% { opacity: 1; }
+50% { opacity: 0.7; }
+}
+
 .modal-content.tech-modal {
 background: linear-gradient(145deg, rgba(26, 26, 26, 0.98), rgba(13, 13, 13, 0.98));
 border: 1px solid rgba(255, 255, 255, 0.15);
@@ -827,6 +876,7 @@ justify-content: flex-end;
 </div>
 <div class="chat-pane-actions">
 <button type="button" class="btn btn-tech-outline btn-sm" id="toggleThreadsBtn">Hide Threads</button>
+<button type="button" class="btn btn-tech-danger btn-sm js-action" id="toggleAIPermissionBtn" disabled>Disable AI Reply</button>
 <button type="button" class="btn btn-tech-danger btn-sm js-action" id="deleteJIDBtn" disabled>Delete Conversation</button>
 </div>
 </div>
@@ -896,6 +946,7 @@ justify-content: flex-end;
 <script>
 const appRoot = document.getElementById("inboxApp");
 const inboxBaseURL = ((appRoot && appRoot.dataset ? appRoot.dataset.inboxBaseUrl : "") || "/api/bot-setup/inbox").replace(/\/+$/, "");
+const escalationBaseURL = "/api/escalation";
 const sendMessageEndpoint = ((appRoot && appRoot.dataset ? appRoot.dataset.sendMessageEndpoint : "") || "/v1/message/send").trim();
 const injectConversationEndpoint = ((appRoot && appRoot.dataset ? appRoot.dataset.injectConversationEndpoint : "") || "/v1/inject-conversation").trim();
 const payloadNode = document.getElementById("inboxSsrPayload");
@@ -919,6 +970,7 @@ refreshInboxBtn: document.getElementById("refreshInboxBtn"),
 deleteAllBtn: document.getElementById("deleteAllBtn"),
 deleteJIDBtn: document.getElementById("deleteJIDBtn"),
 toggleThreadsBtn: document.getElementById("toggleThreadsBtn"),
+toggleAIPermissionBtn: document.getElementById("toggleAIPermissionBtn"),
 workspaceLayout: document.getElementById("workspaceLayout"),
 threadList: document.getElementById("threadList"),
 conversationBody: document.getElementById("conversationBody"),
@@ -943,6 +995,7 @@ messages: normalizeMessages(serverMessages),
 threads: [],
 selectedJID: "",
 operatorAddress: normalizeAddress(initialOperatorAddress),
+escalatedJIDs: [],
 isBusy: false,
 threadsCollapsed: false,
 feedbackShowTimerId: 0,
@@ -967,20 +1020,32 @@ if (!raw) {
 return "";
 }
 
+let value = "";
 if (typeof raw === "string") {
-return raw.trim();
-}
-
-if (typeof raw === "object") {
+value = raw.trim();
+} else if (typeof raw === "object") {
 const user = String(raw.user || raw.User || "").trim();
 const server = String(raw.server || raw.Server || "").trim();
 if (user && server) {
-return `${user}@${server}`;
+value = `${user}@${server}`;
+} else {
+value = String(raw).trim();
+}
+} else {
+value = String(raw).trim();
+}
+
+for (let i = 0; i < 3; i++) {
+if (value.startsWith('"') && value.endsWith('"')) {
+value = value.slice(1, -1).trim();
+} else {
+break;
 }
 }
 
-return String(raw).trim();
+return value;
 }
+
 
 function normalizeMessageText(rawMessage) {
 if (rawMessage === null || rawMessage === undefined) {
@@ -1365,6 +1430,7 @@ const disabled = !hasSelectedThread || state.isBusy;
 
 ui.chatInput.disabled = disabled;
 ui.sendChatBtn.disabled = disabled || !hasMessage;
+ui.toggleAIPermissionBtn.disabled = disabled;
 
 if (!hasSelectedThread) {
 ui.chatInput.placeholder = "Select a conversation to send a message";
@@ -1491,8 +1557,22 @@ header.appendChild(name);
 header.appendChild(time);
 
 const sub = document.createElement("p");
-sub.className = "thread-sub";
-sub.textContent = thread.jid;
+sub.className = "thread-sub d-flex justify-content-between align-items-center";
+
+const jidSpan = document.createElement("span");
+jidSpan.textContent = thread.jid;
+sub.appendChild(jidSpan);
+
+const isEscalated = state.escalatedJIDs.includes(thread.jid);
+const aiBadge = document.createElement("span");
+if (isEscalated) {
+    aiBadge.className = "badge-escalated";
+    aiBadge.textContent = "AI Reply: Disabled";
+} else {
+    aiBadge.className = "badge-ai-active";
+    aiBadge.textContent = "AI Reply: Enabled";
+}
+sub.appendChild(aiBadge);
 
 const preview = document.createElement("p");
 preview.className = "thread-preview";
@@ -1563,6 +1643,7 @@ if (!thread) {
 ui.conversationTitle.textContent = "Select a conversation";
 ui.conversationSubtitle.textContent = "Choose a thread to inspect messages.";
 ui.deleteJIDBtn.disabled = true;
+ui.toggleAIPermissionBtn.disabled = true;
 ui.chatInput.value = "";
 
 const empty = document.createElement("div");
@@ -1576,6 +1657,16 @@ return;
 ui.conversationTitle.textContent = displayName(thread);
 ui.conversationSubtitle.textContent = `${thread.jid} | ${thread.number || "number unavailable"}`;
 ui.deleteJIDBtn.disabled = false;
+ui.toggleAIPermissionBtn.disabled = false;
+
+const isEscalated = state.escalatedJIDs.includes(thread.jid);
+if (isEscalated) {
+    ui.toggleAIPermissionBtn.textContent = "Enable AI Reply";
+    ui.toggleAIPermissionBtn.className = "btn btn-tech-success btn-sm js-action";
+} else {
+    ui.toggleAIPermissionBtn.textContent = "Disable AI Reply";
+    ui.toggleAIPermissionBtn.className = "btn btn-tech-danger btn-sm js-action";
+}
 
 thread.messages.forEach((message) => {
 const messageText = normalizeMessageText(message.message);
@@ -1871,6 +1962,50 @@ const result = await requestJSON(`${inboxBaseURL}/address`, { method: "GET" });
 state.operatorAddress = normalizeAddress(result.data);
 }
 
+async function syncEscalatedJIDs() {
+try {
+const result = await requestJSON(`${escalationBaseURL}/waiting`, { method: "GET" });
+if (result && result.success && Array.isArray(result.data)) {
+state.escalatedJIDs = result.data;
+} else if (Array.isArray(result)) {
+state.escalatedJIDs = result;
+}
+} catch (error) {
+console.error("Failed to sync escalated JIDs:", error);
+}
+}
+
+async function handleToggleAIPermission() {
+const jid = state.selectedJID;
+if (!jid) {
+setFeedback("Select a conversation first.", true);
+return;
+}
+
+const isEscalated = state.escalatedJIDs.includes(jid);
+const actionName = isEscalated ? "enable" : "disable";
+const statusMsg = isEscalated ? "Enabling AI reply..." : "Disabling AI reply...";
+const successMsg = isEscalated ? "AI reply enabled for this user." : "AI reply disabled for this user (escalated to admin).";
+const errorMsg = isEscalated ? "Failed to enable AI reply" : "Failed to disable AI reply";
+
+await runAction(
+statusMsg,
+async () => {
+await requestJSON(`${escalationBaseURL}/${actionName}`, {
+method: "POST",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({ identifier: jid }),
+});
+await syncEscalatedJIDs();
+rebuildView(true, { preserveScroll: true, snapshot: captureScrollSnapshot() });
+setFeedback(successMsg, false);
+},
+errorMsg
+);
+}
+
 async function handleRefreshInbox() {
 setFeedback("", false);
 const refreshSnapshot = captureScrollSnapshot();
@@ -1879,6 +2014,7 @@ await runAction(
 async () => {
 await syncInboxFromServer();
 await syncUnreadAllThreads();
+await syncEscalatedJIDs();
 rebuildView(true, {
 preserveScroll: true,
 snapshot: refreshSnapshot,
@@ -2206,6 +2342,7 @@ function bindEvents() {
 ui.refreshInboxBtn.addEventListener("click", handleRefreshInbox);
 ui.deleteAllBtn.addEventListener("click", handleDeleteAllMessages);
 ui.deleteJIDBtn.addEventListener("click", handleDeleteSelectedJID);
+ui.toggleAIPermissionBtn.addEventListener("click", handleToggleAIPermission);
 ui.sendChatBtn.addEventListener("click", handleSendMessageFromComposer);
 ui.toggleThreadsBtn.addEventListener("click", () => {
 setThreadsCollapsed(!state.threadsCollapsed);
@@ -2244,8 +2381,10 @@ renderOperatorAddress();
 const mobileDefaultCollapse = window.matchMedia("(max-width: 991.98px)").matches;
 setThreadsCollapsed(mobileDefaultCollapse);
 
-// Keep first-page hydration SSR-only; API sync is done after mutations or manual refresh.
+// Hydrate escalated JIDs first, then rebuild view
+syncEscalatedJIDs().then(() => {
 rebuildView(false);
+});
 }
 
 init();

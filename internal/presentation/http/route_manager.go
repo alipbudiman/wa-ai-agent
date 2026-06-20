@@ -37,6 +37,8 @@ const (
 	CATALOG_STORE_PATH string = "/catalog-store"
 
 	ADMINS_REPLY_AGENT_PATH string = "/admin-reply-agent"
+
+	ESCALATION_PATH string = "/escalation"
 )
 
 var (
@@ -1272,6 +1274,80 @@ func deleteReplyAdminHandler() gin.HandlerFunc {
 	}
 }
 
+func cleanIdentifier(identifier string) string {
+	cleaned := strings.TrimSpace(identifier)
+	for strings.HasPrefix(cleaned, "\"") && strings.HasSuffix(cleaned, "\"") {
+		cleaned = strings.Trim(cleaned, "\"")
+		cleaned = strings.TrimSpace(cleaned)
+	}
+	return cleaned
+}
+
+func escalationPath(subPath string) string {
+	return "/escalation" + subPath
+}
+
+func getEscalationWaitingListHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, escalationPath("/waiting"), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get escalation waiting list: "+err.Error())
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "escalation waiting list retrieved successfully", payload)
+	}
+}
+
+func getEscalationWaitingHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		identifier := cleanIdentifier(c.Param("identifier"))
+		if identifier == "" {
+			ErrorHTTPResp(c, http.StatusBadRequest, "identifier is required")
+			return
+		}
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, escalationPath("/waiting/"+url.PathEscape(identifier)), nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get escalation waiting status: "+err.Error())
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "escalation waiting status retrieved successfully", payload)
+	}
+}
+
+func disableAIReplyHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req EscalationRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		req.Identifier = cleanIdentifier(req.Identifier)
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPost, escalationPath("/disable"), nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to disable AI reply: "+err.Error())
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "AI reply disabled successfully", payload)
+	}
+}
+
+func enableAIReplyHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req EscalationRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		req.Identifier = cleanIdentifier(req.Identifier)
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPost, escalationPath("/enable"), nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to enable AI reply: "+err.Error())
+			return
+		}
+		SuccessHTTPResp(c, http.StatusOK, "AI reply enabled successfully", payload)
+	}
+}
+
 /*
 ManagerRouter sets up the routes for manager-related operations under the /api path.
 */
@@ -1348,6 +1424,15 @@ func ManagerRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, waC
 			admins_reply_agent.PUT("/admins/:number", updateReplyAdminHandler())
 			admins_reply_agent.DELETE("/admins/:number", deleteReplyAdminHandler())
 		}
+
+		escalation := r.Group(ESCALATION_PATH)
+		{
+			escalation.GET("/waiting", getEscalationWaitingListHandler())
+			escalation.GET("/waiting/:identifier", getEscalationWaitingHandler())
+			escalation.POST("/disable", disableAIReplyHandler())
+			escalation.POST("/enable", enableAIReplyHandler())
+		}
+		
 
 	}
 	return router

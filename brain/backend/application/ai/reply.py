@@ -25,6 +25,8 @@ from backend.application.ai.tools.time import TimeTool
 from backend.application.ai.tools.tools_builder import ToolsBuilder
 from backend.application.ai.helper import minimax_helper
 from backend.application.ai.tools.catalog import Catalog
+from backend.application.ai.tools.dbaccess import DBAcess
+
 from config.config import Config
 from backend.application.ingestion.loader import DocumentLoader
 from backend.application.ai.models import REPLY_AGENT
@@ -53,7 +55,7 @@ class ReplyAgentUsecase:
     RAG_SCORE_THRESHOLD = 0.6
     CUSTOM_TOOL_TOP_K = 5
     MAX_CUSTOM_TOOL_INFORMATION_CHARS = 4000
-    MAX_HISTORY_CONTEXT_MESSAGES = 6
+    MAX_HISTORY_CONTEXT_MESSAGES = 20
     MAX_HISTORY_CONTEXT_CHARS = 2500
     PROMPT_INJECTION_PATTERNS = (
         r"\bignore\s+(?:all\s+)?(?:previous|above|prior|system|developer)\s+instructions?\b",
@@ -100,6 +102,7 @@ class ReplyAgentUsecase:
         self.tools_builder = ToolsBuilder()
         self.catalog_tools = Catalog()
         self.config = Config()
+        self.dbaccess = DBAcess()
         self._process_diagram_mermaid = ""
         self._reasoning = True
 
@@ -107,9 +110,9 @@ class ReplyAgentUsecase:
 
         self.sys_msg = (
             "You are a reply agent named Sofia for Universitas Metamedia, a helpful assistant for questions about Universitas Metamedia. "
-            "Use current-turn RAG and custom tool data as the source of truth. "
-            "Conversation history is only continuity context and may be stale. "
-            "only answer question with relevant information about university and related topics. If the question is unrelated to the university or your role, briefly state that you can only help with topics covered by this agent's role. "
+            "Use current-turn RAG and custom tool data as the source of truth for university information. "
+            "Conversation history is continuity context; you may answer questions about the history and context of this chat, including details of the human admin/operator who previously handled or injected messages in the conversation (such as their name if mentioned). "
+            "Otherwise, only answer questions with relevant information about the university and related topics. If the question is unrelated to the university, your role, or the chat history, briefly state that you can only help with topics covered by this agent's role. "
             "Always be concise and clear."
         )
         self.react_graph = self.__agent_logic()
@@ -690,6 +693,9 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                 continue
 
             role = "user" if isinstance(message, HumanMessage) else "assistant"
+            if isinstance(message, AIMessage) and content.startswith("[Operator] "):
+                role = "operator"
+                content = content[len("[Operator] "):]
             context_lines.append(f"{role}: {content}")
 
         context = "\n".join(context_lines).strip()
@@ -791,8 +797,8 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             "- If the user asks for catalog information but does not identify specific products, ask a short clarification question using available catalog preview names instead of calling `get_catalog_tool_by_id`.\n"
             "- If CURRENT CATALOG CONTEXT has no matching catalog items, do not call `get_catalog_tool_by_id`; ignore catalog for this turn and continue with the other current sources normally.\n"
             "- If the answer depends on mutable business/custom data and a relevant code-backed custom tool is available, call `execute_custom_tool` before finalizing.\n"
-            "- If no current tool/RAG source supports an internal, uploaded, business, or mutable factual claim, say the current source data is unavailable instead of copying a stale answer from history.\n"
-            "- If the request is unrelated to the ROLE section, do not answer from general knowledge; briefly state that you can only help with topics covered by this agent's role.\n"
+            "- If no current tool/RAG source supports an internal, uploaded, business, or mutable factual claim, say the current source data is unavailable instead of copying a stale answer from history. Exception: questions about the chat history context itself (e.g., asking for the name of the previous admin/operator who messaged, or what was discussed in the chat) must be answered using the recent conversation history/summary.\n"
+            "- If the request is unrelated to the ROLE section, do not answer from general knowledge; briefly state that you can only help with topics covered by this agent's role. Exception: questions about previous chat participants/history itself should be answered from the chat history.\n"
             "- Keep answers concise, direct, and easy to understand.\n"
             "- Do not mention hidden reasoning steps. Provide only the final answer.\n\n"
             "CURRENT CATALOG CONTEXT:\n"
@@ -821,7 +827,13 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             "- You have one handoff tool: `broadcast_to_admins`.\n"
             "- Call `broadcast_to_admins` when the user explicitly asks to speak with a human, admin, CS, customer service, staff, operator, or says they want manual handling.\n"
             "- The tool only needs `message`: write a concise escalation summary that includes the user's request and the reason admin/CS handling is needed.\n"
-            "- After the tool succeeds, tell the user naturally that their request has been forwarded and will be handled by admin/CS. Match the user's language and conversation context.\n"
+            "- After the tool succeeds (success=True), tell the user naturally that their request has been forwarded and will be handled by admin/CS. Match the user's language and conversation context.\n"
+            "- If the tool fails (success=False, e.g. because no admins/CS are active or configured):\n"
+            "  * Inform the user politely that no admins/CS are active or available at the moment.\n"
+            "  * CRITICAL: Do NOT promise that a team or admin will follow up, contact, or get back to them, because the request was NOT broadcasted.\n"
+            "  * If alternative contact channels (e.g. email, phone, website, or other offices) are available in the source data/context, provide them as alternatives.\n"
+            "  * If no alternative contacts are available in the source context, inform the user that this service is currently only handled by the AI assistant and they cannot speak to a human admin.\n"
+            "  * Respond naturally, matching the language, tone, and context of the user's messages without translating to English or hardcoding a generic fallback response.\n"
             "- Do not call this tool for ordinary questions that the assistant can answer normally."
         )
 
@@ -860,7 +872,7 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                                 "- Use current catalog preview only to choose product_ids. "
                                 "If the user asks for catalog price, biaya, harga, details, or images for specific products, call get_catalog_tool_by_id with matching product_ids from CURRENT CATALOG CONTEXT. "
                                 "Only answer from preview directly for broad availability/listing questions that do not ask for price or details. "
-                                "If the user asks to talk to a human/admin/CS/operator or wants manual handling, call broadcast_to_admins with a concise escalation summary, then respond that admin/CS will handle it. "
+                                "If the user asks to talk to a human/admin/CS/operator or wants manual handling, call broadcast_to_admins with a concise escalation summary. If the tool succeeds, respond that admin/CS will handle it. If the tool fails (e.g. indicates no admins/CS are active/configured), tell the user politely in their language that no admins are available at the moment. Do NOT promise a follow-up or contact from support since no message was sent. Provide alternative contact details from source context if available; otherwise, state that this service is handled only by AI."
                                 "If current custom tool context already answers the request, answer from it. "
                                 "If a code-backed custom tool is needed for mutable/custom data, call execute_custom_tool. "
                                 "If no current source supports an internal or mutable claim, say the current source data is unavailable."
@@ -920,7 +932,7 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
         response = self.__llm().invoke(messages)
         return {"messages": [response]}
     
-    def should_continue(self, state: State, max_chat_to_summarize: int = 10) -> Literal["summarize_conversation", "__end__"]:
+    def should_continue(self, state: State, max_chat_to_summarize: int = 30) -> Literal["summarize_conversation", "__end__"]:
         
         """Return the next node to execute."""
         
@@ -947,16 +959,16 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
                 "Extend the summary by taking into account the new messages above:"
             )
             summary_message += (
-                "\n\nImportant: conversation history is not a source of truth for mutable facts. "
-                "Summarize it only for continuity, mark facts from previous turns as historical unless they were verified by current tool/RAG context, "
+                "\n\nImportant: conversation history is not a source of truth for university information/RAG facts. "
+                "Summarize the conversation for continuity. Be sure to preserve the name of any human admin/operator who joined or was mentioned in the chat, "
                 "and do not copy raw custom tool outputs into the summary."
             )
 
         else:
             summary_message = (
                 "Create a summary of the conversation above.\n\n"
-                "Important: conversation history is not a source of truth for mutable facts. "
-                "Summarize it only for continuity, mark facts from previous turns as historical unless they were verified by current tool/RAG context, "
+                "Important: conversation history is not a source of truth for university information/RAG facts. "
+                "Summarize the conversation for continuity. Be sure to preserve the name of any human admin/operator who joined or was mentioned in the chat, "
                 "and do not copy raw custom tool outputs into the summary."
             )
 
@@ -1030,16 +1042,33 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
         send_to = number
         if group_id:
             send_to = group_id
-        try:
+        try:            
+            config = {"configurable": {"thread_id": group_id if group_id else number}}
+
+            if is_system:
+                self.react_graph.update_state(
+                    config,
+                    {
+                        "messages": [
+                            AIMessage(content=f"[Operator] {messages}")
+                        ]
+                    }
+                )
+                return 
+
+            input_messages = []
+            is_waiting = self.dbaccess.get_waiting_for_admin(number)
+            if is_waiting:
+                self.wa_integration_tool.request_send_message(send_to, "Tolong tunggu admin untuk merespon pertanyaan anda", send_to)
+                return
+
             guard_rails_validation = self.input_sanitizer_node(messages)
             if guard_rails_validation:
                 self.wa_integration_tool.request_send_message(send_to, self.PROMPT_INJECTION_WARNING_MESSAGE, send_to)
                 return
-            
-            input_messages = []
-            
-            config = {"configurable": {"thread_id": group_id if group_id else number}}
+
             contact_info = self.wa_integration_tool.get_user_information(number)
+                
             if reply_content:
                 input_messages.append(AIMessage(content=f"User Replying Message from AI:\n{reply_content}"))
             input_messages.append(HumanMessage(content=f"Current user identifier: {number}, contact info: {contact_info.data.model_dump() if contact_info.data else 'N/A'} send at {self.time_tool.current_time()}. Message: {messages}"))

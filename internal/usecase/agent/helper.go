@@ -195,3 +195,15 @@ func getReply(v *events.Message) *GetReplyResponse {
 	}
 	return nil
 }
+
+func (h *Agents) resolveSender(v *events.Message) types.JID {
+	if v == nil {
+		return types.JID{}
+	}
+	resolvedSender := v.Info.Sender.ToNonAD()
+	if !v.Info.SenderAlt.IsEmpty() && v.Info.SenderAlt.Server == types.DefaultUserServer {
+		resolvedSender = v.Info.SenderAlt.ToNonAD()
+	}
+	return resolvedSender
+}
+

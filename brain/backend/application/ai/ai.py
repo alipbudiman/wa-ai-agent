@@ -151,37 +151,3 @@ class AI:
                 return llm
             case _:
                 raise ValueError(f"Unsupported provider configuration: {providers}. Please check the 'providers' field in the database. if you in bot, type `/select-providers` to set it.")
-    
-    def InjectAIConversation(self, number: str, messages: str) -> bool:
-        try:
-            normalized_thread_id = str(number or "").strip()
-            if not normalized_thread_id:
-                return False
-
-            if "@" not in normalized_thread_id:
-                normalized_thread_id = f"{normalized_thread_id}@s.whatsapp.net"
-
-            normalized_messages = str(messages or "").strip()
-            if not normalized_messages:
-                return False
-
-            config = {"configurable": {"thread_id": normalized_thread_id}}
-
-            builder = StateGraph(MessagesState)
-            builder.add_node("inject_conversation", lambda _: {})
-            builder.add_edge(START, "inject_conversation")
-            builder.add_edge("inject_conversation", END)
-            graph = builder.compile(checkpointer=self.checkpointer)
-
-            graph.invoke(
-                {
-                    "messages": [
-                        AIMessage(content=normalized_messages)
-                    ]
-                },
-                config=config,
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Error injecting AI conversation: {e}")
-            return False

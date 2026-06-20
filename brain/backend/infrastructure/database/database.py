@@ -109,6 +109,7 @@ class MongoDB:
     MONGO_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
     MONGO_DB_NAME = os.getenv('MONGODB_DB_NAME', 'wa_ai_agent_db')
     MONGO_CHECKPOINT_TTL = int(os.getenv('MONGODB_CHECKPOINT_TTL', (3600 * 24) * 7))
+    MONGO_ESCALATION_LOG_TTL = int(os.getenv('MONGO_ESCALATION_LOG_TTL', 60 * 30))
     MONGO_CHECKPOINT_COLLECTION = os.getenv('MONGODB_CHECKPOINT_COLLECTION', 'checkpoints')
     MONGO_CHECKPOINT_WRITES_COLLECTION = os.getenv('MONGODB_CHECKPOINT_WRITES_COLLECTION', 'checkpoint_writes')
     MONGO_MANAGER_BOT_CONFIG_COLLECTION = 'manager_bot_config'
@@ -117,6 +118,13 @@ class MongoDB:
     MONGO_USER_INPUT_HISTORY_COLLECTION = 'input_history'
     TOOLS_BUILDER_COLLECTION = "tools_builder"
     CATALOG_COLLECTION = "catalog"
+    ESCALATION_LOG_COLLECTION = "escalation_log"
+
+    @classmethod
+    def escalation_ttl_index(cls):
+        collection = cls.get_collection(cls.ESCALATION_LOG_COLLECTION)
+        collection.create_index("created_at", expireAfterSeconds=cls.MONGO_ESCALATION_LOG_TTL)
+        
     
     @classmethod
     def get_client(cls) -> MongoClient:

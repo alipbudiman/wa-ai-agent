@@ -590,6 +590,9 @@ class WhatsAppIntegration:
                 on_hold=False,
             )
         
+        self.access_db.disable_ai_reply(client_number)
+
+        
         sent_count = 0
         failed_admins: list[str] = []
         for admin in admins:
@@ -611,8 +614,6 @@ class WhatsAppIntegration:
                 )
             else:
                 sent_count += 1
-        
-        self.access_db.disable_ai_reply(client_number)
         
         return SendMessageResponse(
             success=sent_count > 0,

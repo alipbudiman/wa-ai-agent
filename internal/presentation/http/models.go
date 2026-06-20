@@ -102,3 +102,8 @@ type ReplyAdminRequest struct {
 	Name   string `json:"name" binding:"required"`
 	Number string `json:"number" binding:"required"`
 }
+
+type EscalationRequest struct {
+	Identifier string `json:"identifier" binding:"required"`
+}
+

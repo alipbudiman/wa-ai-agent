@@ -1,3 +1,4 @@
+from backend.interface.api.router import create_escalation_router
 from fastapi import FastAPI
 
 from backend.application.health import CheckHealthUseCase
@@ -17,6 +18,7 @@ from backend.interface.api.router import create_chat_agent_code_router
 from backend.interface.api.router import create_chat_agent_research_router
 from backend.interface.api.router import create_chat_agent_reply_router
 from backend.interface.api.router import create_vector_store_router
+from backend.interface.api.router import create_escalation_router
 
 
 def create_app() -> FastAPI:
@@ -39,6 +41,8 @@ def create_app() -> FastAPI:
     app.include_router(create_vector_store_router(), prefix="/api/v1")
     app.include_router(create_catalog_store_router(Catalog()), prefix="/api/v1")
     app.include_router(create_admin_number_store_router(DBAcess()), prefix="/api/v1")
+    app.include_router(create_escalation_router(DBAcess()), prefix="/api/v1")
+    
 
 
     return app

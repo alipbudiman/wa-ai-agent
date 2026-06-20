@@ -145,8 +145,8 @@ def create_ai_data_router(usecase: CheckAIData) -> APIRouter:
         )
     
     @router.post("/inject-conversation", response_model=AIDataInjectionResponse)
-    def inject_conversation(request: AIDataInjectionRequest):
-        return usecase.injectAIConversation(number=request.number, messages=request.messages)
+    async def inject_conversation(request: AIDataInjectionRequest):
+        return await usecase.injectAIConversation(number=request.number, messages=request.messages)
 
     return router
 
@@ -697,5 +697,51 @@ def create_admin_number_store_router(usecase: DBAcess) -> APIRouter:
             raise HTTPException(status_code=500, detail="Failed to delete reply admin")
 
         return AdminDeleteResponse(number=clean_number, deleted=True)
+
+    return router
+
+class EscalationRequest(BaseModel):
+    identifier: str = Field(description="WhatsApp JID or phone number identifier to check, enable or disable AI replies.")
+
+class EscalationResponse(BaseModel):
+    success: bool = Field(description="True if the operation succeeded.")
+
+def clean_identifier(identifier: str) -> str:
+    cleaned = (identifier or "").strip()
+    for _ in range(3):
+        if cleaned.startswith('"') and cleaned.endswith('"'):
+            cleaned = cleaned[1:-1].strip()
+        else:
+            break
+    return cleaned
+
+def create_escalation_router(usecase: DBAcess) -> APIRouter:
+    router = APIRouter(prefix="/escalation", tags=["escalation"])
+
+    @router.get("/waiting", response_model=list[str])
+    def get_waiting_list() -> list[str]:
+        """Get the list of identifiers that are currently waiting for admin approval."""
+        return usecase.get_waiting_for_admin_list()
+
+    @router.get("/waiting/{identifier}", response_model=dict)
+    def get_waiting_status(identifier: str) -> dict:
+        """Get the identifier waiting status."""
+        identifier = clean_identifier(identifier)
+        waiting = usecase.get_waiting_for_admin(identifier)
+        return {"identifier": identifier, "waiting": waiting is not None}
+
+    @router.post("/disable", response_model=EscalationResponse)
+    def disable_ai(request: EscalationRequest) -> EscalationResponse:
+        """Add a phone number to the admin waiting list."""
+        identifier = clean_identifier(request.identifier)
+        success = usecase.disable_ai_reply(identifier)
+        return EscalationResponse(success=success)
+
+    @router.post("/enable", response_model=EscalationResponse)
+    def enable_ai(request: EscalationRequest) -> EscalationResponse:
+        """Remove a phone number from the admin waiting list."""
+        identifier = clean_identifier(request.identifier)
+        success = usecase.enable_ai_reply(identifier)
+        return EscalationResponse(success=success)
 
     return router

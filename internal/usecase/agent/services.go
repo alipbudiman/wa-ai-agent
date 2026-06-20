@@ -171,10 +171,7 @@ func (h *Agents) wrapNoAccessHandler(v *events.Message, content InboxContent) bo
 		Err   error
 	}
 
-	resolvedSender := v.Info.Sender.ToNonAD()
-	if !v.Info.SenderAlt.IsEmpty() && v.Info.SenderAlt.Server == types.DefaultUserServer {
-		resolvedSender = v.Info.SenderAlt.ToNonAD()
-	}
+	resolvedSender := h.resolveSender(v)
 
 	senderNumber := resolvedSender.User
 	if senderNumber == "" {

@@ -17,3 +17,10 @@ TODO
 docker-note.md
 freeze.py
 wa-ai-agent.exe
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

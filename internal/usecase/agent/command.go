@@ -478,15 +478,16 @@ func (h *Agents) SendPendingMessageFromAgent(args CommandArgs) {
 		pending_msg.Message,
 	)
 
+	resolvedSender := h.resolveSender(args.Evt)
 	recipientHistoryMessage := fmt.Sprintf(
 		"SYSTEM EVENT: The AI agent sent this WhatsApp message to this thread on behalf of %s.\nSent message:\n%s",
-		args.Evt.Info.Sender.String(),
+		resolvedSender.String(),
 		pending_msg.Message,
 	)
 
 	senderReplyStatus, err := h.recordAgentHistory(
 		context.Background(),
-		args.Evt.Info.Sender,
+		resolvedSender,
 		h.isFromGroup(args.Evt),
 		senderHistoryMessage,
 	)
@@ -598,6 +599,7 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 		name = contact_info.FullName
 	}
 
+	resolvedSender := h.resolveSender(args.Evt)
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
 		[]openai.ChatCompletionMessage{
@@ -608,7 +610,7 @@ func (h *Agents) UnsendPendingMessageFromAgent(args CommandArgs) {
 		},
 		true,
 		ports.HISTORY,
-		args.Evt.Info.Sender,
+		resolvedSender,
 	)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -811,16 +813,17 @@ func (h *Agents) SendPendingFileFromAgent(args CommandArgs) {
 			pending_file.PendingCaption,
 		)
 
+		resolvedSender := h.resolveSender(args.Evt)
 		recipientHistoryMessage := fmt.Sprintf(
 			"SYSTEM EVENT: The AI agent sent a WhatsApp file to this thread on behalf of %s.\nFile: %s\nCaption: %s",
-			args.Evt.Info.Sender.String(),
+			resolvedSender.String(),
 			pending_file.PendingFile,
 			pending_file.PendingCaption,
 		)
 
 		senderReplyStatus, err := h.recordAgentHistory(
 			context.Background(),
-			args.Evt.Info.Sender,
+			resolvedSender,
 			h.isFromGroup(args.Evt),
 			senderHistoryMessage,
 		)
@@ -936,6 +939,7 @@ func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
 		name = contact_info.FullName
 	}
 
+	resolvedSender := h.resolveSender(args.Evt)
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
 		[]openai.ChatCompletionMessage{
@@ -946,7 +950,7 @@ func (h *Agents) UnsendPendingFileFromAgent(args CommandArgs) {
 		},
 		true,
 		ports.HISTORY,
-		args.Evt.Info.Sender,
+		resolvedSender,
 	)
 	if err != nil {
 		if err := h.waclient.SendText(context.Background(), args.Evt.Info.Chat.String(), &waE2E.Message{
@@ -1084,6 +1088,7 @@ func (h *Agents) ReplyAgent(args CommandArgs) {
 		return
 	}
 
+	resolvedSender := h.resolveSender(args.Evt)
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
 		[]openai.ChatCompletionMessage{
@@ -1094,7 +1099,7 @@ func (h *Agents) ReplyAgent(args CommandArgs) {
 		},
 		false,
 		ports.HISTORY,
-		args.Evt.Info.Sender,
+		resolvedSender,
 		REPLY_AGENT_ROUTE,
 	)
 	if err != nil {
@@ -1137,6 +1142,7 @@ func (h *Agents) ResearchAgent(args CommandArgs) {
 		return
 	}
 
+	resolvedSender := h.resolveSender(args.Evt)
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
 		[]openai.ChatCompletionMessage{
@@ -1147,7 +1153,7 @@ func (h *Agents) ResearchAgent(args CommandArgs) {
 		},
 		true,
 		ports.HISTORY,
-		args.Evt.Info.Sender,
+		resolvedSender,
 		RESEARCH_AGENT_ROUTE,
 	)
 	if err != nil {
@@ -1184,6 +1190,7 @@ func (h *Agents) AgentCode(args CommandArgs) {
 		return
 	}
 
+	resolvedSender := h.resolveSender(args.Evt)
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
 		[]openai.ChatCompletionMessage{
@@ -1194,7 +1201,7 @@ func (h *Agents) AgentCode(args CommandArgs) {
 		},
 		true,
 		ports.HISTORY,
-		args.Evt.Info.Sender,
+		resolvedSender,
 		CHAT_AGENT_ROUTE,
 	)
 	if err != nil {
