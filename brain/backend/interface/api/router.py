@@ -23,6 +23,7 @@ from backend.domain.aidata import AIDataInjectionResponse, AIDataStatus
 from backend.application.ai.reply import ReplyAgentUsecase
 from backend.application.ai.tools.catalog import Catalog
 from backend.application.ai.tools.dbaccess import DBAcess
+from backend.scoring.scoring import ScoringAgent
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -743,5 +744,87 @@ def create_escalation_router(usecase: DBAcess) -> APIRouter:
         identifier = clean_identifier(request.identifier)
         success = usecase.enable_ai_reply(identifier)
         return EscalationResponse(success=success)
+
+    return router
+
+class ScoringLogItem(BaseModel):
+    timestamp: datetime | None = None
+    question: str
+    response: str
+    ragas_faithfulness: float | None = None
+    cosine_similarity: float | None = None
+    aspects: dict[str, int | None] | None = None
+    latency_ms: float | None = None
+    response_length: float | None = None
+    tool_call_count: float | None = None
+
+
+class ScoringAverages(BaseModel):
+    ragas_faithfulness: float | None = None
+    cosine_similarity: float | None = None
+    aspects: dict[str, float | None] | None = None
+    latency_ms: float | None = None
+    response_length: float | None = None
+    tool_call_count: float | None = None
+
+
+class ScoringReportResponse(BaseModel):
+    agent_name: str
+    count: int
+    logs: list[ScoringLogItem]
+    averages: ScoringAverages
+
+
+# Canonical agent names stored on each scoring document.
+SCORING_AGENTS = {"main", "reply", "research", "code"}
+
+
+def _valid_scoring_agent(agent_name: str) -> bool:
+    return agent_name == "all" or agent_name in SCORING_AGENTS
+
+
+def create_scoring_agent(usecase: ScoringAgent) -> APIRouter:
+    """GET /api/v1/scoring?agent_name=&count= -- score the last N logs of an agent."""
+    router = APIRouter(prefix="/scoring", tags=["scoring"])
+
+    @router.get("", response_model=ScoringReportResponse)
+    async def show_agent_score(
+        agent_name: str = Query(..., description="Agent to score: main, reply, research, or code."),
+        count: int = Query(10, ge=1, le=100, description="Number of most recent logs to evaluate."),
+    ) -> ScoringReportResponse:
+        if agent_name not in SCORING_AGENTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent_name '{agent_name}'. Expected one of: {sorted(SCORING_AGENTS)}.",
+            )
+        try:
+            return await usecase.score(agent_name, count)
+        except Exception:
+            logger.exception("Scoring endpoint failed for agent=%s", agent_name)
+            raise HTTPException(status_code=500, detail="scoring failed")
+
+    @router.delete("")
+    async def clear_agent_score(
+        agent_name: str = Query(..., description="Agent to clear, or 'all'."),
+    ):
+        if not _valid_scoring_agent(agent_name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent_name '{agent_name}'. Expected one of: all, {sorted(SCORING_AGENTS)}.",
+            )
+        deleted = usecase.clear_scoring_data(agent_name)
+        return {"agent_name": agent_name, "deleted": deleted}
+
+    @router.get("/raw")
+    async def raw_agent_score(
+        agent_name: str = Query(..., description="Agent to export, or 'all'."),
+        count: int = Query(50, ge=1, le=500, description="Max raw docs to return."),
+    ):
+        if not _valid_scoring_agent(agent_name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid agent_name '{agent_name}'. Expected one of: all, {sorted(SCORING_AGENTS)}.",
+            )
+        return usecase.get_raw_scoring_data(agent_name, count)
 
     return router

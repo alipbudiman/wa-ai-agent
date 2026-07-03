@@ -22,6 +22,7 @@ var (
 	errMessagesRequired      = errors.New("messages are required")
 	errPromptRequired        = errors.New("prompt is required")
 	errRunIDRequired         = errors.New("run id is required")
+	errAgentNameRequired     = errors.New("agent name is required")
 )
 
 const (
@@ -103,6 +104,10 @@ func (o *BrainAPI) resolveAPIv1Endpoint(path string) string {
 }
 
 func (o *BrainAPI) doGETJSON(ctx context.Context, endpoint string, target any) error {
+	return o.doJSONRequest(ctx, http.MethodGet, endpoint, target)
+}
+
+func (o *BrainAPI) doJSONRequest(ctx context.Context, method, endpoint string, target any) error {
 	if o == nil || o.httpClient == nil {
 		return errAIAgentClientRequired
 	}
@@ -118,15 +123,15 @@ func (o *BrainAPI) doGETJSON(ctx context.Context, endpoint string, target any) e
 		defer cancel()
 	}
 
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(requestCtx, method, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("build get request: %w", err)
+		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := o.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("execute get request: %w", err)
+		return fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -149,6 +154,44 @@ func (o *BrainAPI) doGETJSON(ctx context.Context, endpoint string, target any) e
 	}
 
 	return nil
+}
+
+// doGETBytes performs a GET and returns the raw response body (no JSON decode),
+// used for exporting raw scoring data as a file.
+func (o *BrainAPI) doGETBytes(ctx context.Context, endpoint string) ([]byte, error) {
+	if o == nil || o.httpClient == nil {
+		return nil, errAIAgentClientRequired
+	}
+
+	requestCtx := ctx
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+
+	var cancel context.CancelFunc
+	if _, hasDeadline := requestCtx.Deadline(); !hasDeadline {
+		requestCtx, cancel = context.WithTimeout(requestCtx, defaultBrainAPITimeout)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build get request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute get request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("request failed: status=%d, body=%s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 func (o *BrainAPI) ChatCompletion(ctx context.Context, messages []openai.ChatCompletionMessage, number string, is_system bool, log_level ports.LogLevel, routing ...string) (string, error) {
@@ -332,4 +375,72 @@ func (o *BrainAPI) InjectAIConversation(ctx context.Context, conversation string
 	}
 
 	return injectResponse.Success, nil
+}
+
+// GetAgentScore calls the brain GET /api/v1/scoring endpoint and returns the
+// RAGAS Faithfulness + cosine-similarity report for the last `count` logs of
+// the given agent.
+func (o *BrainAPI) GetAgentScore(ctx context.Context, agentName string, count int) (*ports.AgentScoreReport, error) {
+	agentName = strings.TrimSpace(agentName)
+	if agentName == "" {
+		return nil, errAgentNameRequired
+	}
+	if count <= 0 {
+		count = 10
+	}
+
+	endpoint := o.resolveAPIv1Endpoint(
+		fmt.Sprintf("/scoring?agent_name=%s&count=%d", url.QueryEscape(agentName), count),
+	)
+
+	var report ports.AgentScoreReport
+	if err := o.doGETJSON(ctx, endpoint, &report); err != nil {
+		return nil, fmt.Errorf("get agent score: %w", err)
+	}
+
+	return &report, nil
+}
+
+// ClearAgentScore calls DELETE /api/v1/scoring?agent_name=<agentSpec|all> and
+// returns the number of deleted scoring documents.
+func (o *BrainAPI) ClearAgentScore(ctx context.Context, agentSpec string) (int, error) {
+	agentSpec = strings.TrimSpace(agentSpec)
+	if agentSpec == "" {
+		return 0, errAgentNameRequired
+	}
+
+	endpoint := o.resolveAPIv1Endpoint("/scoring?agent_name=" + url.QueryEscape(agentSpec))
+
+	var resp struct {
+		AgentName string `json:"agent_name"`
+		Deleted   int    `json:"deleted"`
+	}
+	if err := o.doJSONRequest(ctx, http.MethodDelete, endpoint, &resp); err != nil {
+		return 0, fmt.Errorf("clear agent score: %w", err)
+	}
+
+	return resp.Deleted, nil
+}
+
+// GetAgentScoreRaw calls GET /api/v1/scoring/raw and returns the raw JSON body
+// (the full scoring documents, including user input + AI output).
+func (o *BrainAPI) GetAgentScoreRaw(ctx context.Context, agentSpec string, count int) ([]byte, error) {
+	agentSpec = strings.TrimSpace(agentSpec)
+	if agentSpec == "" {
+		return nil, errAgentNameRequired
+	}
+	if count <= 0 {
+		count = 50
+	}
+
+	endpoint := o.resolveAPIv1Endpoint(
+		fmt.Sprintf("/scoring/raw?agent_name=%s&count=%d", url.QueryEscape(agentSpec), count),
+	)
+
+	body, err := o.doGETBytes(ctx, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("get agent score raw: %w", err)
+	}
+
+	return body, nil
 }

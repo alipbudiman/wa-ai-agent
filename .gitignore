@@ -7,7 +7,9 @@
 plugins/
 .agents/
 .augment/
-.claude
+.claude/
+.instructions/
+.test/
 
 .env
 use.env.file
@@ -17,6 +19,8 @@ TODO
 docker-note.md
 freeze.py
 wa-ai-agent.exe
+CLAUDE.md
+AGENTS.md
 
 # Python Cache
 __pycache__/

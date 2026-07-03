@@ -63,6 +63,7 @@ type CommandCollection struct {
 	LangSmithConfig          CommandInfo
 	GinServerConfig          CommandInfo
 	ShowAllContacts          CommandInfo
+	ShowAgentScore           CommandInfo
 }
 
 type CommandAction func(*Agents, CommandArgs)

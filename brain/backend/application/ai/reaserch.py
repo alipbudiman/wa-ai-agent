@@ -2,6 +2,7 @@ import logging
 import traceback
 import sys
 import os
+import time
 import uuid
 
 from langchain.messages import HumanMessage, RemoveMessage, AIMessage, SystemMessage, ToolMessage
@@ -16,6 +17,7 @@ from typing_extensions import TypedDict
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from backend.application.ai.ai import AI
+from backend.scoring.scoring import capture_agent_log, count_tool_calls, extract_retrieved_contexts
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.models import LevelSystem
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
@@ -875,6 +877,7 @@ class ResearchAgentUsecase:
             reply_content: str=None,
             image: str=None, 
         ):
+        _started = time.monotonic()
         send_to = number
         if group_id:
             send_to = group_id
@@ -906,6 +909,14 @@ class ResearchAgentUsecase:
             if not results_message:
                 results_message = "I could not generate a valid answer from the research process."
 
+            capture_agent_log(
+                "research",
+                messages,
+                results_message,
+                extract_retrieved_contexts(result),
+                latency_ms=int((time.monotonic() - _started) * 1000),
+                tool_call_count=count_tool_calls(result),
+            )
             logger.info(f"Detail contact information for {number}: {contact_info}")
             self.wa_integration_tool.store_ai_message_to_inbox(results_message, number)
             self.wa_integration_tool.request_send_message(send_to, results_message, send_to)

@@ -28,7 +28,7 @@ func GetLangSmithSelectRun(ctx context.Context, chatCompleter ports.ChatComplete
 	return chatCompleter.GetLangSmithSelectRun(ctx, runID)
 }
 
-// TODO: will implemented for GUI
+// TBA: GUI - add this function into get AIData status via GUI
 func GetAIDataStatus(ctx context.Context, chatCompleter ports.ChatCompleter) (*ports.AIDataStatus, error) {
 	return chatCompleter.GetAIDataStatus(ctx)
 }
@@ -94,15 +94,15 @@ func GetAllCommands(manager ports.Manager) ([]string, error) {
 	return commandStr, nil
 }
 
-// TODO: GUI - add this function into get provider via GUI
-func GetSelectedAIProvider(manager ports.Manager) (string, error) {
-	return manager.GetSelectedAIProvider()
-}
+// // TBA: GUI - add this function into get provider via GUI
+// func GetSelectedAIProvider(manager ports.Manager) (string, error) {
+// 	return manager.GetSelectedAIProvider()
+// }
 
-// TODO: GUI - add this function into set provider via GUI
-func SetSelectedAIProvider(manager ports.Manager, providerName string) error {
-	return manager.SetSelectedAIProvider(providerName)
-}
+// // TBA: GUI - add this function into set provider via GUI
+// func SetSelectedAIProvider(manager ports.Manager, providerName string) error {
+// 	return manager.SetSelectedAIProvider(providerName)
+// }
 
 func StoreAIMessageToInbox(manager ports.Manager, message string, senderNumber string) error {
 	return manager.StoreAIMessageToInbox(message, senderNumber)

@@ -55,4 +55,40 @@ type ChatCompleter interface {
 	GetLangSmithSelectRun(ctx context.Context, runID string) (*LangSmithLogReport, error)
 	GetAIDataStatus(ctx context.Context) (*AIDataStatus, error)
 	InjectAIConversation(ctx context.Context, conversation string, senderNumber string) (bool, error)
+	GetAgentScore(ctx context.Context, agentName string, count int) (*AgentScoreReport, error)
+	ClearAgentScore(ctx context.Context, agentSpec string) (int, error)
+	GetAgentScoreRaw(ctx context.Context, agentSpec string, count int) ([]byte, error)
+}
+
+// AgentScoreAverages holds the mean RAGAS Faithfulness and cosine-similarity
+// scores across the evaluated logs (nil when no log could be scored), plus the
+// aspect pass-rates and the cheap indicators (latency, length, tool calls).
+type AgentScoreAverages struct {
+	RAGASFaithfulness *float64            `json:"ragas_faithfulness"`
+	CosineSimilarity  *float64            `json:"cosine_similarity"`
+	Aspects           map[string]*float64 `json:"aspects"`
+	LatencyMs         *float64            `json:"latency_ms"`
+	ResponseLength    *float64            `json:"response_length"`
+	ToolCallCount     *float64            `json:"tool_call_count"`
+}
+
+// AgentScoreLog is one evaluated agent response.
+type AgentScoreLog struct {
+	Timestamp         string          `json:"timestamp"`
+	Question          string          `json:"question"`
+	Response          string          `json:"response"`
+	RAGASFaithfulness *float64        `json:"ragas_faithfulness"`
+	CosineSimilarity  *float64        `json:"cosine_similarity"`
+	Aspects           map[string]*int `json:"aspects"`
+	LatencyMs         *float64        `json:"latency_ms"`
+	ResponseLength    *float64        `json:"response_length"`
+	ToolCallCount     *float64        `json:"tool_call_count"`
+}
+
+// AgentScoreReport is the scoring payload returned by the brain /scoring endpoint.
+type AgentScoreReport struct {
+	AgentName string             `json:"agent_name"`
+	Count     int                `json:"count"`
+	Logs      []AgentScoreLog    `json:"logs"`
+	Averages  AgentScoreAverages `json:"averages"`
 }

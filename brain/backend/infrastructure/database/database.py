@@ -119,6 +119,7 @@ class MongoDB:
     TOOLS_BUILDER_COLLECTION = "tools_builder"
     CATALOG_COLLECTION = "catalog"
     ESCALATION_LOG_COLLECTION = "escalation_log"
+    SCORING_COLLECTION = "scoring"
 
     @classmethod
     def escalation_ttl_index(cls):

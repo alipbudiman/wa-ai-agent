@@ -221,6 +221,12 @@ func RegisteredCommands() CommandCollection {
 			Command:     "/show-contacts",
 			Function:    (*Agents).ShowAllContacts,
 		},
+		ShowAgentScore: CommandInfo{
+			Name:        "Show Agent Score",
+			Description: "Displays the agent's performance score based on defined criteria.",
+			Command:     "/show-agent-score",
+			Function:    (*Agents).ShowAgentScore,
+		},
 	}
 }
 
@@ -254,6 +260,7 @@ func (c CommandCollection) All() []CommandInfo {
 		c.LangSmithConfig,
 		c.GinServerConfig,
 		c.ShowAllContacts,
+		c.ShowAgentScore,
 	}
 }
 
@@ -2783,4 +2790,256 @@ func (h *Agents) ShowAllContacts(args CommandArgs) {
 	}); err != nil {
 		log.Printf("failed to send reply message: %v", err)
 	}
+}
+
+func (h *Agents) ShowAgentScore(args CommandArgs) {
+	cmd := RegisteredCommands().ShowAgentScore
+	rawArgs := strings.TrimSpace(strings.TrimPrefix(args.Text, cmd.Command))
+	parts := strings.Fields(rawArgs)
+	chat := args.Evt.Info.Chat.String()
+
+	if len(parts) == 0 {
+		h.sendText(chat, "Usage:\n"+
+			"  /show-agent-score <agent> [count]   (default 10)\n"+
+			"  /show-agent-score <agent|all> clear\n"+
+			"  /show-agent-score <agent|all> export\n"+
+			"Agents: main, reply, research, code ('all' only for clear/export)\n"+
+			"Example: /show-agent-score reply-agent 10")
+		return
+	}
+
+	agentSpec := normalizeAgentName(parts[0])
+	action := ""
+	count := 10
+	if len(parts) >= 2 {
+		switch strings.ToLower(parts[1]) {
+		case "clear":
+			action = "clear"
+		case "export":
+			action = "export"
+		default:
+			if n, err := strconv.Atoi(parts[1]); err == nil && n > 0 {
+				count = n
+			}
+		}
+	}
+
+	validAgents := map[string]bool{"main": true, "reply": true, "research": true, "code": true}
+	switch action {
+	case "clear":
+		if agentSpec != "all" && !validAgents[agentSpec] {
+			h.sendText(chat, fmt.Sprintf("Invalid agent '%s'. Expected one of: all, main, reply, research, code.", parts[0]))
+			return
+		}
+		h.clearScoring(chat, agentSpec)
+	case "export":
+		if agentSpec != "all" && !validAgents[agentSpec] {
+			h.sendText(chat, fmt.Sprintf("Invalid agent '%s'. Expected one of: all, main, reply, research, code.", parts[0]))
+			return
+		}
+		h.exportScoring(chat, agentSpec, count)
+	default:
+		if !validAgents[agentSpec] {
+			h.sendText(chat, fmt.Sprintf("Invalid agent '%s'. Expected one of: main, reply, research, code.", parts[0]))
+			return
+		}
+		h.showScoringReport(chat, agentSpec, count)
+	}
+}
+
+// showScoringReport fetches and renders the scored report for one agent.
+func (h *Agents) showScoringReport(chat, agentName string, count int) {
+	h.sendText(chat, fmt.Sprintf("ℹ️ Fetching last %d logs for agent '%s'...", count, agentName))
+
+	report, err := h.chatCompleter.GetAgentScore(context.Background(), agentName, count)
+	if err != nil {
+		h.sendText(chat, fmt.Sprintf("Failed to get agent score: %s", err.Error()))
+		return
+	}
+	h.sendText(chat, formatAgentScore(report))
+}
+
+// clearScoring deletes scoring data for an agent (or all) and confirms.
+func (h *Agents) clearScoring(chat, agentSpec string) {
+	deleted, err := h.chatCompleter.ClearAgentScore(context.Background(), agentSpec)
+	if err != nil {
+		h.sendText(chat, fmt.Sprintf("Failed to clear scoring data: %s", err.Error()))
+		return
+	}
+	h.sendText(chat, fmt.Sprintf("🧹 Cleared %d scoring log(s) for '%s'.", deleted, agentSpec))
+}
+
+// exportScoring sends the raw scoring data (user input + AI output + every
+// indicator) as a JSON file, then deletes the temp file so nothing is left.
+func (h *Agents) exportScoring(chat, agentSpec string, count int) {
+	rawJSON, err := h.chatCompleter.GetAgentScoreRaw(context.Background(), agentSpec, count)
+	if err != nil {
+		h.sendText(chat, fmt.Sprintf("Failed to export scoring data: %s", err.Error()))
+		return
+	}
+
+	tmp, err := os.CreateTemp("", "scoring_*.json")
+	if err != nil {
+		h.sendText(chat, fmt.Sprintf("Failed to create temp file: %s", err.Error()))
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // always clean up, even on send failure
+
+	if _, err := tmp.Write(rawJSON); err != nil {
+		tmp.Close()
+		h.sendText(chat, fmt.Sprintf("Failed to write export: %s", err.Error()))
+		return
+	}
+	tmp.Close()
+
+	caption := fmt.Sprintf("Raw scoring data: %s (%d logs)", agentSpec, count)
+	if err := h.waclient.SendFile(context.Background(), chat, tmpPath, caption); err != nil {
+		log.Printf("failed to send scoring export file: %v", err)
+		h.sendText(chat, fmt.Sprintf("Failed to send file: %s", err.Error()))
+	}
+}
+
+// sendText sends a plain WhatsApp text reply (best-effort, logs on failure).
+func (h *Agents) sendText(chat, text string) {
+	if err := h.waclient.SendText(context.Background(), chat, &waE2E.Message{
+		Conversation: proto.String(text),
+	}); err != nil {
+		log.Printf("failed to send reply message: %v", err)
+	}
+}
+
+// normalizeAgentName maps a command argument (e.g. "reply-agent") to the
+// canonical agent name stored on scoring documents ("reply").
+func normalizeAgentName(raw string) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	name = strings.TrimSuffix(name, "-agent")
+	return name
+}
+
+// formatScore renders a nullable score, or "n/a" when it was not computable.
+func formatScore(v *float64) string {
+	if v == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.3f", *v)
+}
+
+// truncateQuestion shortens a question for the WhatsApp table (rune-safe).
+func truncateQuestion(s string, n int) string {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
+}
+
+// formatAgentScore renders the scoring report as a WhatsApp-friendly table.
+func formatAgentScore(r *ports.AgentScoreReport) string {
+	if r == nil {
+		return "No scoring data."
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "📊 *Agent Score Report: %s* (%d logs)\n", r.AgentName, r.Count)
+	b.WriteString("------------------------------------------\n")
+	if len(r.Logs) == 0 {
+		b.WriteString("(no logs captured yet)\n")
+	} else {
+		for i, l := range r.Logs {
+			fmt.Fprintf(&b, "[#%d] faith=%s cos=%s aspects=%s lat=%s len=%s tools=%s\n",
+				i+1,
+				formatScore(l.RAGASFaithfulness),
+				formatScore(l.CosineSimilarity),
+				formatAspectPass(l.Aspects),
+				formatMs(l.LatencyMs),
+				formatLen(l.ResponseLength),
+				formatCount(l.ToolCallCount),
+			)
+			fmt.Fprintf(&b, "      Q: %s\n", truncateQuestion(l.Question, 50))
+		}
+	}
+	b.WriteString("------------------------------------------\n")
+	avg := r.Averages
+	fmt.Fprintf(&b, "Avg RAGAS Faithfulness: %s\n", formatScore(avg.RAGASFaithfulness))
+	fmt.Fprintf(&b, "Avg Cosine Similarity:  %s\n", formatScore(avg.CosineSimilarity))
+	fmt.Fprintf(&b, "Aspects pass-rate: %s\n", formatAspectsAvg(avg.Aspects))
+	fmt.Fprintf(&b, "Avg Latency: %s | Avg Length: %s | Avg Tools: %s\n",
+		formatMs(avg.LatencyMs), formatLen(avg.ResponseLength), formatCount(avg.ToolCallCount))
+	return b.String()
+}
+
+// aspectOrder keeps aspect output stable across logs.
+var aspectOrder = []string{"courtesy", "language_match", "conciseness", "scope_adherence"}
+
+// formatAspectPass renders "pass/total" for a single log's aspect verdicts.
+func formatAspectPass(aspects map[string]*int) string {
+	if len(aspects) == 0 {
+		return "n/a"
+	}
+	pass, total := 0, 0
+	for _, v := range aspects {
+		if v == nil {
+			continue
+		}
+		total++
+		if *v == 1 {
+			pass++
+		}
+	}
+	if total == 0 {
+		return "n/a"
+	}
+	return fmt.Sprintf("%d/%d", pass, total)
+}
+
+// formatAspectsAvg renders each aspect's average as a percentage.
+func formatAspectsAvg(aspects map[string]*float64) string {
+	if len(aspects) == 0 {
+		return "n/a"
+	}
+	var parts []string
+	for _, name := range aspectOrder {
+		v, ok := aspects[name]
+		if !ok {
+			continue
+		}
+		if v == nil {
+			parts = append(parts, name+" n/a")
+		} else {
+			parts = append(parts, fmt.Sprintf("%s %.0f%%", name, *v*100))
+		}
+	}
+	if len(parts) == 0 {
+		for name, v := range aspects {
+			if v == nil {
+				parts = append(parts, name+" n/a")
+			} else {
+				parts = append(parts, fmt.Sprintf("%s %.0f%%", name, *v*100))
+			}
+		}
+	}
+	return strings.Join(parts, " | ")
+}
+
+func formatMs(v *float64) string {
+	if v == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.0fms", *v)
+}
+
+func formatLen(v *float64) string {
+	if v == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.0fch", *v)
+}
+
+func formatCount(v *float64) string {
+	if v == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.1f", *v)
 }

@@ -106,6 +106,7 @@ class AI:
                 if not google_config.api_key:
                     raise ValueError("Google API key is required. Please set it in the configuration. if you in bot, type `/google-config` to set it.")
                 llm = ChatGoogleGenerativeAI(
+                    api_key=google_config.api_key,
                     model=model if model else google_config.model,
                     temperature=temperature,
                     reasoning=reasoning,
@@ -142,6 +143,7 @@ class AI:
                 if not openai_config.api_key:
                     raise ValueError("OpenAI API key is required. Please set it in the configuration. if you in bot, type `/openai-config` to set it.")
                 llm = ChatOpenAI(
+                    api_key=openai_config.api_key,
                     model=model if model else openai_config.model,
                     temperature=temperature,
                     reasoning={"effort": "medium", "summary": "auto"} if reasoning else None

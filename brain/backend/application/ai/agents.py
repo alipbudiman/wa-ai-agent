@@ -3,11 +3,13 @@ import logging
 import json
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 
 
 from backend.application.ai.ai import AI
+from backend.scoring.scoring import capture_agent_log, count_tool_calls, extract_retrieved_contexts
 from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ai.tools.time import TimeTool
 from backend.application.ai.tools.parse import ParseTool
@@ -1712,6 +1714,7 @@ class ChatAgentUseCase:
             reply_content: str=None,
             image: str=None, 
         ) -> None:
+        _started = time.monotonic()
         send_to = number
         if group_id:
             send_to = group_id
@@ -1830,6 +1833,14 @@ class ChatAgentUseCase:
                 self.wa_integration_tool.request_send_message(send_to, results, send_to)
                 return
 
+            capture_agent_log(
+                "main",
+                messages,
+                results_message,
+                extract_retrieved_contexts(result),
+                latency_ms=int((time.monotonic() - _started) * 1000),
+                tool_call_count=count_tool_calls(result),
+            )
             self.wa_integration_tool.request_send_message(send_to, results_message, send_to)
         except Exception as e:
             logger.exception("ChatAgent failed for %s", number)

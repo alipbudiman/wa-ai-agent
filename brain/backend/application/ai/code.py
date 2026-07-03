@@ -33,6 +33,7 @@ from claude_agent_sdk import (
 )
 
 from backend.application.ai.ai import AI
+from backend.scoring.scoring import capture_agent_log, count_tool_calls, extract_retrieved_contexts
 from backend.application.ai.tools.filex import FileX
 from backend.application.ai.tools.websearch import WebSearchTool
 from backend.application.ai.tools.models import InputHistory, WorkerTaskInput
@@ -1766,6 +1767,7 @@ class AgentCodeUsecase:
             reply_content: str=None,
             image: str=None, 
         ) -> None:
+        _started = time.monotonic()
         send_to = number
         if group_id:
             send_to = group_id
@@ -1807,6 +1809,14 @@ class AgentCodeUsecase:
             result_message = minimax_helper.strip_think(result_message)
             if not result_message:
                 result_message = "(No output produced)"
+            capture_agent_log(
+                "code",
+                context,
+                result_message,
+                extract_retrieved_contexts(result),
+                latency_ms=int((time.monotonic() - _started) * 1000),
+                tool_call_count=count_tool_calls(result),
+            )
             await asyncio.to_thread(
                 self.wa_bot.request_send_message,
                 send_to,

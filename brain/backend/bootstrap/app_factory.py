@@ -1,4 +1,4 @@
-from backend.interface.api.router import create_escalation_router
+from backend.interface.api.router import create_escalation_router, create_scoring_agent
 from fastapi import FastAPI
 
 from backend.application.health import CheckHealthUseCase
@@ -10,6 +10,7 @@ from backend.application.ai.reaserch import ResearchAgentUsecase
 from backend.application.ai.reply import ReplyAgentUsecase
 from backend.application.ai.tools.catalog import Catalog
 from backend.application.ai.tools.dbaccess import DBAcess
+from backend.scoring.scoring import ScoringAgent
 from backend.interface.api.router import create_admin_number_store_router, create_ai_data_router, create_catalog_store_router, create_health_router
 from backend.interface.api.router import create_langsmith_getlist_router
 from backend.interface.api.router import create_langsmith_select_run_router
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app.include_router(create_catalog_store_router(Catalog()), prefix="/api/v1")
     app.include_router(create_admin_number_store_router(DBAcess()), prefix="/api/v1")
     app.include_router(create_escalation_router(DBAcess()), prefix="/api/v1")
+    app.include_router(create_scoring_agent(ScoringAgent()), prefix="/api/v1")
     
 
 

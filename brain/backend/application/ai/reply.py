@@ -1,7 +1,9 @@
 import ast
 import json
 import logging
+import pprint
 import re
+import time
 from typing import Any
 
 from langchain.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
@@ -16,6 +18,7 @@ from typing_extensions import NotRequired
 from pydantic import BaseModel
 
 from backend.application.ai.ai import AI
+from backend.scoring.scoring import capture_agent_log, count_tool_calls, extract_retrieved_contexts
 from backend.infrastructure.database.database import MongoDB
 from backend.application.ai.tools.models import LevelSystem
 from backend.application.ai.tools.whatsapp_integration import WhatsAppIntegration
@@ -176,7 +179,7 @@ class ReplyAgentUsecase:
                 k=self.RAG_TOP_K,
                 score_threshold=self.RAG_SCORE_THRESHOLD,
             )
-
+            
             if docs_with_scores:
                 context_parts = [
                     (
@@ -187,11 +190,11 @@ class ReplyAgentUsecase:
                     for doc, score in docs_with_scores
                 ]
                 rag_context = "\n\n".join(context_parts)
-                logger.info(f"RAG: {len(docs_with_scores)} relevant documents found")
             else:
                 rag_context = ""
                 logger.info("RAG: no relevant documents passed the threshold, fallback to general knowledge")
 
+            logger.info(f"RAG context:\n{rag_context}")
             return {"rag_context": rag_context}
 
         except Exception as e:
@@ -221,7 +224,6 @@ class ReplyAgentUsecase:
                 )
             }
         except Exception as e:
-            logger.error(f"Catalog context load error: {e}")
             return {"catalog_context": ""}
 
     
@@ -1039,6 +1041,7 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             reply_content: str=None,
             image: str=None, 
         ):
+        _started = time.monotonic()
         send_to = number
         if group_id:
             send_to = group_id
@@ -1059,7 +1062,6 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             input_messages = []
             is_waiting = self.dbaccess.get_waiting_for_admin(number)
             if is_waiting:
-                self.wa_integration_tool.request_send_message(send_to, "Tolong tunggu admin untuk merespon pertanyaan anda", send_to)
                 return
 
             guard_rails_validation = self.input_sanitizer_node(messages)
@@ -1091,6 +1093,14 @@ Respond with bool `safe` indicating if the user input is safe to process. If not
             if not results_message:
                 results_message = "Maaf, saya belum bisa membuat jawaban akhir dari hasil proses tadi."
             results_message = self.__scope_filter_response(messages, results_message)
+            capture_agent_log(
+                "reply",
+                messages,
+                results_message,
+                extract_retrieved_contexts(result),
+                latency_ms=int((time.monotonic() - _started) * 1000),
+                tool_call_count=count_tool_calls(result),
+            )
 
             logger.info(f"Detail contact information for {number}: {contact_info}")
             self.wa_integration_tool.store_ai_message_to_inbox(results_message, number)
