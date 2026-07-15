@@ -1397,8 +1397,9 @@ class ChatAgentUseCase:
                     "\n- If a provider cannot call that native custom tool name, call `access_tools_builder` with `tool_name` set to original_name."
                     "\n- For information-only custom tools, call the tool and use its returned information; do not guess missing facts."
                     "\n- For code-backed custom tools, pass `tool_input` when the custom code needs data from the user request."
-                    "\n- After a code-backed custom tool returns, preserve its CUSTOM_TOOL_OUTPUT_BEGIN/CUSTOM_TOOL_OUTPUT_END content in the final answer."
-                    "\n- Final answer format for code-backed custom tools: `output:` then `---`, the captured output, `---`, then a short description."
+                    "\n- After a code-backed custom tool returns, treat its CUSTOM_TOOL_OUTPUT_BEGIN/CUSTOM_TOOL_OUTPUT_END content as source data, not as the final answer."
+                    "\n- Extract ONLY the portion that answers the user's specific request (for example one item, category, or row) and present it concisely. Do not paste the entire output when only a subset is relevant."
+                    "\n- You may show the captured output (under an `output:` section between `---` lines, followed by a short description) ONLY when the user explicitly asked to see raw output, or when the output itself is the deliverable (a requested command result, generated ASCII art/visual, or a generated file)."
                     "\n- Do not dismiss decorative, ASCII-art, animation-frame, or repeated-line custom tool output as meaningless; describe what it shows."
                 )
 

@@ -82,7 +82,55 @@ class ToolsBuilder:
         )
 
     @staticmethod
-    def _format_execution_output(tool_name: str, output: str, success: bool, exit_code: int = 0) -> str:
+    def _final_response_instruction(agent_type: str) -> str:
+        """
+        Build the post-output instruction that tells the model how to use the
+        captured custom tool output in its final reply.
+
+        This is role-aware because the two agents have different delivery contracts:
+        - REPLY_AGENT talks to end users on WhatsApp and must synthesize a short,
+          relevant answer. Dumping raw tool output (full tables, source links, row
+          counts) is never acceptable there.
+        - The default/main agent may legitimately surface full output when the
+          output itself is the deliverable (a requested command result, generated
+          ASCII art), so it gets a flexible extract-or-show instruction instead.
+
+        Keeping this instruction aligned with each agent's contract is the primary
+        lever for "only convey the information the user actually asked for": the
+        instruction lives right next to the tool data, so it is the strongest signal
+        the model sees when deciding what to relay.
+        """
+        if agent_type == REPLY_AGENT:
+            return (
+                "ASSISTANT_FINAL_RESPONSE_INSTRUCTION:\n"
+                "- The captured custom tool output above is INTERNAL CONTEXT ONLY. Do NOT echo, quote, paste, or attach it to the user.\n"
+                "- Read the user's latest request, then extract ONLY the subset of the output that answers it. Discard every unrelated row, section, total, or category.\n"
+                "- If the output lists many categories/items and the user asked about ONE (e.g. one class type, one product, one major), return ONLY that one's relevant values, never the full dataset.\n"
+                "- Rephrase the extracted values as a short, natural-language answer in the user's language (Indonesian when the user wrote Indonesian).\n"
+                "- Never show raw tool output, CUSTOM_TOOL_* markers, an `output:`/`---` block, spreadsheet/source links, or 'Loaded: N row(s)' counts to the user.\n"
+                "- If the output is decorative/visual (ASCII art, animation frames), describe briefly what it shows instead of pasting it.\n"
+                "- If the captured output does not answer the user's question, say the information is currently unavailable; do not pad the reply with unrelated data."
+            )
+
+        return (
+            "ASSISTANT_FINAL_RESPONSE_INSTRUCTION:\n"
+            "- The captured custom tool output above is a tool result, not automatically the final answer.\n"
+            "- Extract ONLY the portion that answers the user's specific request and present it concisely. When the user asked about a specific item/category/row, return only that subset, not the full dataset.\n"
+            "- You may show the captured output (for example under an `output:` section between `---` lines) ONLY when the user explicitly asked to see raw output, or when the output itself is the deliverable (a generated file, a command result they requested, ASCII art/visual they expect).\n"
+            "- After any shown output, add a short description of what it represents.\n"
+            "- Do not say the output is meaningless just because it is decorative, ASCII art, animation frames, or repeated lines; describe it plainly.\n"
+            "- Keep the final reply focused on what the user asked; omit unrelated rows, debug noise, and metadata."
+        )
+
+    @classmethod
+    def _format_execution_output(
+        cls,
+        tool_name: str,
+        output: str,
+        success: bool,
+        exit_code: int = 0,
+        agent_type: str = "",
+    ) -> str:
         status = "success" if success else "failed"
         return (
             f"CUSTOM_TOOL_EXECUTION_STATUS: {status}\n"
@@ -91,11 +139,7 @@ class ToolsBuilder:
             "CUSTOM_TOOL_OUTPUT_BEGIN\n"
             f"{output or '[NO OUTPUT]'}\n"
             "CUSTOM_TOOL_OUTPUT_END\n\n"
-            "ASSISTANT_FINAL_RESPONSE_INSTRUCTION:\n"
-            "- In your final reply, always show the captured custom tool output under an `output:` section.\n"
-            "- Put the output between `---` lines so the user can see exactly what the tool produced.\n"
-            "- After the output block, add a short description of what the output represents.\n"
-            "- Do not say the output is meaningless just because it is decorative, ASCII art, animation frames, or repeated lines; describe it plainly."
+            f"{cls._final_response_instruction(agent_type)}"
         )
 
     @staticmethod
@@ -380,6 +424,7 @@ class ToolsBuilder:
         code: str,
         package: list[str] | None,
         tool_input: str | None = None,
+        agent_type: str = "",
     ) -> str:
         install_messages: list[str] = []
         for pkg in package or []:
@@ -437,6 +482,7 @@ class ToolsBuilder:
                     output=output,
                     success=False,
                     exit_code=process.returncode,
+                    agent_type=agent_type,
                 )
             )
         else:
@@ -446,6 +492,7 @@ class ToolsBuilder:
                     output=output or "[OK] Custom tool code executed successfully with no output.",
                     success=True,
                     exit_code=process.returncode,
+                    agent_type=agent_type,
                 )
             )
 
@@ -491,6 +538,7 @@ class ToolsBuilder:
                     code=tool.code.code,
                     package=tool.code.package,
                     tool_input=tool_input,
+                    agent_type=agent_type,
                 )
             except subprocess.TimeoutExpired:
                 result = (
