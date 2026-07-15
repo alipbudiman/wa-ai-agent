@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>WA AI Agent • Admin Login</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+	<style>
+		:root {
+			--color-bg: #090909;
+			--color-panel: #1a1a1a;
+			--color-panel-line: rgba(255, 255, 255, 0.1);
+			--color-text: #ffffff;
+			--color-muted: #a0a0a0;
+			--color-accent: #d4ed31;
+			--color-cyan: #00e5ff;
+			--color-danger: #ff4d5f;
+			--font-primary: "Rajdhani", "Segoe UI", sans-serif;
+			--font-mono: "JetBrains Mono", Consolas, monospace;
+		}
+
+		body {
+			min-height: 100vh;
+			margin: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background-color: var(--color-bg);
+			color: var(--color-text);
+			font-family: var(--font-primary);
+			background-image:
+				linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+				radial-gradient(circle at 14% -8%, rgba(212, 237, 49, 0.15), transparent 34%),
+				radial-gradient(circle at 100% 0%, rgba(0, 229, 255, 0.1), transparent 28%);
+			background-size: 36px 36px, 36px 36px, auto, auto;
+		}
+
+		.login-card {
+			width: min(420px, calc(100vw - 2rem));
+			border: 1px solid var(--color-panel-line);
+			background: linear-gradient(155deg, rgba(26, 26, 26, 0.95), rgba(12, 12, 12, 0.95));
+			box-shadow: 0 18px 30px rgba(0, 0, 0, 0.45);
+			border-radius: 1rem;
+			padding: 2rem 1.8rem;
+		}
+
+		.brand {
+			font-family: var(--font-mono);
+			letter-spacing: 0.1em;
+			font-size: 0.76rem;
+			color: var(--color-accent);
+			text-transform: uppercase;
+			margin: 0 0 0.35rem;
+		}
+
+		.title {
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			margin: 0 0 1.4rem;
+			font-size: 1.4rem;
+		}
+
+		.label {
+			font-family: var(--font-mono);
+			color: var(--color-muted);
+			font-size: 0.72rem;
+			letter-spacing: 0.1em;
+			text-transform: uppercase;
+			display: block;
+			margin-bottom: 0.45rem;
+		}
+
+		.field {
+			width: 100%;
+			box-sizing: border-box;
+			padding: 0.8rem 0.9rem;
+			border-radius: 0.7rem;
+			border: 1px solid rgba(255, 255, 255, 0.18);
+			background: rgba(255, 255, 255, 0.04);
+			color: var(--color-text);
+			font-family: var(--font-mono);
+			font-size: 1rem;
+			outline: none;
+			transition: border-color 0.2s ease, box-shadow 0.2s ease;
+		}
+
+		.field:focus {
+			border-color: rgba(212, 237, 49, 0.8);
+			box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.15);
+		}
+
+		.submit {
+			width: 100%;
+			margin-top: 1.3rem;
+			padding: 0.85rem 0.9rem;
+			border-radius: 0.7rem;
+			border: 1px solid rgba(212, 237, 49, 0.7);
+			background: linear-gradient(120deg, rgba(212, 237, 49, 0.22), rgba(212, 237, 49, 0.08));
+			color: #f6ffd2;
+			font-family: var(--font-primary);
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			cursor: pointer;
+			transition: transform 0.15s ease, box-shadow 0.15s ease;
+		}
+
+		.submit:hover,
+		.submit:focus-visible {
+			transform: translateY(-1px);
+			box-shadow: 0 0 0 0.2rem rgba(212, 237, 49, 0.18);
+		}
+
+		.error {
+			margin-top: 1rem;
+			padding: 0.7rem 0.85rem;
+			border: 1px solid rgba(255, 77, 95, 0.5);
+			background: rgba(255, 77, 95, 0.1);
+			color: #ffc4ca;
+			border-radius: 0.6rem;
+			font-family: var(--font-mono);
+			font-size: 0.82rem;
+			letter-spacing: 0.02em;
+		}
+
+		.hint {
+			margin: 1.1rem 0 0;
+			font-family: var(--font-mono);
+			color: #838383;
+			font-size: 0.7rem;
+			letter-spacing: 0.05em;
+			text-transform: uppercase;
+			text-align: center;
+		}
+	</style>
+</head>
+<body>
+	<main class="login-card" aria-label="Admin login">
+		<p class="brand">// wa ai agent</p>
+		<h1 class="title">Admin Access</h1>
+
+		{{ if .Error }}
+			<div class="error" role="alert">{{ .Error }}</div>
+		{{ end }}
+
+		<form method="POST" action="/login" autocomplete="off" novalidate>
+			<label class="label" for="admin_secret_key">[ cert ] admin secret key</label>
+			<input
+				class="field"
+				type="password"
+				id="admin_secret_key"
+				name="admin_secret_key"
+				placeholder="Enter ADMIN_SECRET_KEY"
+				autofocus
+				required
+			/>
+			<button class="submit" type="submit">Unlock Dashboard</button>
+		</form>
+
+		<p class="hint">Session stays valid for 30 days after login</p>
+	</main>
+</body>
+</html>

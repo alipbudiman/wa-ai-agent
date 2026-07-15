@@ -23,4 +23,12 @@ Here are the available commands you can use to interact with the WhatsApp AI Age
 - /openrouter-config - Configure OpenRouter LLM provider settings.
 - /nvidia-config - Configure Nvidia LLM provider settings.
 - /anthropic-config - Configure Anthropic LLM provider settings.
+- /google-config - Configure Google LLM provider settings.
+- /minimax-config - Configure Minimax LLM provider settings.
+- /openai-config - Configure OpenAI LLM provider settings.
+- /tavily-config - Configure Tavily web search settings.
+- /langsmith-config - Configure LangSmith tracing settings.
+- /gin-server-config - Configure Gin server integration settings.
+- /show-contacts - Displays a list of all contacts.
+- /show-agent-score - Displays the agent's performance score based on defined criteria.
 

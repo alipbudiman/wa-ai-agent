@@ -134,6 +134,12 @@ func serverRunner(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
+	// Global admin gate: every route below requires a valid 30-day session
+	// certificate, except the allowlisted /login & /logout handled by AuthRouter.
+	// When ADMIN_SECRET_KEY is empty, the whole dashboard is access-restricted.
+	router.Use(route.RequireAdminAuth())
+	router = route.AuthRouter(router)
+
 	router = route.RouterV1(waClient, manager, chatCompleter, cfg, router)
 	router = route.ManagerRouter(manager, chatCompleter, waClient, cfg, router)
 	router = route.FrontendRouter(manager, chatCompleter, cfg, router)

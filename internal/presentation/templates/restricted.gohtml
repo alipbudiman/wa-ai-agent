@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>WA AI Agent • Access Restricted</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+	<style>
+		:root {
+			--color-bg: #090909;
+			--color-panel-line: rgba(255, 255, 255, 0.1);
+			--color-text: #ffffff;
+			--color-muted: #a0a0a0;
+			--color-danger: #ff4d5f;
+			--font-primary: "Rajdhani", "Segoe UI", sans-serif;
+			--font-mono: "JetBrains Mono", Consolas, monospace;
+		}
+
+		body {
+			min-height: 100vh;
+			margin: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background-color: var(--color-bg);
+			color: var(--color-text);
+			font-family: var(--font-primary);
+			background-image:
+				radial-gradient(circle at 50% 0%, rgba(255, 77, 95, 0.12), transparent 40%);
+		}
+
+		.restricted-card {
+			width: min(520px, calc(100vw - 2rem));
+			border: 1px solid var(--color-panel-line);
+			background: linear-gradient(155deg, rgba(26, 26, 26, 0.95), rgba(12, 12, 12, 0.95));
+			box-shadow: 0 18px 30px rgba(0, 0, 0, 0.45);
+			border-radius: 1rem;
+			padding: 2.2rem 1.9rem;
+			text-align: center;
+		}
+
+		.badge {
+			font-family: var(--font-mono);
+			letter-spacing: 0.12em;
+			font-size: 0.74rem;
+			color: var(--color-danger);
+			text-transform: uppercase;
+			margin: 0 0 0.6rem;
+		}
+
+		.title {
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			margin: 0 0 1rem;
+			font-size: 1.5rem;
+		}
+
+		.message {
+			font-family: var(--font-mono);
+			color: var(--color-muted);
+			font-size: 0.9rem;
+			line-height: 1.6;
+			margin: 0;
+		}
+
+		.message code {
+			color: var(--color-text);
+			background: rgba(255, 255, 255, 0.06);
+			padding: 0.1rem 0.35rem;
+			border-radius: 0.35rem;
+		}
+	</style>
+</head>
+<body>
+	<main class="restricted-card" role="alert">
+		<p class="badge">// access restricted</p>
+		<h1 class="title">Login Disabled</h1>
+		<p class="message">
+			The dashboard is locked by the system.<br />
+			<code>ADMIN_SECRET_KEY</code> is not configured, so login is unavailable.<br />
+			Ask the operator to set <code>ADMIN_SECRET_KEY</code> to re-enable access.
+		</p>
+	</main>
+</body>
+</html>
