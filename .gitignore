@@ -7,7 +7,11 @@
 plugins/
 .agents/
 .augment/
-.claude/
+# Ignore local .claude/ state, but ship CLAUDE.md into the build (the brain
+# code agent reads it at /app/.claude/CLAUDE.md). The explicit re-include for
+# .claude/CLAUDE.md lives at the END of this file so it wins over the broad
+# "CLAUDE.md" rule below (git uses the last matching pattern).
+.claude/*
 .instructions/
 .test/
 
@@ -28,3 +32,8 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+
+# Must be LAST so it wins over the broad "CLAUDE.md" rule above: the brain
+# Dockerfile COPYs .claude/ into the image and the code agent reads
+# /app/.claude/CLAUDE.md, so it must exist in a fresh git clone's build context.
+!.claude/CLAUDE.md

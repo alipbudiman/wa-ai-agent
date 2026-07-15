@@ -91,9 +91,9 @@ docker compose exec ollama ollama signin
 > **Why Ollama Cloud?** It integrates automatically with our AI agent SDKs without requiring independent Anthropic or OpenAI API keys out of the box, offering highly capable models for intensive coding and debugging tasks.
 
 ### 5. Provision Primary AI Models
-Pull your desired model into the container. For first-time setups, we recommend the `minimax-m2.7:cloud` model:
+Pull your desired model into the container. For first-time setups, we recommend the `gpt-oss:20b-cloud` model:
 ```bash
-docker compose exec ollama ollama pull minimax-m2.7:cloud
+docker compose exec ollama ollama pull gpt-oss:20b-cloud
 ```
 *Note: You can configure other providers like OpenRouter, Anthropic, or Nvidia API via the Manager UI, or by utilizing the `/select-providers` command within WhatsApp once the bot is active.*
 
@@ -139,7 +139,7 @@ docker compose down
   ```bash
   docker compose up -d ollama
   docker compose ps ollama
-  docker compose exec ollama ollama pull minimax-m2.7:cloud
+  docker compose exec ollama ollama pull gpt-oss:20b-cloud
   ```
 - **Data Persistence:**
   - Authentication data is persisted within the `ollama_data` Docker volume.
