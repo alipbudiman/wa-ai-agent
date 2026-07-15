@@ -141,10 +141,16 @@ func isAdminAuthenticated(c *gin.Context) bool {
 	return verifySessionCertificate(cookie)
 }
 
-// isPublicAuthPath lists the only routes that must stay reachable without a
-// session, otherwise a logged-out user could never reach the login form.
+// isPublicAuthPath lists routes that must stay reachable without a session.
+// /login and /logout are the auth UI. The /v1 bot API is a programmatic
+// integration surface: the brain container calls it service-to-service
+// (e.g. /v1/contact/info, /v1/message/send) and external integrations use it
+// too, so it cannot depend on the admin session cookie.
 func isPublicAuthPath(path string) bool {
-	return path == "/login" || path == "/logout"
+	if path == "/login" || path == "/logout" {
+		return true
+	}
+	return path == BOT_ROUTE_BASE || strings.HasPrefix(path, BOT_ROUTE_BASE+"/")
 }
 
 // wantsHTML reports whether the client expects an HTML response (browser
@@ -168,10 +174,11 @@ func rejectAccess(c *gin.Context) {
 	})
 }
 
-// RequireAdminAuth is the global gate for the dashboard. It lets /login and
-// /logout through unconditionally, then either admits authenticated requests or
-// rejects them. When ADMIN_SECRET_KEY is empty it restricts the whole system.
-// Logged-out browser requests are redirected to /login; API callers get 401.
+// RequireAdminAuth is the global gate for the dashboard. It lets the auth UI
+// (/login, /logout) and the programmatic /v1 bot API through unconditionally,
+// then either admits authenticated requests or rejects them. When
+// ADMIN_SECRET_KEY is empty it restricts the dashboard. Logged-out browser
+// requests are redirected to /login; API callers get 401.
 func RequireAdminAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if isPublicAuthPath(c.Request.URL.Path) {
