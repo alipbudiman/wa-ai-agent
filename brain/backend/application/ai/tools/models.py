@@ -385,7 +385,16 @@ class CatalogProduct(BaseModel):
     stock: int = Field(default=0, description="Available stock count.")
     brand: Optional[str] = Field(default=None, description="Product brand.")
     shipping_weight_grams: int = Field(description="Shipping weight in grams.")
-    
+    ai_instruction: Optional[str] = Field(
+        default=None,
+        description=(
+            "Admin-defined instruction for the reply agent on how to present or use this specific "
+            "product when its details are sent to the user (emphasis, conditions, tone, eligibility). "
+            "Optional. This is internal guidance and must never be echoed verbatim to the user; "
+            "it is not part of the product message that gets sent."
+        ),
+    )
+
     # Menentukan pilihan kategori yang valid
     category: Literal["watch", "clothing", "furniture", "lainnya"] = Field(
         description=(

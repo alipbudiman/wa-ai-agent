@@ -86,6 +86,23 @@ class CatalogImageURLRequest(BaseModel):
     url: str = Field(description="Public image URL to attach to the catalog product.")
 
 
+class CatalogInstructionRequest(BaseModel):
+    instruction: str = Field(
+        default="",
+        description=(
+            "Admin-defined global catalog AI instruction: how catalog information is used and when the "
+            "catalog is sent to the user. Send an empty string to clear it."
+        ),
+    )
+
+
+class CatalogInstructionResponse(BaseModel):
+    instruction: str = Field(
+        default="",
+        description="Current global catalog AI instruction. Empty string when unset.",
+    )
+
+
 class AdminDeleteResponse(BaseModel):
     number: str = Field(description="Deleted admin phone number.")
     deleted: bool = Field(description="True when an admin was deleted.")
@@ -458,6 +475,35 @@ def create_catalog_store_router(usecase: Catalog) -> APIRouter:
             raise HTTPException(status_code=400, detail="At least one catalog id is required")
 
         return usecase.get_catalog_by_id(catalog_ids)
+
+    @router.get(
+        "/instruction",
+        response_model=CatalogInstructionResponse,
+        summary="Get catalog AI instruction",
+        description=(
+            "Return the admin-configured global catalog AI instruction that guides the reply agent: "
+            "how catalog information is used and when the catalog is sent to the user. "
+            "Returns an empty string when no instruction has been configured."
+        ),
+        response_description="Current catalog AI instruction.",
+    )
+    def get_catalog_instruction() -> CatalogInstructionResponse:
+        """Read the global catalog AI instruction."""
+        return CatalogInstructionResponse(instruction=usecase.get_catalog_instruction())
+
+    @router.put(
+        "/instruction",
+        response_model=CatalogInstructionResponse,
+        summary="Update catalog AI instruction",
+        description=(
+            "Create or replace the admin-configured global catalog AI instruction. "
+            "Send an empty string to clear it."
+        ),
+        response_description="Stored catalog AI instruction.",
+    )
+    def update_catalog_instruction(request: CatalogInstructionRequest) -> CatalogInstructionResponse:
+        """Create or replace the global catalog AI instruction."""
+        return CatalogInstructionResponse(instruction=usecase.set_catalog_instruction(request.instruction))
 
     @router.get(
         "/{catalog_id}",

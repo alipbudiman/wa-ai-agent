@@ -350,6 +350,21 @@
 			</div>
 		</section>
 
+		<section class="panel rounded-3 p-3 p-lg-4 mb-3">
+			<div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3">
+				<div class="flex-grow-1 w-100">
+					<p class="tech-kicker mb-1">// reply agent guidance</p>
+					<h2 class="section-title mb-1">Catalog AI Instruction <span class="font-mono muted-text" style="font-size:.7rem;text-transform:none;letter-spacing:0">(global)</span></h2>
+					<p class="muted-text mb-2">Panduan global untuk Reply Agent: bagaimana informasi katalog digunakan dan kapan katalog dikirim ke user. Berlaku untuk seluruh produk.</p>
+					<textarea id="globalAiInstructionInput" class="form-control mb-2" rows="3" placeholder="Mis. kirim katalog HANYA bila user bertanya harga, meminta rekomendasi, atau menyebut produk spesifik. Sebutkan promo/garansi saat mengirim."></textarea>
+					<div class="d-flex flex-wrap gap-2">
+						<button id="saveInstructionButton" type="button" class="btn btn-tech-primary">Save Instruction</button>
+						<button id="clearInstructionButton" type="button" class="btn btn-tech-outline">Clear</button>
+					</div>
+				</div>
+			</div>
+		</section>
+
 		<section class="catalog-grid">
 			<aside class="panel rounded-3 p-3">
 				<div class="d-flex justify-content-between align-items-center mb-3">
@@ -420,6 +435,15 @@
 						<span id="detailSchemaLabel" class="font-mono muted-text">WatchDetails</span>
 					</div>
 					<div id="detailsFields" class="row g-3"></div>
+
+					<hr class="border-secondary-subtle my-4" />
+
+					<h3 class="section-title mb-2">AI Instruction <span class="font-mono muted-text" style="font-size:.7rem;text-transform:none;letter-spacing:0">(per product)</span></h3>
+					<div class="form-text mb-2">Panduan untuk Reply Agent: bagaimana produk ini disajikan/digunakan saat detailnya dikirim ke user. Teks ini internal dan tidak ditampilkan mentah ke user.</div>
+					<div class="col-12 mb-3">
+						<label class="form-label" for="aiInstructionInput">AI Instruction</label>
+						<textarea id="aiInstructionInput" class="form-control" rows="3" placeholder="Mis. selalu sebutkan garansi 1 tahun; hanya tawarkan ke pelanggan lama."></textarea>
+					</div>
 
 					<div class="d-flex flex-wrap gap-2 mt-4">
 						<button id="saveButton" type="submit" class="btn btn-tech-primary">Save Product</button>
@@ -529,6 +553,10 @@
 			imageURLForm: document.getElementById("imageURLForm"),
 			imageURLInput: document.getElementById("imageURLInput"),
 			imageGrid: document.getElementById("imageGrid"),
+			aiInstructionInput: document.getElementById("aiInstructionInput"),
+			globalAiInstructionInput: document.getElementById("globalAiInstructionInput"),
+			saveInstructionButton: document.getElementById("saveInstructionButton"),
+			clearInstructionButton: document.getElementById("clearInstructionButton"),
 		};
 
 		function showLoading(message) {
@@ -585,6 +613,10 @@
 
 		function productImagesEndpoint(productId) {
 			return `${productEndpoint(productId)}/images`;
+		}
+
+		function catalogInstructionEndpoint() {
+			return `${catalogStoreBaseURL}/instruction`;
 		}
 
 		function extractData(payload) {
@@ -715,6 +747,7 @@
 				stock: Number(ui.stockInput.value || 0),
 				brand: ui.brandInput.value.trim() || null,
 				shipping_weight_grams: Number(ui.shippingWeightInput.value),
+				ai_instruction: ui.aiInstructionInput.value.trim() || null,
 				category: ui.categorySelect.value,
 				details: collectDetails(),
 			};
@@ -730,6 +763,7 @@
 				ui.formTitle.textContent = "Create Catalog Product";
 				ui.selectedProductId.textContent = "id: auto";
 				ui.deleteProductButton.classList.add("d-none");
+				ui.aiInstructionInput.value = "";
 				renderDetailsFields("watch", {});
 				renderImages([]);
 				renderProducts();
@@ -744,6 +778,7 @@
 			ui.stockInput.value = product.stock ?? 0;
 			ui.brandInput.value = product.brand || "";
 			ui.shippingWeightInput.value = product.shipping_weight_grams ?? "";
+			ui.aiInstructionInput.value = product.ai_instruction || "";
 			ui.categorySelect.value = product.category || "watch";
 			ui.formKicker.textContent = "// edit";
 			ui.formTitle.textContent = "Edit Catalog Product";
@@ -781,6 +816,52 @@
 				`;
 				ui.imageGrid.appendChild(tile);
 			});
+		}
+
+		async function loadCatalogInstruction() {
+			try {
+				const payload = await requestJSON(catalogInstructionEndpoint(), { method: "GET" });
+				const data = extractData(payload);
+				ui.globalAiInstructionInput.value = data && typeof data.instruction === "string" ? data.instruction : "";
+			} catch (error) {
+				showFeedback(`Failed to load catalog instruction: ${error.message}`, "error");
+			}
+		}
+
+		async function saveCatalogInstruction() {
+			const instruction = ui.globalAiInstructionInput.value.trim();
+			showLoading("Saving catalog instruction...");
+			try {
+				await requestJSON(catalogInstructionEndpoint(), {
+					method: "PUT",
+					body: JSON.stringify({ instruction }),
+				});
+				ui.globalAiInstructionInput.value = instruction;
+				showFeedback("Catalog instruction saved.");
+			} catch (error) {
+				showFeedback(`Failed to save catalog instruction: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
+		}
+
+		async function clearCatalogInstruction() {
+			if (!window.confirm("Clear the global catalog AI instruction?")) {
+				return;
+			}
+			showLoading("Clearing catalog instruction...");
+			try {
+				await requestJSON(catalogInstructionEndpoint(), {
+					method: "PUT",
+					body: JSON.stringify({ instruction: "" }),
+				});
+				ui.globalAiInstructionInput.value = "";
+				showFeedback("Catalog instruction cleared.");
+			} catch (error) {
+				showFeedback(`Failed to clear catalog instruction: ${error.message}`, "error");
+			} finally {
+				hideLoading();
+			}
 		}
 
 		async function refreshProducts(options = {}) {
@@ -960,6 +1041,8 @@
 		ui.newProductButton.addEventListener("click", () => setFormProduct(null));
 		ui.deleteProductButton.addEventListener("click", deleteSelectedProduct);
 		ui.refreshButton.addEventListener("click", () => refreshProducts());
+		ui.saveInstructionButton.addEventListener("click", saveCatalogInstruction);
+		ui.clearInstructionButton.addEventListener("click", clearCatalogInstruction);
 		ui.searchInput.addEventListener("input", renderProducts);
 		ui.productList.addEventListener("click", (event) => {
 			const item = event.target.closest(".product-item");
@@ -983,6 +1066,7 @@
 
 		setFormProduct(null);
 		refreshProducts();
+		loadCatalogInstruction();
 	</script>
 </body>
 </html>

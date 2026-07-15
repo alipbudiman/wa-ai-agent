@@ -1166,6 +1166,36 @@ func deleteCatalogImageHandler() gin.HandlerFunc {
 	}
 }
 
+func getCatalogInstructionHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodGet, "/catalog/instruction", nil, nil)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to get catalog instruction: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog instruction retrieved successfully", payload)
+	}
+}
+
+func updateCatalogInstructionHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req map[string]any
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ErrorHTTPResp(c, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		payload, err := requestBrainJSON(c.Request.Context(), http.MethodPut, "/catalog/instruction", nil, req)
+		if err != nil {
+			ErrorHTTPResp(c, http.StatusBadGateway, "failed to update catalog instruction: "+err.Error())
+			return
+		}
+
+		SuccessHTTPResp(c, http.StatusOK, "catalog instruction updated successfully", payload)
+	}
+}
+
 func replyAdminPath(number string) string {
 	if strings.TrimSpace(number) == "" {
 		return "/admin/number-store"
@@ -1405,6 +1435,8 @@ func ManagerRouter(manager ports.Manager, chatCompleter ports.ChatCompleter, waC
 
 		catalogStore := r.Group(CATALOG_STORE_PATH)
 		{
+			catalogStore.GET("/instruction", getCatalogInstructionHandler())
+			catalogStore.PUT("/instruction", updateCatalogInstructionHandler())
 			catalogStore.GET("/products", getCatalogProductsHandler())
 			catalogStore.POST("/products", createCatalogProductHandler())
 			catalogStore.GET("/products/:id", getCatalogProductHandler())
