@@ -318,12 +318,16 @@ class Catalog:
                 )
             }
         base_instruction = (
-            "This is a lightweight catalog preview containing id, product_name, description, and price. "
-            "The LLM must decide whether any preview product matches the latest user input. "
-            "If one or more products match and the user is asking for price, biaya, harga, catalog/product details, images, "
-            "comparison, or full product information, call the `get_catalog_tool_by_id` tool with those ids as product_ids. "
-            "If no product matches, or the latest user input is unrelated to catalog/product needs, ignore this "
-            "catalog context and continue to the next LangGraph step/source normally."
+            "This is a lightweight catalog preview containing id, product_name, description, and price (NO images here). "
+            "Call `get_catalog_tool_by_id` to actually send product details and images to the user. "
+            "Call it when the user asks to receive/be given/be sent/be shown the products, a flayer, or the catalog "
+            "(e.g. berikan/kirim/tampilkan/lihat/give/send/show), or asks for price, biaya, harga, details, images, "
+            "comparison, or full information. "
+            "Match preview products to the request by product_name OR description; pass the matching product_ids — "
+            "or ALL preview product_ids when the request is broad/unspecific. "
+            "The ADMIN CATALOG INSTRUCTION (if present) is AUTHORITATIVE on when/which products to send. "
+            "If no product matches and no admin instruction tells you to send, ignore this catalog context and "
+            "continue to the next LangGraph step/source normally."
         )
         return {
             "catalog": catalog_data,
@@ -362,7 +366,8 @@ class Catalog:
                 label = key.replace("_", " ").title()
                 lines.append(f"    - {label}: {value}")
         else:
-            lines.append("  Details: None")
+            # lines.append("  Details: None")
+            pass  # Omit "Details: None" to reduce verbosity in the message 
 
         if product.images:
             lines.append("  Images: sent above")
