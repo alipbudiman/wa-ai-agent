@@ -2,19 +2,27 @@ FROM python:3.13-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
+ARG CLOUDFLARED_REPO_URL=https://pkg.cloudflare.com/cloudflared
+ARG CLOUDFLARED_DIST=any
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     git \
     tmux \
     ca-certificates \
     apt-transport-https \
+    && mkdir -p --mode=0755 /usr/share/keyrings \
+    && curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] ${CLOUDFLARED_REPO_URL} ${CLOUDFLARED_DIST} main" > /etc/apt/sources.list.d/cloudflared.list \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update && apt-get install -y \
+    && apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
+    cloudflared \
     && npm install -g skills@latest \
+    && cloudflared --version \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/brain
@@ -29,8 +37,6 @@ RUN npx --yes skills add https://github.com/vercel-labs/skills --skill find-skil
     && npx --yes skills add https://github.com/juliusbrussee/caveman --skill caveman -g -a universal -y \
     && npx --yes skills list -g --json > /dev/null \
     && skills --version > /dev/null \
-    && curl -L -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-    && chmod +x /usr/local/bin/cloudflared \
     && cloudflared --version
 
 # Create and activate virtual environment
