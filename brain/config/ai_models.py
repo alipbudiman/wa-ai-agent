@@ -1,3 +1,5 @@
+import os
+
 from pydantic import BaseModel
 from backend.infrastructure.database.database import MongoDB
 
@@ -96,13 +98,18 @@ class AIModelConfigManager:
             config = OllamaConfig(
                 config_name="ollama",
                 base_url='http://localhost:11434',
-                model='minimax-m2.7:cloud'
+                model='gemma4:31b-cloud'
             ).model_dump()
             self.collection.insert_one(config)
+        # OLLAMA_BASE_URL env var (set by docker-compose) takes priority over the
+        # persisted DB value, so the deployment owns the service address, not the DB.
+        # Falls back to the stored/default value for local dev (Ollama on localhost).
+        env_base_url = (os.getenv("OLLAMA_BASE_URL") or "").strip()
+
         return OllamaConfig(
             config_name=config.get("config_name", "ollama"),
-            base_url=config.get("base_url", "http://localhost:11434"),
-            model=config.get("model", "minimax-m2.7:cloud")
+            base_url=env_base_url or config.get("base_url", "http://localhost:11434"),
+            model=config.get("model", "gemma4:31b-cloud")
         )
     
     def get_anthropic_config(self) -> AnthropicConfig:

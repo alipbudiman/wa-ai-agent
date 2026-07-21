@@ -58,6 +58,7 @@ services:
       - REDIS_PORT=6379
       - REDIS_TTL=2592000
       - ANTHROPIC_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://ollama:11434
       - GIN_SERVER_HOST=wa-agent
       - GIN_SERVER_PORT=8001
       - RUN_SUBAGENT_DIR=/app/playground/runSubagent
