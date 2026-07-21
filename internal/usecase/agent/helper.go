@@ -154,7 +154,7 @@ func (h *Agents) getReplyMessage(v *events.Message) string {
 	return ""
 }
 
-func getMention(v *events.Message) []string {
+func (h *Agents) getMention(v *events.Message) []string {
 	newArry := []string{}
 	Vm := v.Message
 	if IsExtendedTextMessage := Vm.GetExtendedTextMessage(); IsExtendedTextMessage != nil {
@@ -172,7 +172,8 @@ func getMention(v *events.Message) []string {
 	}
 	return newArry
 }
-func getReply(v *events.Message) *GetReplyResponse {
+
+func (h *Agents) getReply(v *events.Message) *GetReplyResponse {
 	Vm := v.Message
 	if IsExtendedTextMessage := Vm.GetExtendedTextMessage(); IsExtendedTextMessage != nil {
 		if IsContextInfo := IsExtendedTextMessage.GetContextInfo(); IsContextInfo != nil {
@@ -225,6 +226,24 @@ func (h *Agents) resolveBotJID() (types.JID, error) {
 	return botJID, nil
 }
 
+// botAddressSet returns the set of JID strings (in ToNonAD form) that identify
+// the bot: its primary JID plus its alternate JID from the device's LID<->PN
+// store when a mapping is known. WhatsApp groups may address users in either
+// the phone-number space (@s.whatsapp.net) or the linked-identity space (@lid),
+// so a mention or reply can reference the bot by either form.
+func (h *Agents) botAddressSet(ctx context.Context, botJID types.JID) map[string]bool {
+	primary := botJID.ToNonAD()
+	addrs := map[string]bool{primary.String(): true}
+
+	if alt, err := h.waclient.GetAltJID(ctx, primary); err != nil {
+		log.Printf("error resolving alternate JID for bot %s: %v", primary.String(), err)
+	} else if !alt.IsEmpty() {
+		addrs[alt.ToNonAD().String()] = true
+	}
+
+	return addrs
+}
+
 // groupMessageAddressesBot reports whether an incoming message is directed at
 // the bot, which decides whether the bot should respond:
 //   - Non-group (DM) chats always return true.
@@ -233,9 +252,10 @@ func (h *Agents) resolveBotJID() (types.JID, error) {
 //   - It fails open (returns true) if the bot JID cannot be resolved, so a
 //     resolution error never silently mutes the bot.
 //
-// JIDs are normalized via ToNonAD before comparing, so a device suffix
-// (e.g. ":5@s.whatsapp.net") on the bot's self JID cannot mismatch the
-// deviceless mention/reply JIDs.
+// Mentions and reply participants are matched against the bot's address set
+// (phone-number and LID forms), so the bot is recognized in both PN- and
+// LID-addressed groups. Comparisons use the ToNonAD form so a device suffix
+// cannot cause a mismatch.
 func (h *Agents) groupMessageAddressesBot(v *events.Message) bool {
 	if v == nil || v.Info.Chat.Server != types.GroupServer {
 		return true
@@ -246,21 +266,23 @@ func (h *Agents) groupMessageAddressesBot(v *events.Message) bool {
 		log.Printf("failed to resolve bot JID; failing open (will respond): %v", err)
 		return true
 	}
-	botAddr := botJID.ToNonAD().String()
 
-	if mentions := getMention(v); slices.Contains(mentions, botAddr) {
-		return true
+	botAddrs := h.botAddressSet(context.Background(), botJID)
+
+	for _, mention := range h.getMention(v) {
+		if botAddrs[mention] {
+			return true
+		}
 	}
 
-	if replyData := getReply(v); replyData != nil && replyData.Participant != "" {
+	if replyData := h.getReply(v); replyData != nil && replyData.Participant != "" {
 		participant, err := h.waclient.ParseJID(replyData.Participant)
 		if err != nil {
 			log.Printf("error parsing reply participant JID %q: %v", replyData.Participant, err)
-		} else if participant.ToNonAD().String() == botAddr {
+		} else if botAddrs[participant.ToNonAD().String()] {
 			return true
 		}
 	}
 
 	return false
 }
-

@@ -47,6 +47,10 @@ type WhatsAppClient interface {
 	ParseJID(target string) (types.JID, error)
 	SendQuoteMessage(ctx context.Context, to, text, quote_msg string) error
 	GetSelfJID(ctx context.Context) (types.JID, error)
+	// GetAltJID resolves the alternate JID (LID <-> phone-number) for the given
+	// JID from the device's mapping store. Used to recognize the bot when a
+	// group addresses it in the @lid space instead of @s.whatsapp.net.
+	GetAltJID(ctx context.Context, jid types.JID) (types.JID, error)
 }
 
 type ChatCompleter interface {

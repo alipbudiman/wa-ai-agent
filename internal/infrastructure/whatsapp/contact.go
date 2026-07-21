@@ -76,3 +76,9 @@ func (c *BotClient) GetSelfJID(ctx context.Context) (types.JID, error) {
 	}
 	return altJID, nil
 }
+
+// GetAltJID resolves the alternate (LID <-> phone-number) JID for the given JID
+// using the device's mapping store.
+func (c *BotClient) GetAltJID(ctx context.Context, jid types.JID) (types.JID, error) {
+	return c.client.Store.GetAltJID(ctx, jid.ToNonAD())
+}
