@@ -115,6 +115,14 @@ func (h *Agents) procTextMessage(v *events.Message, text string) {
 		}
 		return
 	}
+
+	// In a group, only reply when the bot is addressed (@mention or reply to
+	// the bot); DMs always proceed. Commands above are intentionally not gated.
+	if !h.groupMessageAddressesBot(v) {
+		log.Printf("group message from %s does not address the bot; skipping AI reply", v.Info.Chat.String())
+		return
+	}
+
 	h.ChatHandler(v, text)
 }
 

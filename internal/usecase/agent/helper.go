@@ -207,3 +207,60 @@ func (h *Agents) resolveSender(v *events.Message) types.JID {
 	return resolvedSender
 }
 
+// resolveBotJID returns the bot's own JID. It prefers the connected client's
+// self JID and falls back to parsing the configured bot phone number.
+func (h *Agents) resolveBotJID() (types.JID, error) {
+	botJID, err := h.waclient.GetSelfJID(context.Background())
+	if err == nil && !botJID.IsEmpty() {
+		return botJID, nil
+	}
+	if err != nil {
+		log.Printf("error getting bot self JID: %v", err)
+	}
+
+	botJID, err = h.waclient.ParseJID(h.config.BotInfo.Number)
+	if err != nil {
+		return types.JID{}, err
+	}
+	return botJID, nil
+}
+
+// groupMessageAddressesBot reports whether an incoming message is directed at
+// the bot, which decides whether the bot should respond:
+//   - Non-group (DM) chats always return true.
+//   - Group chats return true only when the bot is @mentioned or the message
+//     quotes/replies to the bot.
+//   - It fails open (returns true) if the bot JID cannot be resolved, so a
+//     resolution error never silently mutes the bot.
+//
+// JIDs are normalized via ToNonAD before comparing, so a device suffix
+// (e.g. ":5@s.whatsapp.net") on the bot's self JID cannot mismatch the
+// deviceless mention/reply JIDs.
+func (h *Agents) groupMessageAddressesBot(v *events.Message) bool {
+	if v == nil || v.Info.Chat.Server != types.GroupServer {
+		return true
+	}
+
+	botJID, err := h.resolveBotJID()
+	if err != nil {
+		log.Printf("failed to resolve bot JID; failing open (will respond): %v", err)
+		return true
+	}
+	botAddr := botJID.ToNonAD().String()
+
+	if mentions := getMention(v); slices.Contains(mentions, botAddr) {
+		return true
+	}
+
+	if replyData := getReply(v); replyData != nil && replyData.Participant != "" {
+		participant, err := h.waclient.ParseJID(replyData.Participant)
+		if err != nil {
+			log.Printf("error parsing reply participant JID %q: %v", replyData.Participant, err)
+		} else if participant.ToNonAD().String() == botAddr {
+			return true
+		}
+	}
+
+	return false
+}
+

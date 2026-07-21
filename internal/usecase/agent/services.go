@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -203,51 +202,9 @@ func (h *Agents) wrapNoAccessHandler(v *events.Message, content InboxContent) bo
 	}()
 
 	if h.config.App.AIReply.Enable() {
-		continueAutoReply := true
-
-		if v.Info.Chat.Server == types.GroupServer {
-			continueAutoReply = false
-			log.Printf("group message, checking mentions for auto-reply")
-			replyData := getReply(v)
-			botJID, err := h.waclient.GetSelfJID(context.Background())
-			if err != nil {
-				log.Printf("error getting bot JID: %v", err)
-				botJID, err = h.waclient.ParseJID(h.config.BotInfo.Number)
-				if err != nil {
-					log.Printf("error parsing bot JID: %v", err)
-					continueAutoReply = true
-				}
-			}
-
-			if !continueAutoReply {
-				dataJid := getMention(v)
-				if len(dataJid) > 0 {
-					if !slices.Contains(dataJid, botJID.String()) {
-						continueAutoReply = true
-					}
-				} else {
-					if replyData != nil && replyData.Participant != "" {
-						jid, err := h.waclient.ParseJID(replyData.Participant)
-						if err != nil {
-							log.Printf("error parsing reply participant JID: %v", err)
-						}
-
-						resolvedSender := jid.ToNonAD()
-
-						if !jid.IsEmpty() && jid.Server == types.DefaultUserServer {
-							resolvedSender = jid.ToNonAD()
-						}
-
-						pkg.Marker(pkg.IoColorCyan, "Resolved Sender:", resolvedSender)
-						pkg.Marker(pkg.IoColorCyan, "Bot JID:", botJID)
-						if resolvedSender.String() == botJID.String() {
-							continueAutoReply = true
-						}
-					}
-				}
-
-			}
-		}
+		// In a group the bot only auto-replies when addressed (@mention or a
+		// reply quoting the bot); DMs always proceed. See groupMessageAddressesBot.
+		continueAutoReply := h.groupMessageAddressesBot(v)
 
 		var replyResult Result
 		if continueAutoReply {
@@ -292,7 +249,6 @@ func (h *Agents) autoReplyAIHandler(v *events.Message, resolvedSender types.JID,
 			return nil
 		}
 	}
-	pkg.Marker(pkg.IoColorCyan, "server:", v.Info.Chat.Server, "config interract:", h.config.App.AIGroupInterraction.Enable())
 
 	replyStatus, err := h.responder.Reply(
 		context.Background(),
